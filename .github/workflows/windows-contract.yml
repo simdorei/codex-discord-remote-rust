@@ -1,0 +1,78 @@
+name: Windows contract
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify pinned Rust workspace
+        run: |
+          rustup show active-toolchain
+          ./scripts/Test-RustFormatting.ps1
+          cargo build --workspace --locked
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install hash-locked dependencies
+        run: python -m pip install --require-hashes -r requirements.txt
+      - name: Verify packaged plugin cachebuster
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          PLUGIN_VERSION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python scripts/verify_plugin_cachebuster.py
+      - name: Verify Pro connector plugin contracts
+        run: python -m tests.pro_plugin_contract_suite
+      - name: Compile Windows runtime boundaries
+        run: >-
+          python -m py_compile
+          setup_discord_bot.py
+          codex_desktop_bridge.py
+          codex_desktop_bridge_impl.py
+          codex_discord_bot.py
+          codex_discord_store.py
+          codex_discord_store_connection.py
+          codex_discord_store_schema.py
+      - name: Verify installer contracts
+        run: |
+          $contractOutput = & python -m unittest `
+            tests.test_desktop_requirements_lock `
+            tests.test_install_codex_exe_persistence `
+            tests.test_install_plugin_contract `
+            tests.test_install_scripts `
+            tests.test_windows_contract_workflow 2>&1
+          $contractExitCode = $LASTEXITCODE
+          $contractOutput | ForEach-Object { Write-Output $_ }
+          if ($contractExitCode -ne 0) {
+            $annotation = (($contractOutput | Select-Object -Last 80) -join "`n")
+            $annotation = $annotation.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Installer contract failure::$annotation"
+            exit $contractExitCode
+          }
+      - name: Verify desktop bridge contracts
+        run: >-
+          python -m unittest
+          tests.test_codex_desktop_bridge_type_exports
+          tests.test_codex_desktop_bridge_cli
+          tests.test_codex_desktop_bridge_command_ask
+      - name: Verify durable store contracts
+        run: >-
+          python -m unittest
+          tests.test_codex_discord_store_connection
+          tests.test_codex_discord_store_schema
+          tests.test_codex_discord_store_queue
+          tests.test_codex_discord_store_busy
+          tests.test_codex_discord_store_mirror_cleanup
+      - name: Verify Windows installer dry-run
+        shell: powershell
+        run: >-
+          .\install.ps1 -DryRun -SkipDependencies -SkipEnvFile -SkipCodexPlugin

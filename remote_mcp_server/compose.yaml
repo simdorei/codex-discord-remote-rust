@@ -1,0 +1,54 @@
+services:
+  oauth-data-init:
+    build:
+      context: ..
+      dockerfile: remote_mcp_server/Dockerfile
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        chown -R --no-dereference 10001:10001 /data
+        find /data -type d -exec chmod 0700 {} +
+        find /data -type f -exec chmod 0600 {} +
+    volumes:
+      - simdorei_mcp_oauth:/data
+    restart: "no"
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: remote_mcp_server/Dockerfile
+    depends_on:
+      oauth-data-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    volumes:
+      - simdorei_mcp_oauth:/data
+    ports:
+      - "127.0.0.1:8030:8030"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/healthz', timeout=3)"
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  simdorei_mcp_oauth:

@@ -1,0 +1,45 @@
+[package]
+name = "cdr-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+cdr-app-server.workspace = true
+cdr-codex-state = { path = "../cdr-codex-state" }
+cdr-discord = { path = "../cdr-discord" }
+cdr-pro = { path = "../cdr-pro" }
+cdr-remote-agent = { path = "../cdr-remote-agent" }
+cdr-store = { path = "../cdr-store" }
+cdr-windows-native = { path = "../cdr-windows-native" }
+futures-util.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+twilight-model.workspace = true
+twilight-http.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+twilight-http-ratelimiting = "0.17.1"
+
+[[bin]]
+name = "cdr-runtime"
+path = "src/main.rs"
+
+[[bin]]
+name = "cdr-offline-soak"
+path = "src/bin/cdr-offline-soak.rs"
+
+[lints]
+workspace = true

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "codex_version": "0.146.0-alpha.9.2",
+  "schema_generation": [
+    "app-server",
+    "generate-json-schema",
+    "--experimental",
+    "--out",
+    "<dir>"
+  ],
+  "initialization": {
+    "request": "initialize",
+    "notification": "initialized",
+    "experimentalApi": true
+  },
+  "client_requests": [
+    "account/rateLimits/read",
+    "account/usage/read",
+    "model/list",
+    "thread/archive",
+    "thread/backgroundTerminals/clean",
+    "thread/goal/get",
+    "thread/read",
+    "thread/resume",
+    "thread/settings/update",
+    "thread/start",
+    "thread/unsubscribe",
+    "turn/interrupt",
+    "turn/start",
+    "turn/steer"
+  ],
+  "server_requests": [
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval",
+    "item/tool/requestUserInput",
+    "mcpServer/elicitation/request"
+  ],
+  "notifications": [
+    "item/completed",
+    "item/reasoning/summaryTextDelta",
+    "thread/goal/updated",
+    "thread/started",
+    "turn/completed",
+    "turn/started"
+  ],
+  "additional_contracts": [
+    "legacy approval payloads",
+    "agent message delta notifications",
+    "unknown notification tolerance with bounded diagnostic logging"
+  ]
+}

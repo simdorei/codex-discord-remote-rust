@@ -1,0 +1,62 @@
+name: macOS smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos-smoke:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify pinned Rust workspace
+        run: |
+          rustup show active-toolchain
+          cargo fmt --all -- --check
+          cargo build --workspace --locked
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install dependencies
+        run: python -m pip install --require-hashes -r requirements.txt
+      - name: Verify packaged plugin cachebuster
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          PLUGIN_VERSION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python scripts/verify_plugin_cachebuster.py
+      - name: Verify Pro connector plugin contracts
+        run: python -m tests.pro_plugin_contract_suite
+      - name: Compile CI-relevant modules
+        run: |
+          python -m py_compile \
+            setup_discord_bot.py \
+            codex_discord_runtime_config.py \
+            codex_discord_runtime_lock.py \
+            codex_discord_bridge_process.py \
+            codex_desktop_bridge_desktop_process.py \
+            codex_desktop_bridge_desktop_resolver.py \
+            codex_desktop_bridge_ipc_pipe.py \
+            codex_desktop_bridge_macos_input.py \
+            codex_desktop_bridge_macos_ui.py \
+            codex_desktop_bridge_unsupported_input.py \
+            codex_desktop_bridge.py
+      - name: Run macOS-safe unit tests
+        run: |
+          python -m unittest \
+            tests.test_install_codex_exe_persistence \
+            tests.test_setup_discord_bot \
+            tests.test_codex_desktop_bridge_macos_input \
+            tests.test_codex_discord_runtime_config \
+            tests.test_codex_desktop_bridge_desktop_process
+      - name: Verify token setup dry-runs
+        run: |
+          bash -n install.sh setup-discord-bot.sh codex-discord-bot.sh
+          bash install.sh --dry-run --skip-dependencies --skip-env-file --skip-codex-plugin
+          python setup_discord_bot.py --dry-run
+          bash setup-discord-bot.sh --dry-run

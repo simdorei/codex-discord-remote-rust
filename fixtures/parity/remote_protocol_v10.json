@@ -1,0 +1,183 @@
+{
+  "bridge_inbound": [
+    {
+      "type": "hello",
+      "protocol_version": 10,
+      "device_id": "device-a"
+    },
+    {
+      "type": "project_upsert",
+      "project_scope": "codex-pro-project-a",
+      "binding_id": "binding-generation-project-a",
+      "thread_id": "thread-a",
+      "project_name": "project-a",
+      "expires_at": "2026-08-31T12:34:56Z"
+    },
+    {
+      "type": "project_operation_result",
+      "request_id": "request-output-a",
+      "output": {
+        "kind": "terminal_window_list",
+        "windows": [
+          {
+            "terminal_window_id": "termwin_0123456789abcdef",
+            "window_id": 42,
+            "process_id": 84,
+            "shell": "powershell",
+            "cwd": "C:/project",
+            "title": "Codex Pro Terminal",
+            "running": true
+          }
+        ]
+      }
+    }
+  ],
+  "gateway_inbound": [
+    {
+      "type": "hello_ack",
+      "protocol_version": 10
+    },
+    {
+      "type": "project_ack",
+      "project_scope": "codex-pro-project-a",
+      "binding_id": "binding-generation-project-a"
+    },
+    {
+      "type": "project_operation",
+      "request_id": "request-a",
+      "thread_id": "thread-a",
+      "deadline_at": "2026-08-31T12:35:56Z",
+      "computer_session_id": null,
+      "operation": {
+        "kind": "terminal_exec",
+        "terminal_id": null,
+        "shell": "auto",
+        "command": "echo wired",
+        "cwd": null,
+        "environment": {},
+        "timeout_seconds": 300,
+        "cancel_previous": false
+      }
+    },
+    {
+      "type": "project_operation",
+      "request_id": "request-b",
+      "thread_id": "thread-a",
+      "deadline_at": "2026-08-31T12:35:56Z",
+      "computer_session_id": null,
+      "operation": {
+        "kind": "file_apply_patch",
+        "changes": [
+          {
+            "action": "create",
+            "path": "qa.txt",
+            "content": "hello\n",
+            "destination": null,
+            "expected_sha256": null
+          }
+        ]
+      }
+    }
+  ],
+  "project_operation_kinds": [
+    "checkpoint_list",
+    "checkpoint_restore",
+    "checkpoint_show",
+    "code_search",
+    "command_list",
+    "command_run",
+    "computer_activate",
+    "computer_click",
+    "computer_close",
+    "computer_drag",
+    "computer_launch",
+    "computer_list_windows",
+    "computer_press_keys",
+    "computer_screenshot",
+    "computer_scroll",
+    "computer_set_clipboard",
+    "computer_stop",
+    "computer_type_text",
+    "file_apply_patch",
+    "file_create",
+    "git_commit",
+    "git_push",
+    "list_images",
+    "project_rules",
+    "project_status",
+    "repo_diff",
+    "repo_status",
+    "retrieve_image",
+    "save_image",
+    "save_image_from_url",
+    "terminal_exec",
+    "terminal_window_activate",
+    "terminal_window_capture",
+    "terminal_window_close",
+    "terminal_window_interrupt",
+    "terminal_window_keys",
+    "terminal_window_list",
+    "terminal_window_open",
+    "terminal_window_type"
+  ],
+  "project_output_kinds": [
+    "checkpoint_list",
+    "checkpoint_restore",
+    "checkpoint_show",
+    "code_search",
+    "command_list",
+    "command_run",
+    "computer_action",
+    "computer_screenshot",
+    "computer_stop",
+    "computer_windows",
+    "file_apply_patch",
+    "file_create",
+    "git_commit",
+    "git_push",
+    "image_list",
+    "image_retrieve",
+    "image_save",
+    "project_rules",
+    "project_status",
+    "repo_diff",
+    "repo_status",
+    "terminal_exec",
+    "terminal_window_action",
+    "terminal_window_capture",
+    "terminal_window_close",
+    "terminal_window_list",
+    "terminal_window_open"
+  ],
+  "invalid": [
+    {
+      "direction": "bridge",
+      "message": {
+        "type": "hello",
+        "protocol_version": 9,
+        "device_id": "device-a"
+      }
+    },
+    {
+      "direction": "gateway",
+      "message": {
+        "type": "project_operation",
+        "request_id": "request-empty-command",
+        "thread_id": "thread-a",
+        "deadline_at": "2026-08-31T12:35:56Z",
+        "computer_session_id": null,
+        "operation": {
+          "kind": "terminal_exec",
+          "command": ""
+        }
+      }
+    },
+    {
+      "direction": "gateway",
+      "message": {
+        "type": "terminal_window_list",
+        "unexpected": true
+      }
+    }
+  ]
+}

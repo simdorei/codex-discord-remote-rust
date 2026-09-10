@@ -1,0 +1,4 @@
+interface:
+  display_name: "Intent-Driven QA"
+  short_description: "Turn product intent into trustworthy automated tests."
+  default_prompt: "Use $intent-driven-qa to turn my intended behavior into a traceable test contract and verify honest RED-to-GREEN evidence."

@@ -1,0 +1,5117 @@
+[
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Bring one window listed for the current project or PC selection forward.",
+    "inputSchema": {
+      "properties": {
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id"
+      ],
+      "title": "activate_computer_windowArguments",
+      "type": "object"
+    },
+    "name": "activate_computer_window",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Activate computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Compare the release manifest with tools registered by this server.",
+    "inputSchema": {
+      "properties": {},
+      "title": "capability_inventoryArguments",
+      "type": "object"
+    },
+    "name": "capability_inventory",
+    "outputSchema": {
+      "$defs": {
+        "CapabilityGroup": {
+          "properties": {
+            "oauth_scopes": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Oauth Scopes",
+              "type": "array"
+            },
+            "surface": {
+              "$ref": "#/$defs/CapabilitySurface"
+            },
+            "tools": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Tools",
+              "type": "array"
+            }
+          },
+          "required": [
+            "surface",
+            "oauth_scopes",
+            "tools"
+          ],
+          "title": "CapabilityGroup",
+          "type": "object"
+        },
+        "CapabilitySurface": {
+          "enum": [
+            "read",
+            "write",
+            "git",
+            "computer_observe",
+            "computer_control",
+            "terminal_execute",
+            "terminal_interact"
+          ],
+          "title": "CapabilitySurface",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "expected_tool_count": {
+          "title": "Expected Tool Count",
+          "type": "integer"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/CapabilityGroup"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "manifest_duplicate_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Manifest Duplicate Tools",
+          "type": "array"
+        },
+        "missing_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Tools",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": 10,
+          "default": 10,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "registered_tool_count": {
+          "title": "Registered Tool Count",
+          "type": "integer"
+        },
+        "unexpected_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unexpected Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ready",
+        "expected_tool_count",
+        "registered_tool_count",
+        "missing_tools",
+        "unexpected_tools",
+        "manifest_duplicate_tools",
+        "groups"
+      ],
+      "title": "CapabilityInventoryOutput",
+      "type": "object"
+    },
+    "title": "Show MCP capability inventory"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List restorable checkpoints created by remote file mutations.",
+    "inputSchema": {
+      "properties": {},
+      "title": "checkpoint_listArguments",
+      "type": "object"
+    },
+    "name": "checkpoint_list",
+    "outputSchema": {
+      "$defs": {
+        "CheckpointEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint_id": {
+              "title": "Checkpoint Id",
+              "type": "string"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "reason": {
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "checkpoint_id",
+            "created_at",
+            "reason"
+          ],
+          "title": "CheckpointEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "checkpoints": {
+          "items": {
+            "$ref": "#/$defs/CheckpointEntry"
+          },
+          "title": "Checkpoints",
+          "type": "array"
+        },
+        "kind": {
+          "const": "checkpoint_list",
+          "default": "checkpoint_list",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoints"
+      ],
+      "title": "CheckpointListOutput",
+      "type": "object"
+    },
+    "title": "List project checkpoints"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Restore project files to their state before one remote mutation.",
+    "inputSchema": {
+      "properties": {
+        "checkpoint_id": {
+          "title": "Checkpoint Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id"
+      ],
+      "title": "checkpoint_restoreArguments",
+      "type": "object"
+    },
+    "name": "checkpoint_restore",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "checkpoint_restore",
+          "default": "checkpoint_restore",
+          "title": "Kind",
+          "type": "string"
+        },
+        "restored_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Restored Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "restored_files"
+      ],
+      "title": "CheckpointRestoreOutput",
+      "type": "object"
+    },
+    "title": "Restore project checkpoint"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Show the bounded change recorded in one checkpoint.",
+    "inputSchema": {
+      "properties": {
+        "checkpoint_id": {
+          "title": "Checkpoint Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id"
+      ],
+      "title": "checkpoint_showArguments",
+      "type": "object"
+    },
+    "name": "checkpoint_show",
+    "outputSchema": {
+      "$defs": {
+        "CheckpointEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint_id": {
+              "title": "Checkpoint Id",
+              "type": "string"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "reason": {
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "checkpoint_id",
+            "created_at",
+            "reason"
+          ],
+          "title": "CheckpointEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint": {
+          "$ref": "#/$defs/CheckpointEntry"
+        },
+        "kind": {
+          "const": "checkpoint_show",
+          "default": "checkpoint_show",
+          "title": "Kind",
+          "type": "string"
+        },
+        "patch": {
+          "title": "Patch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint",
+        "patch"
+      ],
+      "title": "CheckpointShowOutput",
+      "type": "object"
+    },
+    "title": "Show project checkpoint"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Click screenshot-relative coordinates after a fresh screenshot.",
+    "inputSchema": {
+      "properties": {
+        "button": {
+          "default": "left",
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "title": "Button",
+          "type": "string"
+        },
+        "click_count": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Click Count",
+          "type": "integer"
+        },
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id",
+        "x",
+        "y"
+      ],
+      "title": "click_computer_windowArguments",
+      "type": "object"
+    },
+    "name": "click_computer_window",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Click computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Request close after a fresh screenshot; save dialogs remain visible.",
+    "inputSchema": {
+      "properties": {
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id"
+      ],
+      "title": "close_computer_windowArguments",
+      "type": "object"
+    },
+    "name": "close_computer_window",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Close computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Search text in non-sensitive UTF-8 project files.",
+    "inputSchema": {
+      "properties": {
+        "max_results": {
+          "default": 100,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "code_searchArguments",
+      "type": "object"
+    },
+    "name": "code_search",
+    "outputSchema": {
+      "$defs": {
+        "SearchMatch": {
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "minimum": 1,
+              "title": "Line",
+              "type": "integer"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "snippet": {
+              "title": "Snippet",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "line",
+            "snippet"
+          ],
+          "title": "SearchMatch",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code_search",
+          "default": "code_search",
+          "title": "Kind",
+          "type": "string"
+        },
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/SearchMatch"
+          },
+          "title": "Matches",
+          "type": "array"
+        }
+      },
+      "required": [
+        "matches"
+      ],
+      "title": "CodeSearchOutput",
+      "type": "object"
+    },
+    "title": "Search project code"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List manifest-defined checks that can run without arbitrary shell access.",
+    "inputSchema": {
+      "properties": {},
+      "title": "command_listArguments",
+      "type": "object"
+    },
+    "name": "command_list",
+    "outputSchema": {
+      "$defs": {
+        "CommandDescriptor": {
+          "additionalProperties": false,
+          "properties": {
+            "command_id": {
+              "title": "Command Id",
+              "type": "string"
+            },
+            "display": {
+              "title": "Display",
+              "type": "string"
+            },
+            "risk_tier": {
+              "enum": [
+                "read",
+                "verify",
+                "network",
+                "destructive"
+              ],
+              "title": "Risk Tier",
+              "type": "string"
+            },
+            "source": {
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command_id",
+            "display",
+            "source",
+            "risk_tier"
+          ],
+          "title": "CommandDescriptor",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CommandDescriptor"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "kind": {
+          "const": "command_list",
+          "default": "command_list",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commands"
+      ],
+      "title": "CommandListOutput",
+      "type": "object"
+    },
+    "title": "List safe project commands"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Run one discovered non-network, non-destructive project check.",
+    "inputSchema": {
+      "properties": {
+        "command_id": {
+          "title": "Command Id",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command_id"
+      ],
+      "title": "command_runArguments",
+      "type": "object"
+    },
+    "name": "command_run",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "title": "Command Id",
+          "type": "string"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "exit_code": {
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "command_run",
+          "default": "command_run",
+          "title": "Kind",
+          "type": "string"
+        },
+        "stderr": {
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "title": "Stdout",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "command_id",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "duration_ms",
+        "truncated"
+      ],
+      "title": "CommandRunOutput",
+      "type": "object"
+    },
+    "title": "Run safe project command"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Show the PC and working folder selected by this conversation.",
+    "inputSchema": {
+      "properties": {},
+      "title": "device_infoArguments",
+      "type": "object"
+    },
+    "name": "device_info",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "working_directory",
+        "expires_at"
+      ],
+      "title": "DeviceSelectionOutput",
+      "type": "object"
+    },
+    "title": "Show selected PC"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Drag between screenshot-relative points after a fresh screenshot.",
+    "inputSchema": {
+      "properties": {
+        "end_x": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "End X",
+          "type": "integer"
+        },
+        "end_y": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "End Y",
+          "type": "integer"
+        },
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "start_x": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Start X",
+          "type": "integer"
+        },
+        "start_y": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Start Y",
+          "type": "integer"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id",
+        "start_x",
+        "start_y",
+        "end_x",
+        "end_y"
+      ],
+      "title": "drag_computer_windowArguments",
+      "type": "object"
+    },
+    "name": "drag_computer_window",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Drag in computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Apply text file changes with hash checks and a restorable checkpoint.",
+    "inputSchema": {
+      "$defs": {
+        "FileChange": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "create",
+                "update",
+                "delete",
+                "move"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "content": {
+              "anyOf": [
+                {
+                  "maxLength": 1048576,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Content"
+            },
+            "destination": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Destination"
+            },
+            "expected_sha256": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Expected Sha256"
+            },
+            "path": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "path"
+          ],
+          "title": "FileChange",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "title": "Changes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "title": "file_apply_patchArguments",
+      "type": "object"
+    },
+    "name": "file_apply_patch",
+    "outputSchema": {
+      "$defs": {
+        "PatchEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "add",
+                "update",
+                "delete",
+                "move"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "added_lines": {
+              "minimum": 0,
+              "title": "Added Lines",
+              "type": "integer"
+            },
+            "destination": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Destination"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "removed_lines": {
+              "minimum": 0,
+              "title": "Removed Lines",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "action",
+            "added_lines",
+            "removed_lines"
+          ],
+          "title": "PatchEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "items": {
+            "$ref": "#/$defs/PatchEntry"
+          },
+          "title": "Applied",
+          "type": "array"
+        },
+        "checkpoint_id": {
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file_apply_patch",
+          "default": "file_apply_patch",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "checkpoint_id"
+      ],
+      "title": "FileApplyPatchOutput",
+      "type": "object"
+    },
+    "title": "Apply selected project changes"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Create a UTF-8 file and record a restorable checkpoint.",
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "file_createArguments",
+      "type": "object"
+    },
+    "name": "file_create",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes_written": {
+          "minimum": 0,
+          "title": "Bytes Written",
+          "type": "integer"
+        },
+        "checkpoint_id": {
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file_create",
+          "default": "file_create",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes_written",
+        "checkpoint_id"
+      ],
+      "title": "FileCreateOutput",
+      "type": "object"
+    },
+    "title": "Create project file"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read a bounded UTF-8 line range from one project file.",
+    "inputSchema": {
+      "properties": {
+        "max_lines": {
+          "default": 250,
+          "title": "Max Lines",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "default": 1,
+          "title": "Start Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "file_read_sliceArguments",
+      "type": "object"
+    },
+    "name": "file_read_slice",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "end_line": {
+          "minimum": 0,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "redacted": {
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "total_lines": {
+          "minimum": 0,
+          "title": "Total Lines",
+          "type": "integer"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "content",
+        "sha256",
+        "start_line",
+        "end_line",
+        "total_lines",
+        "truncated",
+        "redacted"
+      ],
+      "title": "ReadFileOutput",
+      "type": "object"
+    },
+    "title": "Read project file slice"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Create a Git commit from validated project paths.",
+    "inputSchema": {
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "message",
+        "paths"
+      ],
+      "title": "git_commitArguments",
+      "type": "object"
+    },
+    "name": "git_commit",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "commit": {
+          "title": "Commit",
+          "type": "string"
+        },
+        "kind": {
+          "const": "git_commit",
+          "default": "git_commit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "staged_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Staged Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "branch",
+        "staged_files"
+      ],
+      "title": "GitCommitOutput",
+      "type": "object"
+    },
+    "title": "Commit project changes"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Push the current or named branch to an already configured remote.",
+    "inputSchema": {
+      "properties": {
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch"
+        },
+        "remote": {
+          "default": "origin",
+          "title": "Remote",
+          "type": "string"
+        }
+      },
+      "title": "git_pushArguments",
+      "type": "object"
+    },
+    "name": "git_push",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "kind": {
+          "const": "git_push",
+          "default": "git_push",
+          "title": "Kind",
+          "type": "string"
+        },
+        "output": {
+          "title": "Output",
+          "type": "string"
+        },
+        "remote": {
+          "title": "Remote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "remote",
+        "branch",
+        "output"
+      ],
+      "title": "GitPushOutput",
+      "type": "object"
+    },
+    "title": "Push project branch"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Launch isolated Chrome or blank Notepad for this selected chat session.",
+    "inputSchema": {
+      "properties": {
+        "app": {
+          "enum": [
+            "chrome",
+            "notepad"
+          ],
+          "title": "App",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app"
+      ],
+      "title": "launch_computer_appArguments",
+      "type": "object"
+    },
+    "name": "launch_computer_app",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Launch allowed computer app"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "description": "List session-owned windows in project mode or visible windows in PC mode.",
+    "inputSchema": {
+      "properties": {},
+      "title": "list_computer_windowsArguments",
+      "type": "object"
+    },
+    "name": "list_computer_windows",
+    "outputSchema": {
+      "$defs": {
+        "ComputerWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "title": "Active",
+              "type": "boolean"
+            },
+            "height": {
+              "exclusiveMinimum": 0,
+              "title": "Height",
+              "type": "integer"
+            },
+            "left": {
+              "title": "Left",
+              "type": "integer"
+            },
+            "process_name": {
+              "title": "Process Name",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "top": {
+              "title": "Top",
+              "type": "integer"
+            },
+            "width": {
+              "exclusiveMinimum": 0,
+              "title": "Width",
+              "type": "integer"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "window_id",
+            "title",
+            "process_name",
+            "left",
+            "top",
+            "width",
+            "height",
+            "active"
+          ],
+          "title": "ComputerWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "computer_windows",
+          "default": "computer_windows",
+          "title": "Kind",
+          "type": "string"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/ComputerWindowEntry"
+          },
+          "title": "Windows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "windows"
+      ],
+      "title": "ComputerWindowsOutput",
+      "type": "object"
+    },
+    "title": "List controllable computer windows"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List the VPS bridge devices currently available to this account.",
+    "inputSchema": {
+      "properties": {},
+      "title": "list_devicesArguments",
+      "type": "object"
+    },
+    "name": "list_devices",
+    "outputSchema": {
+      "$defs": {
+        "DeviceSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "device_id": {
+              "title": "Device Id",
+              "type": "string"
+            },
+            "online": {
+              "title": "Online",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "device_id",
+            "online"
+          ],
+          "title": "DeviceSummary",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/DeviceSummary"
+          },
+          "title": "Devices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "devices"
+      ],
+      "title": "DeviceListOutput",
+      "type": "object"
+    },
+    "title": "List connected PCs"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List supported image files inside the selected project.",
+    "inputSchema": {
+      "properties": {},
+      "title": "list_imagesArguments",
+      "type": "object"
+    },
+    "name": "list_images",
+    "outputSchema": {
+      "$defs": {
+        "ImageEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "media_type": {
+              "title": "Media Type",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 0,
+              "title": "Size Bytes",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "media_type",
+            "size_bytes"
+          ],
+          "title": "ImageEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "images": {
+          "items": {
+            "$ref": "#/$defs/ImageEntry"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "kind": {
+          "const": "image_list",
+          "default": "image_list",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "images"
+      ],
+      "title": "ImageListOutput",
+      "type": "object"
+    },
+    "title": "List project images"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List non-sensitive files inside the bound project.",
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "default": 200,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "pattern": {
+          "default": "**/*",
+          "title": "Pattern",
+          "type": "string"
+        }
+      },
+      "title": "list_project_filesArguments",
+      "type": "object"
+    },
+    "name": "list_project_files",
+    "outputSchema": {
+      "$defs": {
+        "FileEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 0,
+              "title": "Size Bytes",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "size_bytes"
+          ],
+          "title": "FileEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileEntry"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "files",
+        "truncated"
+      ],
+      "title": "ListFilesOutput",
+      "type": "object"
+    },
+    "title": "List project files"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Press a mode-permitted key chord after a fresh screenshot.",
+    "inputSchema": {
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Keys",
+          "type": "array"
+        },
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id",
+        "keys"
+      ],
+      "title": "press_computer_keysArguments",
+      "type": "object"
+    },
+    "name": "press_computer_keys",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Press computer keys"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Show the project root and Codex thread bound to this conversation.",
+    "inputSchema": {
+      "properties": {},
+      "title": "project_infoArguments",
+      "type": "object"
+    },
+    "name": "project_info",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "thread_id": {
+          "title": "Thread Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "thread_id"
+      ],
+      "title": "ProjectInfoOutput",
+      "type": "object"
+    },
+    "title": "Show bound project"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read bounded AGENTS.md, CLAUDE.md, and Codex project rules.",
+    "inputSchema": {
+      "properties": {},
+      "title": "project_rulesArguments",
+      "type": "object"
+    },
+    "name": "project_rules",
+    "outputSchema": {
+      "$defs": {
+        "RuleFile": {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "title": "Content",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "title": "RuleFile",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "project_rules",
+          "default": "project_rules",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/RuleFile"
+          },
+          "title": "Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rules"
+      ],
+      "title": "ProjectRulesOutput",
+      "type": "object"
+    },
+    "title": "Read project rules"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Show Git state, project rules, and safe commands at a glance.",
+    "inputSchema": {
+      "properties": {},
+      "title": "project_statusArguments",
+      "type": "object"
+    },
+    "name": "project_status",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "command_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Command Ids",
+          "type": "array"
+        },
+        "dirty_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dirty Files",
+          "type": "array"
+        },
+        "kind": {
+          "const": "project_status",
+          "default": "project_status",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rule_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rule Files",
+          "type": "array"
+        },
+        "staged_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Staged Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "branch",
+        "dirty_files",
+        "staged_files",
+        "rule_files",
+        "command_ids"
+      ],
+      "title": "ProjectStatusOutput",
+      "type": "object"
+    },
+    "title": "Show project status"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read a bounded UTF-8 section from a non-sensitive project file.",
+    "inputSchema": {
+      "properties": {
+        "max_lines": {
+          "default": 250,
+          "title": "Max Lines",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "default": 1,
+          "title": "Start Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "read_project_fileArguments",
+      "type": "object"
+    },
+    "name": "read_project_file",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "end_line": {
+          "minimum": 0,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "redacted": {
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "total_lines": {
+          "minimum": 0,
+          "title": "Total Lines",
+          "type": "integer"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "content",
+        "sha256",
+        "start_line",
+        "end_line",
+        "total_lines",
+        "truncated",
+        "redacted"
+      ],
+      "title": "ReadFileOutput",
+      "type": "object"
+    },
+    "title": "Read project file"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Return a bounded Git diff and per-file line counts.",
+    "inputSchema": {
+      "properties": {},
+      "title": "repo_diff_summaryArguments",
+      "type": "object"
+    },
+    "name": "repo_diff_summary",
+    "outputSchema": {
+      "$defs": {
+        "DiffFile": {
+          "additionalProperties": false,
+          "properties": {
+            "added": {
+              "minimum": 0,
+              "title": "Added",
+              "type": "integer"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "removed": {
+              "minimum": 0,
+              "title": "Removed",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "added",
+            "removed"
+          ],
+          "title": "DiffFile",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/DiffFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "kind": {
+          "const": "repo_diff",
+          "default": "repo_diff",
+          "title": "Kind",
+          "type": "string"
+        },
+        "patch": {
+          "title": "Patch",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "files",
+        "summary",
+        "patch",
+        "truncated"
+      ],
+      "title": "RepoDiffOutput",
+      "type": "object"
+    },
+    "title": "Summarize Git changes"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Show branch, changed files, remotes, and upstream distance.",
+    "inputSchema": {
+      "properties": {},
+      "title": "repo_statusArguments",
+      "type": "object"
+    },
+    "name": "repo_status",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ahead": {
+          "minimum": 0,
+          "title": "Ahead",
+          "type": "integer"
+        },
+        "behind": {
+          "minimum": 0,
+          "title": "Behind",
+          "type": "integer"
+        },
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "dirty_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dirty Files",
+          "type": "array"
+        },
+        "kind": {
+          "const": "repo_status",
+          "default": "repo_status",
+          "title": "Kind",
+          "type": "string"
+        },
+        "remotes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remotes",
+          "type": "array"
+        },
+        "staged_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Staged Files",
+          "type": "array"
+        },
+        "upstream": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Upstream"
+        }
+      },
+      "required": [
+        "branch",
+        "dirty_files",
+        "staged_files",
+        "remotes",
+        "upstream",
+        "ahead",
+        "behind"
+      ],
+      "title": "RepoStatusOutput",
+      "type": "object"
+    },
+    "title": "Show Git repository status"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Return one project image as native MCP image content for vision.",
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "retrieve_imageArguments",
+      "type": "object"
+    },
+    "name": "retrieve_image",
+    "title": "Retrieve project image"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Save a validated base64 PNG, JPEG, GIF, or WebP project image.",
+    "inputSchema": {
+      "properties": {
+        "data_base64": {
+          "title": "Data Base64",
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "data_base64"
+      ],
+      "title": "save_imageArguments",
+      "type": "object"
+    },
+    "name": "save_image",
+    "outputSchema": {
+      "$defs": {
+        "ImageEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "media_type": {
+              "title": "Media Type",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 0,
+              "title": "Size Bytes",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "media_type",
+            "size_bytes"
+          ],
+          "title": "ImageEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "$ref": "#/$defs/ImageEntry"
+        },
+        "kind": {
+          "const": "image_save",
+          "default": "image_save",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "image",
+        "sha256"
+      ],
+      "title": "ImageSaveOutput",
+      "type": "object"
+    },
+    "title": "Save project image"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Download a public HTTPS image into the selected project.",
+    "inputSchema": {
+      "properties": {
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "url"
+      ],
+      "title": "save_image_from_urlArguments",
+      "type": "object"
+    },
+    "name": "save_image_from_url",
+    "outputSchema": {
+      "$defs": {
+        "ImageEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "media_type": {
+              "title": "Media Type",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "size_bytes": {
+              "minimum": 0,
+              "title": "Size Bytes",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "media_type",
+            "size_bytes"
+          ],
+          "title": "ImageEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "$ref": "#/$defs/ImageEntry"
+        },
+        "kind": {
+          "const": "image_save",
+          "default": "image_save",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "image",
+        "sha256"
+      ],
+      "title": "ImageSaveOutput",
+      "type": "object"
+    },
+    "title": "Save image from public URL"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "description": "Capture a permitted active window and issue one-use observation state.",
+    "inputSchema": {
+      "properties": {
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id"
+      ],
+      "title": "screenshot_computer_windowArguments",
+      "type": "object"
+    },
+    "name": "screenshot_computer_window",
+    "title": "Screenshot active computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Scroll at screenshot-relative coordinates after a fresh screenshot.",
+    "inputSchema": {
+      "properties": {
+        "delta_x": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "Delta X",
+          "type": "integer"
+        },
+        "delta_y": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "Delta Y",
+          "type": "integer"
+        },
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id",
+        "x",
+        "y"
+      ],
+      "title": "scroll_computer_windowArguments",
+      "type": "object"
+    },
+    "name": "scroll_computer_window",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Scroll computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Bind this ChatGPT conversation to one connected PC and folder.",
+    "inputSchema": {
+      "properties": {
+        "connector_resource": {
+          "title": "Connector Resource",
+          "type": "string"
+        },
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "working_directory",
+        "connector_resource"
+      ],
+      "title": "select_deviceArguments",
+      "type": "object"
+    },
+    "name": "select_device",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "working_directory",
+        "expires_at"
+      ],
+      "title": "DeviceSelectionOutput",
+      "type": "object"
+    },
+    "title": "Select connected PC"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Select the active Codex project registered for this ChatGPT conversation.",
+    "inputSchema": {
+      "properties": {
+        "connector_resource": {
+          "title": "Connector Resource",
+          "type": "string"
+        },
+        "project_scope": {
+          "title": "Project Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_scope",
+        "connector_resource"
+      ],
+      "title": "select_projectArguments",
+      "type": "object"
+    },
+    "name": "select_project",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "project_name": {
+          "title": "Project Name",
+          "type": "string"
+        },
+        "thread_id": {
+          "title": "Thread Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_name",
+        "thread_id",
+        "expires_at"
+      ],
+      "title": "ProjectSelectionOutput",
+      "type": "object"
+    },
+    "title": "Select local project"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Replace clipboard text after observing a mode-permitted active window.",
+    "inputSchema": {
+      "properties": {
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 100000,
+          "title": "Text",
+          "type": "string"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id",
+        "text"
+      ],
+      "title": "set_computer_clipboardArguments",
+      "type": "object"
+    },
+    "name": "set_computer_clipboard",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Set computer clipboard text"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Change the folder used by this conversation's selected PC.",
+    "inputSchema": {
+      "properties": {
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "working_directory"
+      ],
+      "title": "set_working_directoryArguments",
+      "type": "object"
+    },
+    "name": "set_working_directory",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "title": "Device Id",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "working_directory": {
+          "title": "Working Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "working_directory",
+        "expires_at"
+      ],
+      "title": "DeviceSelectionOutput",
+      "type": "object"
+    },
+    "title": "Change selected PC folder"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Return the same bounded Git change report used for review.",
+    "inputSchema": {
+      "properties": {},
+      "title": "show_changesArguments",
+      "type": "object"
+    },
+    "name": "show_changes",
+    "outputSchema": {
+      "$defs": {
+        "DiffFile": {
+          "additionalProperties": false,
+          "properties": {
+            "added": {
+              "minimum": 0,
+              "title": "Added",
+              "type": "integer"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "removed": {
+              "minimum": 0,
+              "title": "Removed",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "added",
+            "removed"
+          ],
+          "title": "DiffFile",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/DiffFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "kind": {
+          "const": "repo_diff",
+          "default": "repo_diff",
+          "title": "Kind",
+          "type": "string"
+        },
+        "patch": {
+          "title": "Patch",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "files",
+        "summary",
+        "patch",
+        "truncated"
+      ],
+      "title": "RepoDiffOutput",
+      "type": "object"
+    },
+    "title": "Show project changes"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Stop this thread's computer control until the project is bound again.",
+    "inputSchema": {
+      "properties": {},
+      "title": "stop_computer_controlArguments",
+      "type": "object"
+    },
+    "name": "stop_computer_control",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "computer_stop",
+          "default": "computer_stop",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "stopped": {
+          "const": true,
+          "default": true,
+          "title": "Stopped",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "ComputerStopOutput",
+      "type": "object"
+    },
+    "title": "Emergency stop computer control"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Run unrestricted shell text in a terminal owned by this chat session.",
+    "inputSchema": {
+      "properties": {
+        "cancel_previous": {
+          "default": false,
+          "title": "Cancel Previous",
+          "type": "boolean"
+        },
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cwd"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment"
+        },
+        "shell": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "powershell",
+            "cmd",
+            "sh",
+            "bash"
+          ],
+          "title": "Shell",
+          "type": "string"
+        },
+        "terminal_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Terminal Id"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "title": "terminal_execArguments",
+      "type": "object"
+    },
+    "name": "terminal_exec",
+    "outputSchema": {
+      "$defs": {
+        "TerminalExecutionReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "cancelled": {
+              "title": "Cancelled",
+              "type": "boolean"
+            },
+            "command_digest": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Command Digest",
+              "type": "string"
+            },
+            "cwd_scope": {
+              "enum": [
+                "project_root",
+                "project_relative",
+                "external_absolute"
+              ],
+              "title": "Cwd Scope",
+              "type": "string"
+            },
+            "duration_ms": {
+              "minimum": 0,
+              "title": "Duration Ms",
+              "type": "integer"
+            },
+            "exit_code": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exit Code"
+            },
+            "receipt_id": {
+              "pattern": "^tr_[a-f0-9]{16}$",
+              "title": "Receipt Id",
+              "type": "string"
+            },
+            "shell": {
+              "enum": [
+                "auto",
+                "powershell",
+                "cmd",
+                "sh",
+                "bash"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "stderr_bytes": {
+              "minimum": 0,
+              "title": "Stderr Bytes",
+              "type": "integer"
+            },
+            "stdout_bytes": {
+              "minimum": 0,
+              "title": "Stdout Bytes",
+              "type": "integer"
+            },
+            "terminal_id": {
+              "pattern": "^term_[a-f0-9]{16}$",
+              "title": "Terminal Id",
+              "type": "string"
+            },
+            "timed_out": {
+              "title": "Timed Out",
+              "type": "boolean"
+            },
+            "truncated": {
+              "title": "Truncated",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "receipt_id",
+            "terminal_id",
+            "command_digest",
+            "shell",
+            "cwd_scope",
+            "exit_code",
+            "stdout_bytes",
+            "stderr_bytes",
+            "duration_ms",
+            "timed_out",
+            "cancelled",
+            "truncated"
+          ],
+          "title": "TerminalExecutionReceipt",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "cancelled": {
+          "title": "Cancelled",
+          "type": "boolean"
+        },
+        "cwd": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Cwd",
+          "type": "string"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exit Code"
+        },
+        "kind": {
+          "const": "terminal_exec",
+          "default": "terminal_exec",
+          "title": "Kind",
+          "type": "string"
+        },
+        "process_id": {
+          "exclusiveMinimum": 0,
+          "title": "Process Id",
+          "type": "integer"
+        },
+        "receipt": {
+          "$ref": "#/$defs/TerminalExecutionReceipt"
+        },
+        "stderr": {
+          "maxLength": 1048576,
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "maxLength": 1048576,
+          "title": "Stdout",
+          "type": "string"
+        },
+        "terminal_id": {
+          "pattern": "^term_[a-f0-9]{16}$",
+          "title": "Terminal Id",
+          "type": "string"
+        },
+        "timed_out": {
+          "title": "Timed Out",
+          "type": "boolean"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "terminal_id",
+        "process_id",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "cwd",
+        "duration_ms",
+        "timed_out",
+        "cancelled",
+        "truncated",
+        "receipt"
+      ],
+      "title": "TerminalExecOutput",
+      "type": "object"
+    },
+    "title": "Run arbitrary local terminal command"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id"
+      ],
+      "title": "terminal_window_activateArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_activate",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowActionReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "activate",
+                "type",
+                "keys",
+                "interrupt"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "activated": {
+              "title": "Activated",
+              "type": "boolean"
+            },
+            "completed_at": {
+              "format": "date-time",
+              "title": "Completed At",
+              "type": "string"
+            },
+            "identity_digest": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Identity Digest",
+              "type": "string"
+            },
+            "keys": {
+              "default": [],
+              "items": {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 4,
+              "title": "Keys",
+              "type": "array"
+            },
+            "observation_id": {
+              "anyOf": [
+                {
+                  "pattern": "^twobs_[a-f0-9]{16}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observation Id"
+            },
+            "receipt_id": {
+              "pattern": "^twrcpt_[a-f0-9]{16}$",
+              "title": "Receipt Id",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "unicode_chars": {
+              "default": 0,
+              "maximum": 4096,
+              "minimum": 0,
+              "title": "Unicode Chars",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "receipt_id",
+            "terminal_window_id",
+            "identity_digest",
+            "action",
+            "activated",
+            "completed_at"
+          ],
+          "title": "TerminalWindowActionReceipt",
+          "type": "object"
+        },
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "terminal_window_action",
+          "default": "terminal_window_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/TerminalWindowActionReceipt"
+        },
+        "window": {
+          "$ref": "#/$defs/TerminalWindowEntry"
+        }
+      },
+      "required": [
+        "window",
+        "receipt"
+      ],
+      "title": "TerminalWindowActionOutput",
+      "type": "object"
+    },
+    "title": "Activate a session-owned terminal window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id"
+      ],
+      "title": "terminal_window_captureArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_capture",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        },
+        "TerminalWindowRect": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "exclusiveMinimum": 0,
+              "title": "Height",
+              "type": "integer"
+            },
+            "left": {
+              "title": "Left",
+              "type": "integer"
+            },
+            "top": {
+              "title": "Top",
+              "type": "integer"
+            },
+            "width": {
+              "exclusiveMinimum": 0,
+              "title": "Width",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "left",
+            "top",
+            "width",
+            "height"
+          ],
+          "title": "TerminalWindowRect",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "data_base64": {
+          "maxLength": 12000000,
+          "minLength": 12,
+          "title": "Data Base64",
+          "type": "string"
+        },
+        "identity_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Identity Digest",
+          "type": "string"
+        },
+        "kind": {
+          "const": "terminal_window_capture",
+          "default": "terminal_window_capture",
+          "title": "Kind",
+          "type": "string"
+        },
+        "media_type": {
+          "const": "image/png",
+          "default": "image/png",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "pattern": "^twobs_[a-f0-9]{16}$",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "rect": {
+          "$ref": "#/$defs/TerminalWindowRect"
+        },
+        "window": {
+          "$ref": "#/$defs/TerminalWindowEntry"
+        }
+      },
+      "required": [
+        "window",
+        "observation_id",
+        "identity_digest",
+        "rect",
+        "data_base64",
+        "captured_at"
+      ],
+      "title": "TerminalWindowCaptureOutput",
+      "type": "object"
+    },
+    "title": "Capture a session-owned terminal window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id"
+      ],
+      "title": "terminal_window_closeArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_close",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "closed": {
+          "const": true,
+          "default": true,
+          "title": "Closed",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "terminal_window_close",
+          "default": "terminal_window_close",
+          "title": "Kind",
+          "type": "string"
+        },
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id"
+      ],
+      "title": "TerminalWindowCloseOutput",
+      "type": "object"
+    },
+    "title": "Close a session-owned terminal window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "observation_id": {
+          "pattern": "^twobs_[a-f0-9]{16}$",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id",
+        "observation_id"
+      ],
+      "title": "terminal_window_interruptArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_interrupt",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowActionReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "activate",
+                "type",
+                "keys",
+                "interrupt"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "activated": {
+              "title": "Activated",
+              "type": "boolean"
+            },
+            "completed_at": {
+              "format": "date-time",
+              "title": "Completed At",
+              "type": "string"
+            },
+            "identity_digest": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Identity Digest",
+              "type": "string"
+            },
+            "keys": {
+              "default": [],
+              "items": {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 4,
+              "title": "Keys",
+              "type": "array"
+            },
+            "observation_id": {
+              "anyOf": [
+                {
+                  "pattern": "^twobs_[a-f0-9]{16}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observation Id"
+            },
+            "receipt_id": {
+              "pattern": "^twrcpt_[a-f0-9]{16}$",
+              "title": "Receipt Id",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "unicode_chars": {
+              "default": 0,
+              "maximum": 4096,
+              "minimum": 0,
+              "title": "Unicode Chars",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "receipt_id",
+            "terminal_window_id",
+            "identity_digest",
+            "action",
+            "activated",
+            "completed_at"
+          ],
+          "title": "TerminalWindowActionReceipt",
+          "type": "object"
+        },
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "terminal_window_action",
+          "default": "terminal_window_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/TerminalWindowActionReceipt"
+        },
+        "window": {
+          "$ref": "#/$defs/TerminalWindowEntry"
+        }
+      },
+      "required": [
+        "window",
+        "receipt"
+      ],
+      "title": "TerminalWindowActionOutput",
+      "type": "object"
+    },
+    "title": "Interrupt a captured session-owned terminal process"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Keys",
+          "type": "array"
+        },
+        "observation_id": {
+          "pattern": "^twobs_[a-f0-9]{16}$",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id",
+        "observation_id",
+        "keys"
+      ],
+      "title": "terminal_window_keysArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_keys",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowActionReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "activate",
+                "type",
+                "keys",
+                "interrupt"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "activated": {
+              "title": "Activated",
+              "type": "boolean"
+            },
+            "completed_at": {
+              "format": "date-time",
+              "title": "Completed At",
+              "type": "string"
+            },
+            "identity_digest": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Identity Digest",
+              "type": "string"
+            },
+            "keys": {
+              "default": [],
+              "items": {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 4,
+              "title": "Keys",
+              "type": "array"
+            },
+            "observation_id": {
+              "anyOf": [
+                {
+                  "pattern": "^twobs_[a-f0-9]{16}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observation Id"
+            },
+            "receipt_id": {
+              "pattern": "^twrcpt_[a-f0-9]{16}$",
+              "title": "Receipt Id",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "unicode_chars": {
+              "default": 0,
+              "maximum": 4096,
+              "minimum": 0,
+              "title": "Unicode Chars",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "receipt_id",
+            "terminal_window_id",
+            "identity_digest",
+            "action",
+            "activated",
+            "completed_at"
+          ],
+          "title": "TerminalWindowActionReceipt",
+          "type": "object"
+        },
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "terminal_window_action",
+          "default": "terminal_window_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/TerminalWindowActionReceipt"
+        },
+        "window": {
+          "$ref": "#/$defs/TerminalWindowEntry"
+        }
+      },
+      "required": [
+        "window",
+        "receipt"
+      ],
+      "title": "TerminalWindowActionOutput",
+      "type": "object"
+    },
+    "title": "Press keys in a captured session-owned terminal window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {},
+      "title": "terminal_window_listArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_list",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "terminal_window_list",
+          "default": "terminal_window_list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/TerminalWindowEntry"
+          },
+          "title": "Windows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "windows"
+      ],
+      "title": "TerminalWindowListOutput",
+      "type": "object"
+    },
+    "title": "List session-owned terminal windows"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cwd"
+        },
+        "shell": {
+          "default": "powershell",
+          "enum": [
+            "powershell",
+            "cmd"
+          ],
+          "title": "Shell",
+          "type": "string"
+        }
+      },
+      "title": "terminal_window_openArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_open",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "terminal_window_open",
+          "default": "terminal_window_open",
+          "title": "Kind",
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/TerminalWindowEntry"
+        }
+      },
+      "required": [
+        "window"
+      ],
+      "title": "TerminalWindowOpenOutput",
+      "type": "object"
+    },
+    "title": "Open a session-owned terminal window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "",
+    "inputSchema": {
+      "properties": {
+        "observation_id": {
+          "pattern": "^twobs_[a-f0-9]{16}$",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "terminal_window_id": {
+          "pattern": "^termwin_[a-f0-9]{16}$",
+          "title": "Terminal Window Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_window_id",
+        "observation_id",
+        "text"
+      ],
+      "title": "terminal_window_typeArguments",
+      "type": "object"
+    },
+    "name": "terminal_window_type",
+    "outputSchema": {
+      "$defs": {
+        "TerminalWindowActionReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "activate",
+                "type",
+                "keys",
+                "interrupt"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "activated": {
+              "title": "Activated",
+              "type": "boolean"
+            },
+            "completed_at": {
+              "format": "date-time",
+              "title": "Completed At",
+              "type": "string"
+            },
+            "identity_digest": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Identity Digest",
+              "type": "string"
+            },
+            "keys": {
+              "default": [],
+              "items": {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 4,
+              "title": "Keys",
+              "type": "array"
+            },
+            "observation_id": {
+              "anyOf": [
+                {
+                  "pattern": "^twobs_[a-f0-9]{16}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Observation Id"
+            },
+            "receipt_id": {
+              "pattern": "^twrcpt_[a-f0-9]{16}$",
+              "title": "Receipt Id",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "unicode_chars": {
+              "default": 0,
+              "maximum": 4096,
+              "minimum": 0,
+              "title": "Unicode Chars",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "receipt_id",
+            "terminal_window_id",
+            "identity_digest",
+            "action",
+            "activated",
+            "completed_at"
+          ],
+          "title": "TerminalWindowActionReceipt",
+          "type": "object"
+        },
+        "TerminalWindowEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "cwd": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Cwd",
+              "type": "string"
+            },
+            "process_id": {
+              "exclusiveMinimum": 0,
+              "title": "Process Id",
+              "type": "integer"
+            },
+            "running": {
+              "const": true,
+              "default": true,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "shell": {
+              "enum": [
+                "powershell",
+                "cmd"
+              ],
+              "title": "Shell",
+              "type": "string"
+            },
+            "terminal_window_id": {
+              "pattern": "^termwin_[a-f0-9]{16}$",
+              "title": "Terminal Window Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "window_id": {
+              "exclusiveMinimum": 0,
+              "title": "Window Id",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "terminal_window_id",
+            "window_id",
+            "process_id",
+            "shell",
+            "cwd",
+            "title"
+          ],
+          "title": "TerminalWindowEntry",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "terminal_window_action",
+          "default": "terminal_window_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/TerminalWindowActionReceipt"
+        },
+        "window": {
+          "$ref": "#/$defs/TerminalWindowEntry"
+        }
+      },
+      "required": [
+        "window",
+        "receipt"
+      ],
+      "title": "TerminalWindowActionOutput",
+      "type": "object"
+    },
+    "title": "Type text into a captured session-owned terminal window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "computer:observe",
+            "computer:control"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Type Unicode text after a fresh screenshot; never enter secrets or OTPs.",
+    "inputSchema": {
+      "properties": {
+        "observation_id": {
+          "maxLength": 100,
+          "minLength": 8,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "window_id": {
+          "exclusiveMinimum": 0,
+          "title": "Window Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "window_id",
+        "observation_id",
+        "text"
+      ],
+      "title": "type_computer_textArguments",
+      "type": "object"
+    },
+    "name": "type_computer_text",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "activate",
+            "launch",
+            "click",
+            "drag",
+            "scroll",
+            "type_text",
+            "press_keys",
+            "close",
+            "set_clipboard"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "kind": {
+          "const": "computer_action",
+          "default": "computer_action",
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "window_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Id"
+        }
+      },
+      "required": [
+        "action",
+        "message"
+      ],
+      "title": "ComputerActionOutput",
+      "type": "object"
+    },
+    "title": "Type text into computer window"
+  },
+  {
+    "_meta": {
+      "securitySchemes": [
+        {
+          "scopes": [
+            "files:read",
+            "files:write"
+          ],
+          "type": "oauth2"
+        }
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Write UTF-8 text with optimistic conflict protection inside the bound project.",
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "expected_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Sha256"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "write_project_fileArguments",
+      "type": "object"
+    },
+    "name": "write_project_file",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes_written": {
+          "minimum": 0,
+          "title": "Bytes Written",
+          "type": "integer"
+        },
+        "created": {
+          "title": "Created",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes_written",
+        "created"
+      ],
+      "title": "WriteFileOutput",
+      "type": "object"
+    },
+    "title": "Write project file"
+  }
+]

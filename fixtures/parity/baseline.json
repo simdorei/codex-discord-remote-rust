@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-31T01:30:54+09:00",
+  "git_commit": "d1c23726e02ef95d67e9789975aa693c6846818b",
+  "python": {
+    "version": "3.12.1",
+    "tracked_files": 1195,
+    "tracked_test_files": 536,
+    "tracked_non_test_files": 659,
+    "tests_collected": 2307,
+    "tests_passed": 2291,
+    "tests_skipped": 16,
+    "subtests_passed": 111,
+    "test_failures": 0,
+    "test_duration_seconds": 132.39
+  },
+  "codex": {
+    "path_cli_version": "0.144.0",
+    "measured_app_server_version": "0.146.0-alpha.9.2",
+    "experimental_api": true,
+    "transport": "stdio-jsonl"
+  },
+  "discord": {
+    "slash_command_count": 19
+  },
+  "app_server": {
+    "observed_method_literal_count": 23
+  },
+  "discord_store": {
+    "user_version": 2,
+    "table_count": 17,
+    "index_count": 4,
+    "integrity_check": "ok"
+  }
+}

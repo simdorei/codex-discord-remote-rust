@@ -1,0 +1,36 @@
+[package]
+name = "cdr-mcp-server"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+base64.workspace = true
+cdr-core.workspace = true
+cdr-remote-protocol.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+regex.workspace = true
+rmcp.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+url.workspace = true
+uuid.workspace = true
+subtle = "2.6.1"
+
+[dev-dependencies]
+cdr-remote-agent = { path = "../cdr-remote-agent" }
+reqwest.workspace = true
+tempfile.workspace = true
+tokio-tungstenite.workspace = true
+
+[lints]
+workspace = true

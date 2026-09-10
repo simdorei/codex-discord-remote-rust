@@ -1,0 +1,20 @@
+{
+  "name": "codex-discord-remote",
+  "interface": {
+    "displayName": "Codex Discord Remote"
+  },
+  "plugins": [
+    {
+      "name": "codex-discord-remote",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-discord-remote"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

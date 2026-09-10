@@ -1,0 +1,5 @@
+# Direct runtime dependencies for Windows and macOS local Codex Desktop control.
+discord.py>=2.7,<3
+httpx2[http2,brotli,zstd]>=2,<3
+pydantic>=2.11,<3
+websockets>=16,<17

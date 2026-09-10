@@ -1,0 +1,85 @@
+use std::process::ExitCode;
+use std::time::Duration;
+
+use cdr_runtime::config::RuntimeConfig;
+use cdr_runtime::discord_runtime;
+use cdr_runtime::runtime_paths::{RuntimePaths, discover_inputs};
+use cdr_runtime::startup::{StartupArgs, config_summary, help_text, load_environment};
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    match run().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err((code, error)) => {
+            eprintln!("ERROR: {error}");
+            ExitCode::from(code)
+        }
+    }
+}
+
+async fn run() -> Result<(), (u8, String)> {
+    let args =
+        StartupArgs::parse(std::env::args_os().skip(1)).map_err(|error| (2, error.to_string()))?;
+    if args.help {
+        println!("{}", help_text());
+        return Ok(());
+    }
+    let executable = std::env::current_exe().map_err(|error| {
+        (
+            1,
+            format!("could not resolve runtime executable path: {error}"),
+        )
+    })?;
+    let environment =
+        load_environment(&args, &executable).map_err(|error| (1, error.to_string()))?;
+    if args.restart_readiness {
+        let root = std::env::current_dir().map_err(|error| {
+            (
+                1,
+                format!("could not determine the working directory: {error}"),
+            )
+        })?;
+        let inputs = discover_inputs(&environment, root).map_err(|error| (1, error.to_string()))?;
+        let paths =
+            RuntimePaths::resolve(&environment, &inputs).map_err(|error| (1, error.to_string()))?;
+        cdr_runtime::restart_readiness::wait_for_restart(
+            &paths,
+            cdr_runtime::restart_readiness::RestartReadinessOptions {
+                quiet: Duration::from_secs(args.restart_quiet_seconds),
+                wait_timeout: Duration::from_secs(args.restart_wait_timeout_seconds),
+                poll_interval: Duration::from_secs(5),
+                request_timeout: Duration::from_secs(8),
+                startup_timeout: Duration::from_secs(10),
+                close_timeout: Duration::from_secs(8),
+            },
+        )
+        .await
+        .map_err(|error| (1, error.to_string()))?;
+        println!("restart_readiness_ok");
+        return Ok(());
+    }
+    let config =
+        RuntimeConfig::from_map(&environment, args.cli).map_err(|error| (1, error.to_string()))?;
+    if args.cli.check_config {
+        println!("{}", config_summary(&config));
+        return Ok(());
+    }
+    if args.backup_store {
+        let root = std::env::current_dir().map_err(|error| {
+            (
+                1,
+                format!("could not determine the working directory: {error}"),
+            )
+        })?;
+        let inputs = discover_inputs(&environment, root).map_err(|error| (1, error.to_string()))?;
+        let paths =
+            RuntimePaths::resolve(&environment, &inputs).map_err(|error| (1, error.to_string()))?;
+        let backup = cdr_store::backup::snapshot(&paths.mirror_db)
+            .map_err(|error| (1, error.to_string()))?;
+        println!("backup_created path={}", backup.display());
+        return Ok(());
+    }
+    discord_runtime::run(config, &environment)
+        .await
+        .map_err(|error| (1, error.to_string()))
+}

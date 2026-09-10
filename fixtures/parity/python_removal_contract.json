@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "baseline": {
+    "tracked_python_files": 1195,
+    "tracked_test_python_files": 536,
+    "tracked_non_test_python_files": 659
+  },
+  "python_families": [
+    "codex_discord_*.py",
+    "codex_app_server_*.py",
+    "codex_desktop_bridge*.py",
+    "codex_remote_mcp_*.py",
+    "codex_pro_*.py",
+    "codex_windows_*.py",
+    "simdorei_mcp_common/**/*.py",
+    "remote_mcp_server/simdorei_mcp/**/*.py",
+    "tests/**/*.py"
+  ],
+  "standalone_tools": [
+    "setup_discord_bot.py",
+    "send_discord_attachment.py",
+    "codex_windows_harness.py",
+    "collect_pro_release_evidence.py",
+    "verify_codex_plugin_inventory.py",
+    "plugins/codex-discord-remote/hooks/browser_evidence_hook.py",
+    "plugins/codex-discord-remote/hooks/pro_connector_evidence_hook.py",
+    "plugins/codex-discord-remote/skills/ask-chatgpt-pro/scripts/conversation_map.py"
+  ],
+  "launch_or_inspection_files": [
+    ".github/workflows/macos-smoke.yml",
+    ".github/workflows/windows-contract.yml",
+    "codex-discord-bot.cmd",
+    "codex-discord-bot.sh",
+    "codex-discord-python-runtime.ps1",
+    "codex-discord-tray.ps1",
+    "codex-discord-watchdog-identity-runtime.ps1",
+    "codex-discord-watchdog-restart-runtime.ps1",
+    "codex-discord-watchdog-runtime.ps1",
+    "codex-discord-watchdog.ps1",
+    "codex-resource-cleanup.ps1",
+    "install.ps1",
+    "install.sh",
+    "plugins/codex-discord-remote/hooks/browser-evidence.json",
+    "plugins/codex-discord-remote/hooks/pro-connector-evidence.json",
+    "plugins/codex-discord-remote/scripts/qa-smoke.ps1",
+    "plugins/codex-discord-remote/scripts/restart.ps1",
+    "plugins/codex-discord-remote/scripts/status.ps1",
+    "remote_mcp_server/Dockerfile",
+    "remote_mcp_server/compose.yaml",
+    "remote_mcp_server/pyproject.toml",
+    "runtime-release.json",
+    "setup-discord-bot.ps1",
+    "setup-discord-bot.sh"
+  ],
+  "final_gate": {
+    "tracked_python_files": 0,
+    "packaged_python_files": 0,
+    "python_launcher_references": 0,
+    "portable_python_present": false,
+    "requirements_files_present": false,
+    "requires_recoverable_checkpoint": true,
+    "requires_explicit_user_approval": true
+  }
+}

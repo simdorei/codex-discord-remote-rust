@@ -1,0 +1,92 @@
+use super::ActionError;
+use cdr_app_server::requests::{ServiceTierUpdate, ThreadSettingsUpdate};
+use serde_json::Value;
+
+pub(super) struct Settings {
+    pub model: String,
+    pub effort: Option<String>,
+    pub tier: Option<String>,
+}
+impl Settings {
+    pub fn parse(value: &Value) -> Result<Self, ActionError> {
+        let model = value
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| invalid("model missing"))?;
+        Ok(Self {
+            model: model.into(),
+            effort: nullable(value, "effort")?,
+            tier: nullable(value, "serviceTier")?,
+        })
+    }
+    pub fn from_resume(value: &Value) -> Result<Self, ActionError> {
+        let mut settings = value
+            .as_object()
+            .cloned()
+            .ok_or_else(|| invalid("resume is not an object"))?;
+        if let Some(effort) = settings.remove("reasoningEffort") {
+            settings.insert("effort".into(), effort);
+        } else {
+            settings.remove("effort");
+        }
+        Self::parse(&Value::Object(settings))
+    }
+    pub fn matches(&self, update: &ThreadSettingsUpdate) -> bool {
+        update.model.as_ref().is_none_or(|v| v == &self.model)
+            && update
+                .effort
+                .as_ref()
+                .is_none_or(|v| Some(v) == self.effort.as_ref())
+            && match &update.service_tier {
+                ServiceTierUpdate::Unchanged => true,
+                ServiceTierUpdate::Clear => self.tier.is_none(),
+                ServiceTierUpdate::Set(tier) => Some(tier) == self.tier.as_ref(),
+            }
+    }
+    pub fn display(&self, thread: &str, label: &str) -> String {
+        let speed = match self.tier.as_deref() {
+            None => "standard",
+            Some("priority") => "fast",
+            Some(other) => other,
+        };
+        format!(
+            "{label}\nthread: {thread}\n모델: {}\n추론: {}\n속도: {speed}",
+            self.model,
+            self.effort.as_deref().unwrap_or("모델 기본값")
+        )
+    }
+}
+fn nullable(value: &Value, key: &str) -> Result<Option<String>, ActionError> {
+    match value.get(key) {
+        Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) if !text.trim().is_empty() => Ok(Some(text.clone())),
+        _ => Err(invalid("setting field missing or malformed")),
+    }
+}
+fn invalid(reason: &str) -> ActionError {
+    ActionError::Invalid(format!(
+        "settings observation invalid: {reason}; no verified success"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn incomplete_resume_is_not_invented_as_default_effort_or_standard_speed() {
+        for value in [
+            json!({"model":"model-a"}),
+            json!({"model":"model-a","reasoningEffort":null}),
+            json!({"model":"model-a","serviceTier":null}),
+        ] {
+            assert!(
+                Settings::from_resume(&value).is_err(),
+                "missing settings are not explicit null: {value}"
+            );
+        }
+        let value = json!({"model":"model-a","reasoningEffort":null,"serviceTier":null});
+        assert!(Settings::from_resume(&value).is_ok());
+    }
+}

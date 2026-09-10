@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "stores": [
+    {
+      "name": "discord_mirror",
+      "path_kind": "repository runtime configuration",
+      "format": "sqlite",
+      "ownership": "codex-discord-remote",
+      "default_access": "read-write",
+      "requirements": ["backup", "integrity_check", "unknown schema object preservation", "Python rollback readability"]
+    },
+    {
+      "name": "codex_state",
+      "path_kind": "CODEX_HOME/state_*.sqlite",
+      "format": "sqlite",
+      "ownership": "Codex",
+      "default_access": "read-only",
+      "requirements": ["version discovery", "read-only thread queries", "no migration ownership"]
+    },
+    {
+      "name": "codex_logs",
+      "path_kind": "CODEX_HOME/logs_2.sqlite",
+      "format": "sqlite",
+      "ownership": "Codex",
+      "default_access": "read-only",
+      "requirements": ["archive maintenance backup before exceptional writes"]
+    },
+    {
+      "name": "session_index",
+      "path_kind": "CODEX_HOME/session_index.jsonl",
+      "format": "jsonl",
+      "ownership": "Codex",
+      "default_access": "read-only",
+      "requirements": ["UTF-8", "partial-line tolerance", "atomic rewrite only for approved archive maintenance"]
+    },
+    {
+      "name": "rollout_sessions",
+      "path_kind": "CODEX_HOME/sessions/**/rollout-*.jsonl",
+      "format": "jsonl",
+      "ownership": "Codex",
+      "default_access": "read-only tail",
+      "requirements": ["cursor compatibility", "partial-line tolerance", "archive tail", "duplicate suppression"]
+    },
+    {
+      "name": "rollout_archives",
+      "path_kind": "CODEX_HOME/archived_sessions/**/rollout-*.jsonl",
+      "format": "jsonl",
+      "ownership": "Codex",
+      "default_access": "read-only",
+      "requirements": ["path containment", "backup before approved delete"]
+    },
+    {
+      "name": "desktop_bridge_state",
+      "path_kind": "CODEX_HOME/codex_desktop_bridge_state.json",
+      "format": "json",
+      "ownership": "codex-discord-remote",
+      "default_access": "read-write",
+      "requirements": ["UTF-8", "atomic replace", "corrupt-file backup", "unknown-field preservation"]
+    },
+    {
+      "name": "remote_mcp_oauth",
+      "path_kind": "configured OAuth database path",
+      "format": "sqlite",
+      "ownership": "simdorei MCP server",
+      "default_access": "read-write",
+      "requirements": ["client compatibility", "hashed token compatibility", "rotation replay semantics", "bidirectional rollback fixture"]
+    },
+    {
+      "name": "runtime_markers",
+      "path_kind": "runtime lock, stop/restart markers, restart handoff, attachment staging",
+      "format": "text/json/files",
+      "ownership": "codex-discord-remote",
+      "default_access": "read-write",
+      "requirements": ["atomic update", "stale cleanup", "path containment", "crash recovery"]
+    }
+  ]
+}

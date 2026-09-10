@@ -1,0 +1,3 @@
+# Preserve exact UTF-8 source and fixture bytes across Windows/macOS/Linux clones.
+# Plugin fingerprints and source evidence use SHA-256 over these bytes.
+* -text

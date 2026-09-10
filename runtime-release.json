@@ -1,0 +1,14 @@
+{
+  "python": {
+    "version": "3.12.1",
+    "url": "https://www.python.org/ftp/python/3.12.1/python-3.12.1-embed-amd64.zip",
+    "sha256": "7a77c7471f5ceee88831a29b9460eddd784adf31b0230f188149ef0c588642d1"
+  },
+  "get_pip": {
+    "url": "https://bootstrap.pypa.io/get-pip.py",
+    "sha256": "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6"
+  },
+  "pip": {
+    "version": "26.2.1"
+  }
+}

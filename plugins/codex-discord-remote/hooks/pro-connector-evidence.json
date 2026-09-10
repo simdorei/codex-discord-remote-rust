@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(exec|functions\\.exec|js|mcp__node_repl__js|node_repl\\.js)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/pro_connector_evidence_hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\pro_connector_evidence_hook.py\"",
+            "timeout": 10,
+            "statusMessage": "Verifying Pro OAuth connector"
+          }
+        ]
+      }
+    ]
+  }
+}

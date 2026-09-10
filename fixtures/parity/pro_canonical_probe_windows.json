@@ -1,0 +1,8 @@
+{
+  "plugin_root": "C:/plugin-root",
+  "browser_inner": "nodeRepl.write(JSON.stringify(await (await import(\"file:///C:/plugin-root/skills/ask-chatgpt-pro/scripts/browser_evidence_probe.mjs\")).probeChrome(globalThis)));",
+  "browser_outer": "const browserEvidenceResult = await tools.mcp__node_repl__js({\"code\":\"nodeRepl.write(JSON.stringify(await (await import(\\\"file:///C:/plugin-root/skills/ask-chatgpt-pro/scripts/browser_evidence_probe.mjs\\\")).probeChrome(globalThis)));\",\"title\":\"Verify Chrome\"});\nfor (const item of browserEvidenceResult.content ?? []) {\n  if (item.type === \"text\") text(item.text);\n}",
+  "connector_inner": "nodeRepl.write(JSON.stringify(await (await import(\"file:///C:/plugin-root/skills/ask-chatgpt-pro/scripts/pro_connector_control.mjs\")).prepareProConnector(globalThis)));",
+  "connector_outer": "const connectorControlResult = await tools.mcp__node_repl__js({\"code\":\"nodeRepl.write(JSON.stringify(await (await import(\\\"file:///C:/plugin-root/skills/ask-chatgpt-pro/scripts/pro_connector_control.mjs\\\")).prepareProConnector(globalThis)));\",\"title\":\"Prepare Pro OAuth connector\"});\nfor (const item of connectorControlResult.content ?? []) {\n  if (item.type === \"text\") text(item.text);\n}",
+  "connector_retry": "const connectorControlRetryResult = await tools.mcp__node_repl__js({\"code\":\"nodeRepl.write(JSON.stringify(await (await import(\\\"file:///C:/plugin-root/skills/ask-chatgpt-pro/scripts/pro_connector_control.mjs\\\")).prepareProConnector(globalThis)));\",\"title\":\"Prepare Pro OAuth connector\"});\nfor (const item of connectorControlRetryResult.content ?? []) {\n  if (item.type === \"text\") text(item.text);\n}"
+}

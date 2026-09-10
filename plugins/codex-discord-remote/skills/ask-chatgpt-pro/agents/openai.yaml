@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ask ChatGPT Pro"
+  short_description: "ChatGPT Pro의 조언을 받아 작업을 검토하고 실행"
+  default_prompt: "Use $ask-chatgpt-pro to consult ChatGPT Pro, evaluate its advice, and apply only verified improvements."

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "commands": [
+    { "name": "help", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "list", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "archived_list", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "use", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "status", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "settings", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "where", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "context", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "usage", "source": "codex_discord_slash_commands.py", "conditional": false },
+    { "name": "new", "source": "codex_discord_slash_prompt_commands.py", "conditional": false },
+    { "name": "ask", "source": "codex_discord_slash_prompt_commands.py", "conditional": false },
+    { "name": "interview", "source": "codex_discord_slash_prompt_commands.py", "conditional": false },
+    { "name": "ask_ipc", "source": "codex_discord_slash_prompt_commands.py", "conditional": false },
+    { "name": "doctor", "source": "codex_discord_slash_runtime_commands.py", "conditional": false },
+    { "name": "runners", "source": "codex_discord_slash_runtime_commands.py", "conditional": false },
+    { "name": "retract", "source": "codex_discord_slash_runtime_commands.py", "conditional": false },
+    { "name": "mirror_check", "source": "codex_discord_slash_runtime_commands.py", "conditional": false },
+    { "name": "bridge_sync", "source": "codex_discord_slash_runtime_commands.py", "conditional": false },
+    { "name": "qa_buttons", "source": "codex_discord_slash_runtime_commands.py", "conditional": true }
+  ]
+}

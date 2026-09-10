@@ -1,0 +1,4 @@
+interface:
+  display_name: "Archive Used"
+  short_description: "Archive high-used Discord remote threads by list UUID."
+  default_prompt: "Use $archive-used THRESHOLD to archive threads by the UUID printed in list output."

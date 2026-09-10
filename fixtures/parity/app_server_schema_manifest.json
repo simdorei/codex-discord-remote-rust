@@ -1,0 +1,17 @@
+{
+  "codex_version": "0.146.0-alpha.9.2",
+  "generated_with_experimental": true,
+  "generated_on": "2026-08-31",
+  "method_counts": {
+    "client_requests": 127,
+    "server_requests": 11,
+    "server_notifications": 70,
+    "client_notifications": 1
+  },
+  "sha256": {
+    "ClientRequest.json": "41188ef1f3507f7a6dfc238a935dabd39eaa71c954c27fb27e6c55c6d9dd8176",
+    "ServerRequest.json": "5abe765ff9bd94b88f2f2fb417025ec011eac172925ffdfc74d7ccf2542bc114",
+    "ServerNotification.json": "89608a4d65d713a85940f8eefb9bf2e87a94cbf2abac3ed069fad7cb6f078872",
+    "codex_app_server_protocol.v2.schemas.json": "f4007094b846ad3833e34761a89cb8f7a2bba5bbbc957c2f7ed06e7d04a13061"
+  }
+}
