@@ -8,6 +8,39 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsContractWorkflowTests(unittest.TestCase):
+    def test_python_parity_dependencies_are_ready_before_rust_tests(self) -> None:
+        for name in ("windows-contract.yml", "macos-smoke.yml"):
+            with self.subTest(workflow=name):
+                workflow = (ROOT / ".github/workflows" / name).read_text(
+                    encoding="utf-8"
+                )
+                mcp_sync = (
+                    "python -m uv sync --project remote_mcp_server --locked "
+                    '--no-dev --python "${{ steps.python.outputs.python-path }}"'
+                )
+                install = "python -m pip install --require-hashes -r requirements.txt"
+                venv_python = (
+                    "Scripts/python.exe" if name.startswith("windows") else "bin/python"
+                )
+                self.assertIn("id: python", workflow)
+                self.assertIn(
+                    "PYTHON_EXE: ${{ github.workspace }}/remote_mcp_server/.venv/"
+                    + venv_python,
+                    workflow,
+                )
+                self.assertIn('PY_PYTHON3: "3.12"', workflow)
+                self.assertIn(mcp_sync, workflow)
+                self.assertIn(install, workflow)
+                self.assertNotIn("mcp-test-requirements.txt", workflow)
+                self.assertLess(
+                    workflow.index(mcp_sync),
+                    workflow.index("cargo test --workspace --locked"),
+                )
+                self.assertLess(
+                    workflow.index(install),
+                    workflow.index("cargo test --workspace --locked"),
+                )
+
     def test_windows_rust_gate_preserves_every_native_failure(self) -> None:
         workflow = (ROOT / ".github/workflows/windows-contract.yml").read_text(
             encoding="utf-8"

@@ -86,6 +86,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-discord-rust-status.
 일반 자동 테스트는 가짜 서버와 임시 데이터로 실행합니다.
 실제 계정·기기를 사용하는 `ignored` 테스트는 자동으로 실행하지 않습니다.
 일부 테스트에는 Python 3.12와 PowerShell, Node.js가 필요합니다.
+Python 비교 테스트에는 `requirements.txt`의 봇 보조 환경과
+`remote_mcp_server/uv.lock`의 별도 MCP 환경이 필요합니다.
+두 고정 버전 묶음을 한 환경에 섞지 마세요. 설치 순서와 `PYTHON_EXE` 지정은
+[Windows 자동 검사 설정](.github/workflows/windows-contract.yml)을 참고하세요.
 백업 패키징 시험 중 일부는 PC 전체에 실행 중인 봇이 없어야 합니다.
 운용 중인 봇이 있다면 해당 시험은 GitHub Actions의 새 검사 환경에서 실행하세요.
 이 저장소의 테스트를 위해 기존 봇을 자동으로 정지하지 않습니다.
