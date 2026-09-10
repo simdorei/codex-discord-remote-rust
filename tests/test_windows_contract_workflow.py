@@ -8,6 +8,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsContractWorkflowTests(unittest.TestCase):
+    def test_windows_rust_gate_preserves_every_native_failure(self) -> None:
+        workflow = (ROOT / ".github/workflows/windows-contract.yml").read_text(
+            encoding="utf-8"
+        )
+        for command in (
+            "rustup show active-toolchain",
+            "cargo build --workspace --locked",
+            "cargo test --workspace --locked",
+            "cargo clippy --workspace --all-targets --locked -- -D warnings",
+        ):
+            self.assertIn(
+                command + "\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+                workflow,
+            )
+
     def test_windows_formatting_avoids_workspace_wide_argument_overflow(self) -> None:
         workflow = (ROOT / ".github/workflows/windows-contract.yml").read_text(
             encoding="utf-8"

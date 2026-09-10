@@ -17,10 +17,15 @@ jobs:
       - name: Verify pinned Rust workspace
         run: |
           rustup show active-toolchain
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/Test-RustFormatting.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build --workspace --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --workspace --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo clippy --workspace --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.txt
       - name: Verify packaged plugin cachebuster

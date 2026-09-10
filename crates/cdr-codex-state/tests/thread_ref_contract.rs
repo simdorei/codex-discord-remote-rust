@@ -56,10 +56,12 @@ fn every_displayed_alias_round_trips_even_when_names_are_reserved() {
 
 #[test]
 fn numeric_workspace_path_and_full_id_references_match_python() {
-    let threads = vec![
-        thread("id-a", r"C:\repos\same"),
-        thread("id-b", r"C:\repos\project"),
-    ];
+    let (same_path, project_path, project_reference) = if cfg!(windows) {
+        (r"C:\repos\same", r"C:\repos\project", "c:/REPOS/project")
+    } else {
+        ("/repos/same", "/repos/project", "/repos/./project")
+    };
+    let threads = vec![thread("id-a", same_path), thread("id-b", project_path)];
 
     assert_eq!(
         resolve_thread_ref(&threads, "1", None, false).unwrap().id,
@@ -72,7 +74,7 @@ fn numeric_workspace_path_and_full_id_references_match_python() {
         "id-b"
     );
     assert_eq!(
-        resolve_thread_ref(&threads, r"c:/REPOS/project", None, false)
+        resolve_thread_ref(&threads, project_reference, None, false)
             .unwrap()
             .id,
         "id-b"
@@ -160,10 +162,36 @@ fn exact_id_wins_over_another_threads_workspace_alias() {
 
 #[test]
 fn a_shared_full_workspace_path_is_ambiguous_not_the_first_thread() {
-    let threads = vec![thread("id-a", "C:/repo"), thread("id-b", r"c:\repo\")];
+    let (first, second) = if cfg!(windows) {
+        ("C:/repo", r"c:\repo\")
+    } else {
+        ("/repo", "/repo/")
+    };
+    let threads = vec![thread("id-a", first), thread("id-b", second)];
     assert!(matches!(
-        resolve_thread_ref(&threads, "C:/repo", None, false),
+        resolve_thread_ref(&threads, first, None, false),
         Err(ThreadResolveError::Ambiguous { .. })
+    ));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn unix_full_workspace_paths_preserve_case_and_do_not_select_another_thread() {
+    let threads = vec![
+        thread("id-a", "/repos/Project"),
+        thread("id-b", "/repos/project"),
+    ];
+    for (reference, expected) in [("/repos/Project", "id-a"), ("/repos/project", "id-b")] {
+        assert_eq!(
+            resolve_thread_ref(&threads, reference, None, false)
+                .unwrap()
+                .id,
+            expected
+        );
+    }
+    assert!(matches!(
+        resolve_thread_ref(&threads, "/REPOS/project", None, false),
+        Err(ThreadResolveError::NotFound(_))
     ));
 }
 
