@@ -1,20 +1,17 @@
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::json;
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 
 use super::{AppServerClient, AppServerConfig, Inner};
-use crate::AppServerError;
 use crate::client::ClientLifecycle;
 use crate::diagnostics::BoundedDiagnostics;
 use crate::process::{SpawnedAppServer, spawn_app_server};
 use crate::state::RuntimeState;
 use crate::transport::{drain_stderr, drain_stdout};
-
-const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(8);
+use crate::{APP_SERVER_INITIALIZE_TIMEOUT, AppServerError};
 
 impl AppServerClient {
     pub async fn start(config: AppServerConfig) -> Result<Self, AppServerError> {
@@ -75,7 +72,7 @@ where
         "capabilities": {"experimentalApi": true}
     });
     if let Err(primary) = client
-        .request("initialize", initialize, INITIALIZE_TIMEOUT)
+        .request("initialize", initialize, APP_SERVER_INITIALIZE_TIMEOUT)
         .await
     {
         return Err(cleanup.fail(primary).await);

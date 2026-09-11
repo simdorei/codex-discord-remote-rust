@@ -1,5 +1,5 @@
 //! Binary update ticket template: replace example paths only after review.
-use cdr_app_server::{AppServerClient, AppServerConfig};
+use cdr_app_server::{APP_SERVER_STARTUP_TIMEOUT, AppServerClient, AppServerConfig};
 use cdr_runtime::{
     restart_readiness::{RestartReadinessState, check_restart_readiness},
     runtime_instance::RuntimeInstanceGuard,
@@ -80,7 +80,7 @@ async fn preflight(paths: &RuntimePaths) -> Result<()> {
             .into(),
     )]);
     let client =
-        tokio::time::timeout(Duration::from_secs(15), AppServerClient::start(config)).await??;
+        tokio::time::timeout(APP_SERVER_STARTUP_TIMEOUT, AppServerClient::start(config)).await??;
     let result = check_restart_readiness(
         &paths.mirror_db,
         &client,

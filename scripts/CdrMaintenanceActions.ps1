@@ -117,7 +117,10 @@ function Install-CdrMaintenanceCandidate($State) {
 
 function Invoke-CdrMaintenanceFullReadiness($State) {
     if ((Get-CdrArtifactHash $BinaryPath) -cne $State.CandidateHash) { throw 'maintenance_readiness_hash_wrong' }
-    $seconds=Get-CdrMaintenanceRemainingSeconds $State 30
+    $seconds=Get-CdrMaintenanceRemainingSeconds $State 120
+    # Match the runtime's 45s startup + 8s close and reserve 5s for scheduling.
+    if ($seconds -le 58) { throw 'maintenance_readiness_budget_insufficient; no child started' }
+    $waitSeconds=[math]::Min(60,$seconds-58)
     Invoke-CdrMaintenanceCommand $State $BinaryPath @('--restart-readiness','--restart-quiet-seconds','0',
-        '--restart-wait-timeout-seconds',[string]$seconds,'--env',$EnvPath) $seconds
+        '--restart-wait-timeout-seconds',[string]$waitSeconds,'--env',$EnvPath) $seconds
 }

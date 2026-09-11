@@ -1,4 +1,5 @@
 # Bounded native command execution. An uncertain child is retained, NEVER killed/replayed.
+. (Join-Path $PSScriptRoot 'CdrMaintenanceDiagnostics.ps1')
 function Get-CdrCommandUtcNow { [DateTimeOffset]::UtcNow }
 function Wait-CdrCommandExit($Process, $OutReader, $ErrReader) { $Process.WaitForExit(100) }
 
@@ -21,6 +22,8 @@ function Invoke-CdrMaintenanceCommand($State, [string]$File, [string[]]$Argument
     $info.WorkingDirectory=$RepoRoot; $info.UseShellExecute=$false
     $info.CreateNoWindow=$true; $info.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
     $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true
+    $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
+    $info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
     $process=[Diagnostics.Process]::new(); $process.StartInfo=$info
     $State.ActiveCommand=[pscustomobject]@{Phase='launching';File=$File;Identity=''}
     Save-CdrMaintenanceState $State $statePath
@@ -45,13 +48,15 @@ function Invoke-CdrMaintenanceCommand($State, [string]$File, [string[]]$Argument
         $code=$process.ExitCode
         # Both readers are started together, avoiding stdout/stderr pipe deadlock.
         $output=$outTask.GetAwaiter().GetResult(); $errorText=$errTask.GetAwaiter().GetResult()
-        foreach ($text in @($output,$errorText)) {
-            if ($text) { Write-Host ($text.Substring(0,[math]::Min(16000,$text.Length))) }
+        $safeOut=Get-CdrMaintenanceDiagnostic $output $EnvPath
+        $safeErr=Get-CdrMaintenanceDiagnostic $errorText $EnvPath
+        foreach ($text in @($safeOut,$safeErr)) {
+            if ($text) { Write-Host $text }
         }
         $State.ActiveCommand=$null
         Save-CdrMaintenanceState $State $statePath
         Assert-CdrMaintenanceDeadline $State
-        if ($code -ne 0) { throw "maintenance_native_command_failed exit=$code; native error printed above" }
+        if ($code -ne 0) { throw "maintenance_native_command_failed exit=$code; stderr=$safeErr; stdout=$safeOut" }
         if ($PassThru) { return [pscustomobject]@{ExitCode=$code;Stdout=$output;Stderr=$errorText} }
     } finally { $process.Dispose() }
 }

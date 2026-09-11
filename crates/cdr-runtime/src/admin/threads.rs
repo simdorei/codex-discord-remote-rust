@@ -8,7 +8,7 @@ use crate::{
     queue_runner::QueueCoordinator,
     runtime_paths::{RuntimePaths, discover_inputs},
 };
-use cdr_app_server::{AppServerConfig, ResidentAppServer};
+use cdr_app_server::{APP_SERVER_STARTUP_TIMEOUT, AppServerConfig, ResidentAppServer};
 use std::{path::Path, sync::Arc, time::Duration};
 
 pub enum ThreadAdminAction {
@@ -88,7 +88,7 @@ async fn execute_command(
         }
     }
     let server = Arc::new(
-        tokio::time::timeout(Duration::from_secs(20), ResidentAppServer::start(config))
+        tokio::time::timeout(APP_SERVER_STARTUP_TIMEOUT, ResidentAppServer::start(config))
             .await
             .map_err(|error| format!("admin app-server startup timed out: {error}"))?
             .map_err(|error| error.to_string())?,

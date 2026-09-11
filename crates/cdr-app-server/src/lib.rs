@@ -13,6 +13,7 @@ pub mod outcomes;
 mod process;
 pub mod requests;
 mod rpc;
+mod startup_budget;
 mod state;
 mod transport;
 
@@ -34,4 +35,5 @@ pub use manager::{
     ResidentServerRequestEvent,
 };
 pub use rpc::{Notification, RequestId, ServerRequest, ServerRequestOccurrence};
+pub use startup_budget::{APP_SERVER_INITIALIZE_TIMEOUT, APP_SERVER_STARTUP_TIMEOUT};
 pub use state::{LifecycleSnapshot, extract_thread_id, extract_turn_id};

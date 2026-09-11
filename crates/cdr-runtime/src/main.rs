@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
+use cdr_app_server::APP_SERVER_STARTUP_TIMEOUT;
 use cdr_runtime::config::RuntimeConfig;
 use cdr_runtime::discord_runtime;
 use cdr_runtime::runtime_paths::{RuntimePaths, discover_inputs};
@@ -56,7 +57,7 @@ async fn run() -> Result<(), (u8, String)> {
                 wait_timeout: Duration::from_secs(args.restart_wait_timeout_seconds),
                 poll_interval: Duration::from_secs(5),
                 request_timeout: Duration::from_secs(8),
-                startup_timeout: Duration::from_secs(10),
+                startup_timeout: APP_SERVER_STARTUP_TIMEOUT,
                 close_timeout: Duration::from_secs(8),
             },
         )

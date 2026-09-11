@@ -1,5 +1,5 @@
 //! Maintenance ticket template. Replace every example value only after review.
-use cdr_app_server::{AppServerClient, AppServerConfig};
+use cdr_app_server::{APP_SERVER_STARTUP_TIMEOUT, AppServerClient, AppServerConfig};
 use cdr_runtime::{
     config::RuntimeConfig,
     mirror_sync::{DiscordMirrorTransport, MirrorSynchronizer},
@@ -64,7 +64,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .into(),
         )]);
         let client =
-            tokio::time::timeout(Duration::from_secs(15), AppServerClient::start(config)).await??;
+            tokio::time::timeout(APP_SERVER_STARTUP_TIMEOUT, AppServerClient::start(config))
+                .await??;
         let result = check_absent_maintenance(
             &paths.mirror_db,
             &client,
