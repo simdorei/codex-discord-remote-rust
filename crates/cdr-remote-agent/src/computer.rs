@@ -1,4 +1,5 @@
 mod controller;
+mod session;
 #[cfg(windows)]
 mod windows;
 
@@ -7,6 +8,7 @@ use cdr_remote_protocol::request::{ComputerApp, ComputerMouseButton};
 use thiserror::Error;
 
 pub use controller::ComputerController;
+pub(crate) use session::SessionComputer;
 #[cfg(windows)]
 pub use windows::new_windows_controller;
 

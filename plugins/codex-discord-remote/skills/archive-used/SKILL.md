@@ -10,19 +10,18 @@ Archive active Codex threads by comparing the `used` column shown in the bridge 
 ## Workflow
 
 1. Get the threshold. If the user did not provide one, ask for the `used` cutoff in `<number>M` form. Accept lowercase `m` as uppercase `M`.
-2. Use the freshest list output available. If Codex has shell access in this repo, run `py -3 .\codex_desktop_bridge.py list --db-root`; otherwise use the user's current `!list` or `/list` output, or ask them to run `!list`.
-3. Parse only thread rows shaped like:
-   `  3 | workspace | idle | ctx ... | used 12.3M | rec archive | model ... | uuid-from-list | timestamp | title`
+2. Use the freshest list output available. If Codex has shell access in this repo, run `.\target\release\cdr-runtime.exe --admin list-threads --limit 0 --repo-root .`; otherwise use the user's current `!list` or `/list` output, or ask them to run `!list`. On POSIX use `./target/release/cdr-runtime` with the same arguments.
+3. Parse only complete thread rows containing a UUID, `state`, and `used` fields. Rust rows put the UUID in the header and the `state ... | ctx ... | used 12.300M (누적)` fields later; do not assume the old Python column order. Never extract a UUID or `used` value from a different row.
 4. Compare against the `used` column only. Do not use `ctx`, `rec archive`, RAM, disk, or process memory as substitutes.
 5. Treat `m` or `M` as millions of tokens. Decimal `M` values are allowed; `k` and plain numbers are below any `M` threshold.
 6. Select rows whose `used` value is greater than or equal to the threshold.
-7. Skip non-idle rows (`busy`, `waiting-*`, etc.) and the selected row marked with `*` unless the user explicitly says to include them.
+7. Skip non-idle or unverified rows (`busy`, `waiting-*`, `미확인`, etc.) and the selected row marked with `*` unless the user explicitly says to include them. A missing current-state observation is not evidence of idle.
 8. Archive by the UUID printed in the same list row. Copy it exactly; do not substitute a workspace name, selected thread, title, or guessed id. Prefer the local bridge command when shell access is available:
-   `py -3 .\codex_desktop_bridge.py archive --thread-id <uuid-from-list>`
+   `.\target\release\cdr-runtime.exe --admin archive-thread --thread-id <uuid-from-list> --repo-root .`
    If operating only through Discord, use:
    `!archive <uuid-from-list>`
 9. If the UUID column is missing or ambiguous, refresh the list and stop if it is still not visible.
-10. After archiving, run `py -3 .\codex_desktop_bridge.py list --db-root` or `!list` again and report which selected UUIDs disappeared from the active list.
+10. After archiving, run the same native `list-threads` command or `!list` again and report which selected UUIDs disappeared from the active list. The native archive command verifies stored state and uses the same busy/ownership guards as Discord; it never forks a replacement target.
 
 ## Safety Rules
 

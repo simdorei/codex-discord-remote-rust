@@ -1,33 +1,23 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = $PSScriptRoot,
+    [string]$RepoRoot,
     [switch]$DryRun,
-    [string]$BotId = '123456789012345678'
+    [string]$BotId = '123456789012345678',
+    [string]$BinaryPath
 )
-
 $ErrorActionPreference = 'Stop'
-
-if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
-    $RepoRoot = (Get-Location).Path
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
+$RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+if (-not $BinaryPath) {
+    $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'target' }
+    if (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path $RepoRoot $target }
+    $BinaryPath = Join-Path $target 'release\cdr-runtime.exe'
 }
-
-$SetupScript = Join-Path $RepoRoot 'setup_discord_bot.py'
+if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) { throw 'Rust runtime was not found. Run install.ps1 first.' }
+Import-Module (Join-Path $RepoRoot 'scripts\CdrNativeProcess.psm1') -Force
 $WatchdogScript = Join-Path $RepoRoot 'codex-discord-watchdog.ps1'
 $WatchdogLauncher = Join-Path $RepoRoot 'codex-discord-watchdog-hidden.vbs'
 $WatchdogTaskName = 'Codex Discord Bot'
-
-function Resolve-PythonCommand {
-    if (-not [string]::IsNullOrWhiteSpace($env:PYTHON_EXE)) {
-        return @($env:PYTHON_EXE)
-    }
-
-    $portablePython = Join-Path $RepoRoot '.python-portable\python.exe'
-    if (Test-Path -LiteralPath $portablePython) {
-        return @($portablePython)
-    }
-
-    throw 'Portable Python 3.12 was not found. Run .\install.ps1 first to download it and pin PYTHON_EXE.'
-}
 
 function Register-DiscordWatchdogTask {
     if (-not (Test-Path -LiteralPath $WatchdogScript)) {
@@ -79,21 +69,23 @@ function Register-DiscordWatchdogTask {
     Write-Output "Registered scheduled task: $WatchdogTaskName"
 }
 
-$command = @(Resolve-PythonCommand)
-$exe = $command[0]
-$baseArgs = @()
-if ($command.Count -gt 1) {
-    $baseArgs = $command[1..($command.Count - 1)]
-}
 
-$scriptArgs = @($SetupScript, '--repo-root', $RepoRoot, '--bot-id', $BotId)
+$arguments = @('--admin', 'setup-discord', '--repo-root', $RepoRoot)
 if ($DryRun) {
-    $scriptArgs += '--dry-run'
+    Invoke-CdrNative -Executable $BinaryPath -Arguments ($arguments + @('--dry-run', '--bot-id', $BotId))
+} else {
+    $secureToken = Read-Host 'Discord bot token (hidden)' -AsSecureString
+    $tokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+    try {
+        $tokenText = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($tokenPointer)
+        $channel = Read-Host 'Discord general channel ID (optional)'
+        $inputJson = @{ token = $tokenText; channel_id = $channel } | ConvertTo-Json -Compress
+        Invoke-CdrNative -Executable $BinaryPath -Arguments ($arguments + @('--input-stdin')) -InputText $inputJson
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($tokenPointer)
+        $tokenText = $null
+        $inputJson = $null
+        $secureToken.Dispose()
+    }
 }
-
-& $exe @baseArgs @scriptArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "Discord bot setup failed with exit code ${LASTEXITCODE}: $exe $($baseArgs + $scriptArgs -join ' ')"
-}
-
 Register-DiscordWatchdogTask

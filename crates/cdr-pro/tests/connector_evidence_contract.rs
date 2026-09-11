@@ -90,11 +90,11 @@ fn write_transcript(codex_home: &Path, attempts: &[(&str, String, Option<Value>)
 
 #[cfg(windows)]
 #[test]
-fn canonical_connector_code_matches_frozen_python_output() {
+fn canonical_connector_code_matches_current_lexical_binding_contract() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../fixtures/parity/pro_canonical_probe_windows.json"
+        "../../../fixtures/parity/pro_canonical_probe_lexical_windows.json"
     ))
-    .expect("parse frozen Python fixture");
+    .expect("parse explicit lexical binding fixture");
     let root = Path::new(fixture["plugin_root"].as_str().expect("fixture root"));
     assert_eq!(
         canonical_connector_inner_probe_code(root).expect("inner connector code"),

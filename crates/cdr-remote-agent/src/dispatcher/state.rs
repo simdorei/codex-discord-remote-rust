@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-use crate::computer::{ComputerAccessMode, ComputerController};
+use crate::computer::{ComputerAccessMode, SessionComputer};
 use crate::files::{ProjectFileAccess, RemoteFileError};
 use crate::terminal::{TerminalExecutionEngine, TerminalWindowManager};
 
@@ -44,7 +44,7 @@ pub struct SessionActivation {
     pub session_generation: u64,
     pub session_id: String,
     pub computer_mode: ComputerAccessMode,
-    pub computer: ComputerController,
+    pub computer: SessionComputer,
     pub terminals: TerminalExecutionEngine,
     pub terminal_windows: TerminalWindowManager,
 }

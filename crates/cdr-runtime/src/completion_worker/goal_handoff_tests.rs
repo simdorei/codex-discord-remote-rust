@@ -1,66 +1,24 @@
 //! GH1: a held progress receipt must not prevent durable goal ownership handoff.
 use super::*;
-use cdr_app_server::AppServerConfig;
 use cdr_store::{delivery_receipt, observed_completion, queue};
 use sha2::{Digest, Sha256};
 
 pub(super) async fn make_worker(temp: &tempfile::TempDir) -> CompletionWorker {
-    let script = temp.path().join("goal-server.py");
-    std::fs::write(&script, r"
-import json, sys, time, pathlib
-goal_done = False
-early_goal = False
-def advance_goal():
-    global goal_done
-    goal_done = True
-    with open(sys.argv[2], 'w', encoding='utf-8') as rollout:
-        rollout.write(json.dumps({'timestamp':'1','type':'event_msg','payload':{'type':'task_complete','turn_id':'T2','last_agent_message':'goal final'}}) + '\n')
-    for method, status in [('turn/started','inProgress'),('turn/completed','completed')]:
-        print(json.dumps({'method':method,'params':{'threadId':'thread','turn':{'id':'T2','status':status}}}),flush=True)
-for line in sys.stdin:
-    r = json.loads(line)
-    if 'id' not in r: continue
-    m = r['method']
-    with open(sys.argv[1], 'a', encoding='utf-8') as log: log.write(m + '\n')
-    if m == 'initialize': result = {'userAgent':'goal-test'}
-    elif m == 'test/early-goal':
-        early_goal = True
-        result = {}
-    elif m == 'test/advance-goal':
-        advance_goal()
-        result = {}
-    elif m == 'thread/goal/get' and early_goal:
-        early_goal = False
-        advance_goal()
-        deadline = time.monotonic() + 5
-        while not pathlib.Path(sys.argv[2] + '.release').exists():
-            if time.monotonic() > deadline: raise RuntimeError('test goal barrier timed out')
-            time.sleep(0.005)
-        result = {'goal':{'threadId':'thread','status':'active'}}
-    elif m == 'thread/goal/get': result = {'goal':{'threadId':'thread','status':'complete' if goal_done or pathlib.Path(sys.argv[2] + '.goal-complete').exists() else 'active'}}
-    elif m == 'thread/read':
-        turns = [] if pathlib.Path(sys.argv[2] + '.omit-history').exists() else ([('T1','progress'),('T2','goal final')] if goal_done else [('T1','progress')])
-        result = {'thread':{'id':'thread','turns':[{'id':turn,'status':'completed','items':[{'type':'agentMessage','text':text,'phase':'final_answer'}]} for turn,text in turns]}}
-    else: result = {}
-    print(json.dumps({'id':r['id'],'result':result}), flush=True)
-").unwrap();
-    #[cfg(windows)]
-    let mut config = AppServerConfig::new(
-        std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("py.exe"),
-    );
-    #[cfg(not(windows))]
-    let mut config = AppServerConfig::new("python3");
-    config.arguments = vec![
-        script.to_string_lossy().into_owned(),
+    let mut config = crate::test_support::native_fixture::config("goal");
+    config.environment.insert(
+        "GOAL_TEST_LOG".into(),
         temp.path()
             .join("goal-rpc.log")
             .to_string_lossy()
             .into_owned(),
+    );
+    config.environment.insert(
+        "GOAL_TEST_ROLLOUT".into(),
         temp.path()
             .join("goal-rollout.jsonl")
             .to_string_lossy()
             .into_owned(),
-    ];
+    );
     let server = Arc::new(ResidentAppServer::start(config).await.unwrap());
     CompletionWorker {
         queue: Arc::new(QueueCoordinator::new(

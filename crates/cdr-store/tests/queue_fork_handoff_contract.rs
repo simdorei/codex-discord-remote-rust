@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 
 use cdr_store::mapping::{
     MirrorDetailMode, get_detail_mode, set_detail_mode, thread_channels, upsert_thread,
@@ -154,7 +153,7 @@ fn assert_successful_handoff(
     assert_eq!(duplicate.job.job_id, "ambiguous");
     assert_eq!(duplicate.job.state, QueueJobState::Quarantined);
 
-    assert_python_reads_quarantine_as_non_replayable_running(path);
+    assert_legacy_quarantine_storage_contract(path);
 }
 
 #[test]
@@ -270,28 +269,28 @@ fn assert_moved_pending(
     assert!(after.last_error.is_empty());
 }
 
-fn assert_python_reads_quarantine_as_non_replayable_running(path: &Path) {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let script = "import sys; from pathlib import Path; from codex_discord_store_queue import list_queue_jobs; jobs=list_queue_jobs(Path(sys.argv[1])); match=[j for j in jobs if j.job_id == 'ambiguous']; assert len(match) == 1; assert match[0].state.value == 'running'; assert match[0].turn_id.startswith('cdr-quarantined:')";
-    let output = python_command(&repo)
-        .current_dir(repo)
-        .args(["-c", script])
-        .arg(path)
-        .output()
-        .expect("run Python rollback probe");
+fn assert_legacy_quarantine_storage_contract(path: &Path) {
+    // Frozen legacy column/state contract; independent of the Rust queue decoder.
+    // Executable Python rollback is intentionally retired, not required by this check.
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let rows = connection
+        .prepare("SELECT state, turn_id FROM codex_turn_queue WHERE job_id=?")
+        .unwrap()
+        .query_map(["ambiguous"], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "running");
     assert!(
-        output.status.success(),
-        "Python rollback probe failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        rows[0]
+            .1
+            .as_deref()
+            .unwrap()
+            .starts_with("cdr-quarantined:")
     );
-}
-
-fn python_command(repo: &Path) -> Command {
-    if cfg!(windows) {
-        let mut command = Command::new("py");
-        command.arg("-3");
-        command
-    } else {
-        Command::new(repo.join("remote_mcp_server/.venv/bin/python"))
-    }
 }

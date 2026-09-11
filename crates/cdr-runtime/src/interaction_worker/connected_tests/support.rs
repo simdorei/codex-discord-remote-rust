@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use cdr_app_server::{AppServerConfig, ResidentAppServer};
+use cdr_app_server::ResidentAppServer;
 use cdr_discord::components::ComponentId;
 use cdr_discord::interaction::RoutedWork;
 use cdr_store::ingress::{IngressKind, NewIngress};
@@ -183,15 +183,10 @@ pub(super) async fn owned_approval(database: &Path, server: &ResidentAppServer) 
 pub(super) async fn start_fake_server(
     temp: &tempfile::TempDir,
 ) -> (Arc<ResidentAppServer>, PathBuf) {
-    let script = temp
-        .path()
-        .join(format!("fake-app-server-{}.py", uuid::Uuid::new_v4()));
     let log = temp
         .path()
         .join(format!("app-server-{}.jsonl", uuid::Uuid::new_v4()));
-    std::fs::write(&script, FAKE_APP_SERVER).unwrap();
-    let mut config = AppServerConfig::new(python_executable());
-    config.arguments = python_arguments(&script);
+    let mut config = crate::test_support::native_fixture::config("interaction");
     config.environment.insert(
         "CDR_INTERACTION_RPC_LOG".into(),
         log.to_string_lossy().into(),
@@ -201,47 +196,3 @@ pub(super) async fn start_fake_server(
         log,
     )
 }
-
-#[cfg(windows)]
-fn python_executable() -> PathBuf {
-    PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("py.exe")
-}
-
-#[cfg(not(windows))]
-fn python_executable() -> PathBuf {
-    PathBuf::from("python3")
-}
-
-#[cfg(windows)]
-fn python_arguments(script: &Path) -> Vec<String> {
-    vec!["-3".into(), script.to_string_lossy().into()]
-}
-
-#[cfg(not(windows))]
-fn python_arguments(script: &Path) -> Vec<String> {
-    vec![script.to_string_lossy().into()]
-}
-
-const FAKE_APP_SERVER: &str = r#"
-import json, os, sys
-log_path = os.environ["CDR_INTERACTION_RPC_LOG"]
-for line in sys.stdin:
-    request = json.loads(line)
-    with open(log_path, "a", encoding="utf-8") as log:
-        log.write(json.dumps(request) + "\n")
-    if "id" not in request:
-        continue
-    method = request.get("method")
-    if method == "initialize":
-        response = {"id": request["id"], "result": {"userAgent": "worker-test/1"}}
-    elif method == "test/requestApproval":
-        print(json.dumps({"method":"turn/started","params":{"threadId":"thread-a","turn":{"id":"turn-a","status":"inProgress"}}}), flush=True)
-        print(json.dumps({"id":"server-approval","method":"item/commandExecution/requestApproval",
-            "params":{"threadId":"thread-a","turnId":"turn-a","command":"echo safe"}}), flush=True)
-        response = {"id": request["id"], "result": {"requested": True}}
-    elif request.get("id") == "server-approval":
-        continue
-    else:
-        response = {"id": request["id"], "result": {}}
-    print(json.dumps(response), flush=True)
-"#;

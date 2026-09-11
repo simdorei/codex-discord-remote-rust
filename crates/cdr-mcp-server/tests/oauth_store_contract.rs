@@ -1,6 +1,3 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
 use cdr_mcp_server::oauth_store::{
     OAuthStore, OAuthStoreLimits, OAuthTokenRecord, RefreshRotationOutcome,
 };
@@ -98,65 +95,79 @@ fn spent_refresh_replay_revokes_the_successor_family() {
 }
 
 #[test]
-fn python_and_rust_read_each_others_oauth_rows() {
-    let temp = tempfile::tempdir().expect("create temporary directory");
+fn legacy_oauth_rows_and_rust_rows_share_the_frozen_storage_contract() {
+    let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("oauth.sqlite3");
-    let store = OAuthStore::open(&path, OAuthStoreLimits::default()).expect("open Rust store");
+    let legacy = Connection::open(&path).unwrap();
+    legacy
+        .execute_batch(include_str!(
+            "../../../fixtures/parity/legacy_oauth_store.sql"
+        ))
+        .unwrap();
+    drop(legacy);
+
+    let store = OAuthStore::open(&path, OAuthStoreLimits::default()).unwrap();
+    assert_eq!(
+        store.load_access_token("python-access").unwrap().unwrap(),
+        access("python-access", "python-client")
+    );
+    assert_eq!(
+        store.load_refresh_token("python-refresh").unwrap().unwrap(),
+        refresh("python-refresh", "python-client")
+    );
     store
         .save_token_pair(
             &access("rust-access", "rust-client"),
             &refresh("rust-refresh", "rust-client"),
             "rust-family",
         )
-        .expect("save Rust pair");
+        .unwrap();
     drop(store);
 
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let read_rust = r#"import anyio, sys
-from pathlib import Path
-from remote_mcp_server.simdorei_mcp.oauth_store import OAuthStore
-
-async def main():
-    store = OAuthStore(Path(sys.argv[1]))
-    access = await store.load_access_token("rust-access")
-    refresh = await store.load_refresh_token("rust-refresh")
-    assert access is not None and access.client_id == "rust-client"
-    assert refresh is not None and refresh.client_id == "rust-client"
-    await store.close()
-
-anyio.run(main)
-"#;
-    run_python(&repo, read_rust, &path);
-
-    let write_python = r#"import anyio, sys
-from pathlib import Path
-from mcp.server.auth.provider import AccessToken, RefreshToken
-from remote_mcp_server.simdorei_mcp.oauth_store import OAuthStore
-
-async def main():
-    store = OAuthStore(Path(sys.argv[1]))
-    access = AccessToken(token="python-access", client_id="python-client", scopes=["files:read"], expires_at=4000000000, resource="https://example.test/mcp", subject="owner")
-    refresh = RefreshToken(token="python-refresh", client_id="python-client", scopes=["files:read"], expires_at=4000000000, subject="owner")
-    await store.save_token_pair(access, refresh, "python-family")
-    await store.close()
-
-anyio.run(main)
-"#;
-    run_python(&repo, write_python, &path);
-
-    let reopened = OAuthStore::open(&path, OAuthStoreLimits::default()).expect("reopen Rust store");
+    // Independent legacy reader contract: look up SHA-256, deserialize scopes, preserve nullable fields.
+    let legacy = Connection::open(&path).unwrap();
+    for (hash, kind, resource) in [
+        (
+            "5103330be22f14d4941af0a9fe741da658d6270fd2a874f256a34a1517a413a0",
+            "access",
+            Some("https://example.test/mcp"),
+        ),
+        (
+            "a790161e1a5695e28780e1647721bb1aee3badaa8e5b50c38a49aab170b1021f",
+            "refresh",
+            None,
+        ),
+    ] {
+        let row = legacy.query_row(
+            "SELECT token_kind,family_id,client_id,scopes_json,expires_at,resource,subject FROM oauth_tokens WHERE token_hash=?",
+            [hash], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,
+                r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,Option<String>>(5)?,r.get::<_,Option<String>>(6)?)),
+        ).unwrap();
+        assert_eq!(row.0, kind);
+        assert_eq!(row.1, "rust-family");
+        assert_eq!(row.2, "rust-client");
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&row.3).unwrap(),
+            ["files:read"]
+        );
+        assert_eq!(row.4, FUTURE);
+        assert_eq!(row.5.as_deref(), resource);
+        assert_eq!(row.6.as_deref(), Some("owner"));
+    }
+    drop(legacy);
+    let reopened = OAuthStore::open(&path, OAuthStoreLimits::default()).unwrap();
     assert_eq!(
         reopened
             .load_access_token("python-access")
-            .expect("load Python access")
-            .expect("Python access exists")
+            .unwrap()
+            .unwrap()
             .client_id,
         "python-client"
     );
     assert!(
         reopened
             .load_refresh_token("python-refresh")
-            .expect("load Python refresh")
+            .unwrap()
             .is_some()
     );
 }
@@ -176,49 +187,5 @@ fn refresh(token: &str, client_id: &str) -> OAuthTokenRecord {
     OAuthTokenRecord {
         resource: None,
         ..access(token, client_id)
-    }
-}
-
-fn run_python(repo: &Path, script: &str, database: &Path) {
-    let (mut command, site_packages) = python_command(repo);
-    let script = site_packages.as_ref().map_or_else(
-        || script.to_owned(),
-        |_| format!("import site,sys\nsite.addsitedir(sys.argv.pop(1))\n{script}"),
-    );
-    command.current_dir(repo).args(["-c", &script]);
-    if let Some(path) = site_packages {
-        command.arg(path);
-    }
-    let output = command
-        .arg(database)
-        .output()
-        .expect("run Python compatibility probe");
-    assert!(
-        output.status.success(),
-        "Python OAuth compatibility probe failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn python_command(repo: &Path) -> (Command, Option<PathBuf>) {
-    if let Some(executable) = std::env::var_os("PYTHON_EXE").filter(|value| !value.is_empty()) {
-        return (Command::new(executable), None);
-    }
-    if cfg!(windows) {
-        let portable = repo.join(".python-portable/python.exe");
-        if portable.is_file() {
-            let site_packages = repo.join("remote_mcp_server/.venv/Lib/site-packages");
-            return (Command::new(portable), Some(site_packages));
-        }
-        let mut command = Command::new("py");
-        command.arg("-3");
-        (command, None)
-    } else {
-        let local = repo.join("remote_mcp_server/.venv/bin/python");
-        if local.is_file() {
-            (Command::new(local), None)
-        } else {
-            (Command::new("python3"), None)
-        }
     }
 }

@@ -25,18 +25,7 @@ foreach ($runtimePath in @(
 }
 . $TrayRuntimePath
 $RuntimeMode = Resolve-TrayRuntimeMode
-if ($RuntimeMode -eq 'rust') {
-    $RuntimeLockPath = Join-Path $ScriptDir '.codex_discord_rust.runtime.lock'
-    $BotLogPath = Join-Path $ScriptDir 'codex_discord_rust.log'
-} else {
-    Write-Warning 'Tray is using the explicitly selected manual Python rollback runtime.'
-    $BotScript = Join-Path $ScriptDir 'codex_discord_bot.py'
-    $RuntimeLockPath = Join-Path $ScriptDir '.codex_discord_bot.runtime.lock'
-    $RestartRequestPath = Join-Path $ScriptDir '.codex_discord_bot.restart'
-    $BotLogPath = Join-Path $ScriptDir 'codex_discord_bot.log'
-    . (Join-Path $ScriptDir 'codex-discord-atomic-file-runtime.ps1')
-    . (Join-Path $ScriptDir 'codex-discord-watchdog-identity-runtime.ps1')
-}
+$BotLogPath = Join-Path $ScriptDir 'codex_discord_rust.log'
 . $TrayRestartRuntimePath
 
 function Write-LauncherLog {

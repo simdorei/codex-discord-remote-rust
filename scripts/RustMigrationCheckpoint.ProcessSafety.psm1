@@ -92,7 +92,8 @@ function Get-CdrLegacyPythonBotProcessSnapshot {
     )
     try {
         $shortPath = if ($null -eq $ShortPathQuery) {
-            Get-CdrWindowsShortPath $scriptPath
+            if ([IO.File]::Exists($scriptPath)) { Get-CdrWindowsShortPath $scriptPath }
+            else { $scriptPath } # Retired source need not exist to detect a stray legacy writer.
         } else { & $ShortPathQuery $scriptPath }
         if ([string]::IsNullOrWhiteSpace([string]$shortPath)) {
             throw 'short path query returned an empty value'
@@ -131,12 +132,42 @@ function Get-CdrCheckpointForbiddenProcessSnapshot {
         [scriptblock]$ShortPathQuery
     )
     $native = if ($null -eq $NativeSnapshotQuery) {
-        @(Get-CdrForbiddenArtifactProcessSnapshot)
+        @(Get-CdrCheckpointNativeProcessSnapshot -RepoRoot $RepoRoot)
     } else { @(& $NativeSnapshotQuery) }
     $python = @(Get-CdrLegacyPythonBotProcessSnapshot `
         -RepoRoot $RepoRoot -ProcessRowsQuery $ProcessRowsQuery `
         -ShortPathQuery $ShortPathQuery)
     return [string[]]@($native + $python | Sort-Object -Unique)
+}
+
+function Get-CdrCheckpointNativeProcessSnapshot {
+    param([string]$RepoRoot, [scriptblock]$ProcessQuery)
+    $root = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    $ownedPids = foreach ($name in @('.codex_discord_rust.runtime.lock', '.codex_discord_bot.runtime.lock')) {
+        $lockPath = Join-Path $RepoRoot $name
+        if (-not [IO.File]::Exists($lockPath)) { continue }
+        $rows = @([IO.File]::ReadAllLines($lockPath) | Where-Object { $_ -match '^pid=' })
+        if ($rows.Count -ne 1 -or $rows[0] -notmatch '^pid=([1-9][0-9]*)$') {
+            throw "Cannot verify runtime lock identity: $name"
+        }
+        [long]$Matches[1]
+    }
+    $identities = foreach ($name in @('cdr-runtime', 'cdr-offline-soak', 'cdr-mcp-server', 'cdr-pro-helper')) {
+        foreach ($process in @(Get-CdrForbiddenProcessCandidates -Name $name -ProcessQuery $ProcessQuery)) {
+            try {
+                $path = [string]$process.Path
+                if ([string]::IsNullOrWhiteSpace($path)) {
+                    throw "Cannot verify executable path for checkpoint process: name=$name pid=$($process.Id)"
+                }
+                $path = [IO.Path]::GetFullPath($path)
+                if ($ownedPids -contains [long]$process.Id -or
+                    $path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+                    Get-CdrForbiddenProcessIdentity $process $name
+                }
+            } finally { if ($process -is [IDisposable]) { $process.Dispose() } }
+        }
+    }
+    return @($identities | Sort-Object -Unique)
 }
 
 function Assert-CdrCheckpointBotOff([object[]]$Snapshot, [string]$Phase) {
@@ -150,5 +181,6 @@ Export-ModuleMember -Function @(
     'Get-CdrWindowsShortPath', 'Test-CdrLegacyPythonBotCommandLine',
     'Get-CdrLegacyPythonBotProcessSnapshot',
     'Get-CdrCheckpointForbiddenProcessSnapshot',
+    'Get-CdrCheckpointNativeProcessSnapshot',
     'Assert-CdrCheckpointBotOff'
 )

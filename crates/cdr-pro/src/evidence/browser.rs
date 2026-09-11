@@ -21,7 +21,7 @@ pub fn canonical_browser_inner_probe_code(plugin_root: &Path) -> Result<String> 
     let encoded = serde_json::to_string(uri.as_str())
         .map_err(|error| EvidenceError::InvalidFilePath(format!("{}: {error}", path.display())))?;
     Ok(format!(
-        "nodeRepl.write(JSON.stringify(await (await import({encoded})).probeChrome(globalThis)));"
+        "nodeRepl.write(JSON.stringify(await (await import({encoded})).probeChrome({{ agent, chrome }})));"
     ))
 }
 

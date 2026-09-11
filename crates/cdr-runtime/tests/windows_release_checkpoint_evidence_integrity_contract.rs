@@ -4,6 +4,9 @@
 #[path = "support/windows_release_checkpoint.rs"]
 mod support;
 
+#[path = "support/windows_checkpoint_current_pc.rs"]
+mod current_pc;
+
 use std::fs;
 
 use serde_json::{Value, json};

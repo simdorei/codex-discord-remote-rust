@@ -1,25 +1,22 @@
-FROM python:3.12.13-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+# OCI index digests verified against registry-1.docker.io on 2026-09-11.
+FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 /uv /uvx /bin/
+WORKDIR /build
+COPY . .
+RUN cargo build --locked --release -p cdr-mcp-server --bin cdr-mcp-server
 
-WORKDIR /app
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
-RUN groupadd --gid 10001 simdorei \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 simdorei \
     && useradd --uid 10001 --gid 10001 --no-create-home \
         --home-dir /nonexistent --shell /usr/sbin/nologin simdorei \
     && install -d --owner=10001 --group=10001 --mode=0700 /data
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-COPY remote_mcp_server/pyproject.toml remote_mcp_server/uv.lock ./
-RUN uv sync --frozen --no-dev
-
-COPY remote_mcp_server /app/remote_mcp_server
-COPY simdorei_mcp_common /app/simdorei_mcp_common
+COPY --from=builder /build/target/release/cdr-mcp-server /usr/local/bin/cdr-mcp-server
 
 USER 10001:10001
-
 EXPOSE 8030
-
-CMD ["/app/.venv/bin/python", "-m", "uvicorn", "remote_mcp_server.simdorei_mcp.main:app", "--host", "0.0.0.0", "--port", "8030", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+ENTRYPOINT ["/usr/local/bin/cdr-mcp-server"]

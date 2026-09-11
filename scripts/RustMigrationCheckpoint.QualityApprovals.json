@@ -1,0 +1,25 @@
+{
+  "schema": "cdr.reviewed-quality-exceptions.v1",
+  "exceptions": [
+    {"path":"crates/cdr-app-server/src/control.rs","bom":false,"lines":254,"reason":"Existing app-server control entry points; operation implementations are already separate modules. Unchanged by Python removal."},
+    {"path":"crates/cdr-app-server/src/manager.rs","bom":false,"lines":300,"reason":"Existing app-server manager assembly and lifecycle boundary; specialized implementations are separate modules. Unchanged by Python removal."},
+    {"path":"crates/cdr-app-server/src/outcomes.rs","bom":false,"lines":272,"reason":"Existing turn outcome parsing and related result types form one protocol responsibility. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/action_executor.rs","bom":false,"lines":274,"reason":"Existing action dispatch assembly; individual actions are separate modules. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/action_executor/prompt_intake.rs","bom":false,"lines":267,"reason":"Existing durable prompt admission boundary and identity conversion. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/completion_worker.rs","bom":false,"lines":287,"reason":"Existing completion worker assembly; delivery and recovery implementations are separate modules. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/completion_worker/delivery.rs","bom":false,"lines":265,"reason":"Existing completion delivery boundary and its local tests. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/completion_worker/recovery.rs","bom":false,"lines":373,"reason":"Existing recovery phase orchestration and its local tests. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/config.rs","bom":false,"lines":286,"reason":"Existing typed runtime configuration parsing, validation and redacted secret type. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/discord_runtime.rs","bom":false,"lines":325,"reason":"Existing Discord runtime bootstrap and dependency assembly; gateway and worker behavior is split into modules. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/discord_runtime/message_create.rs","bom":false,"lines":259,"reason":"Existing message-create preparation and dispatch boundary. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/discord_runtime/typed_ingress/interaction.rs","bom":false,"lines":256,"reason":"Existing typed interaction admission lanes and handler contract. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/history_poll/discord_adapter.rs","bom":false,"lines":297,"reason":"Existing Discord history adapter and its protocol types. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/message_worker/reply_delivery.rs","bom":false,"lines":260,"reason":"Existing exact-identity reply delivery and its local tests. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/queue_runner/fork_handoff.rs","bom":false,"lines":352,"reason":"Existing ownership fork handoff transaction and uncertainty notices. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/queue_runner/recovery.rs","bom":false,"lines":258,"reason":"Existing queue recovery orchestration; state and target resolution are separate modules. Unchanged by Python removal."},
+    {"path":"crates/cdr-runtime/src/queue_runner/types.rs","bom":false,"lines":254,"reason":"Existing queue/backend boundary types and failure classification. Unchanged by Python removal."},
+    {"path":"crates/cdr-store/src/queue/starting_hold.rs","bom":false,"lines":254,"reason":"Existing ambiguous-start hold transaction and bounded notices. Unchanged by Python removal."},
+    {"path":"crates/cdr-store/src/queue/write/attempt.rs","bom":false,"lines":252,"reason":"Existing claimed queue attempt state transitions. Unchanged by Python removal."},
+    {"path":"scripts/Invoke-CdrRestartLiveQa.ps1","bom":true,"lines":182,"reason":"Existing Korean notification script requires UTF-8 BOM for Windows PowerShell 5.1 decoding; stripping it corrupts Korean text."}
+  ]
+}

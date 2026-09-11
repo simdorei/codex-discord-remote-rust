@@ -2,6 +2,7 @@ Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.Common.psm1') -E
 Import-Module (Join-Path $PSScriptRoot 'CodexDiscordSoak.SourceFingerprint.psm1') -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.EvidenceContract.psm1') -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.SourceBinding.psm1') -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.Quality.psm1') -ErrorAction Stop
 $ErrorActionPreference = 'Stop'
 
 function Read-CdrCheckpointJsonSnapshot {
@@ -75,7 +76,8 @@ function Get-CdrCheckpointEvidenceBundle {
         -Record $gate.powershell_source -RepoRoot $RepoRoot
     $rollbackSource = Assert-CdrCheckpointRollbackSourceRecord `
         -Record $gate.rollback_source -RepoRoot $RepoRoot
-    foreach ($name in @('cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server')) {
+    Assert-CdrCheckpointQualityRecord -Record $gate.quality -RepoRoot $RepoRoot
+    foreach ($name in @('cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server', 'cdr_pro_helper')) {
         if ($soak.artifacts.$name.sha256 -cne $gate.artifacts.$name.sha256 -or
             $soak.artifacts.$name.bytes -ne $gate.artifacts.$name.bytes) {
             throw "Offline soak and workspace gate artifact evidence disagree: $name"

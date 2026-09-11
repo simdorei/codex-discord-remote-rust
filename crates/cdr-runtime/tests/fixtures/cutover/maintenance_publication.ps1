@@ -1,0 +1,54 @@
+param([Parameter(Mandatory=$true)][string]$CaseName)
+switch ($CaseName) {
+    'test_cutover_does_not_delete_foreign_restart' {
+        [IO.File]::WriteAllText($RustRestart,'foreign fence')
+        try{Start-Rust;throw 'foreign restart accepted'}
+        catch{if($_.Exception.Message -notmatch 'Existing restart fence preserved'){throw}}
+        if([IO.File]::ReadAllText($RustRestart) -cne 'foreign fence'){throw 'foreign fence changed'}
+    }
+    'test_cutover_does_not_delete_foreign_stop' {
+        $script:CutoverStopText='owned'
+        [IO.File]::WriteAllText($RustStop,'foreign')
+        try{Start-Rust;throw 'foreign stop accepted'}
+        catch{if($_.Exception.Message -notmatch 'Foreign maintenance marker preserved'){throw}}
+        if([IO.File]::ReadAllText($RustStop) -cne 'foreign'){throw 'foreign stop changed'}
+    }
+    'test_cutover_marker_publication_respects_control_owner' {
+        $owner=Enter-CdrControl $RepoRoot
+        try {
+         try {Enter-CutoverMaintenance ([pscustomobject]@{TransactionId='mine'});throw 'control lock bypassed'}
+         catch{if($_.Exception.Message -notmatch 'cdr_control_busy'){throw}}
+         if(Test-Path $DisablePath){throw 'published despite competing owner'}
+        }finally{$owner.Dispose()}
+    }
+    'test_worker_rechecks_runtime_lock_before_stop_publication' {
+        $source=Get-Content (Join-Path $env:PUBLISH_SOURCE 'scripts/Invoke-CdrDeployment.ps1') -Raw
+        $start=$source.IndexOf('    $control = Enter-CdrControl')
+        $end=$source.IndexOf("    Note 'normal_stop_requested'",$start)
+        if($start -lt 0 -or $end -lt 0){throw 'publication boundary missing'}
+        $state=[pscustomobject]@{RepoRoot=$RepoRoot;RuntimePid=42;RuntimeTicks='99';BinaryPath='fixture'}
+        $running=[pscustomobject]@{HasExited=$false}
+        $running|Add-Member ScriptMethod Refresh {}
+        function Get-Process {param($Id,$ErrorAction) [pscustomobject]@{Path='fixture';StartTime=[datetime]::new(99,[DateTimeKind]::Utc)}}
+        [IO.File]::WriteAllText((Join-Path $RepoRoot '.codex_discord_rust.runtime.lock'),"pid=77`n")
+        try{& ([scriptblock]::Create($source.Substring($start,$end-$start)));throw 'changed lock accepted'}
+        catch{if($_.Exception.Message -notmatch 'Runtime changed before stop publication'){throw}}
+        if((Test-Path $RustStop) -or (Test-Path $DisablePath)){throw 'new instance was stopped'}
+    }
+    'test_cutover_stop_consumes_its_marker_after_confirmed_exit' {
+        $CutoverIdentity='fixture-owner'
+        $script:checks=0
+        function Get-VerifiedRustProcess {
+         $script:checks++; if($script:checks -eq 1){[pscustomobject]@{Id=42}}else{$null}
+        }
+        $RustWatchdog=Join-Path $RepoRoot 'fixture-watchdog.ps1'
+        [IO.File]::WriteAllText($RustWatchdog,'exit 0')
+        Stop-Rust
+        if(Test-Path $RustStop){throw 'owned stop leaked into the next cutover invocation'}
+        # A new PowerShell call cannot recover script-local owner text. Verify startup
+        # no longer depends on it once this stop operation has completed.
+        $script:CutoverStopText=$null
+        if(Test-Path $RustStop){throw 'next invocation would be blocked'}
+    }
+    default { throw "Unknown cutover fixture: $CaseName" }
+}

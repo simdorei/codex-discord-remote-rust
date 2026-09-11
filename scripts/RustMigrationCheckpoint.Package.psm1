@@ -47,11 +47,13 @@ function New-CdrCheckpointPackage {
         'cdr-runtime.exe' = Join-Path $RepoRoot 'target\release\cdr-runtime.exe'
         'cdr-offline-soak.exe' = Join-Path $RepoRoot 'target\release\cdr-offline-soak.exe'
         'cdr-mcp-server.exe' = Join-Path $RepoRoot 'target\release\cdr-mcp-server.exe'
+        'cdr-pro-helper.exe' = Join-Path $RepoRoot 'target\release\cdr-pro-helper.exe'
     }
     $evidenceNames = [ordered]@{
         'cdr-runtime.exe' = 'cdr_runtime'
         'cdr-offline-soak.exe' = 'cdr_offline_soak'
         'cdr-mcp-server.exe' = 'cdr_mcp_server'
+        'cdr-pro-helper.exe' = 'cdr_pro_helper'
     }
     $artifactPayload = [ordered]@{}
     foreach ($name in $evidenceNames.Keys) {
@@ -200,9 +202,8 @@ function New-CdrCheckpointPackage {
             schema = $RollbackSource.schema
             scope = 'local_windows_bot_and_operational_tooling'
             source_file_count = $RollbackSource.file_count
-            external_python_runtime_bundled = $false
-            external_python_dependencies_bundled = $false
-            boundary = 'Local Windows bot source and dependency specifications are bundled; interpreter, installed packages, secrets, and live state are not.'
+            requires_python = $false
+            boundary = 'Rust executables and local operational sources are bundled; no Python interpreter or packages are required. Secrets and live state are excluded.'
         }
         bot_disabled = $true
         local_checkpoint_only = $true

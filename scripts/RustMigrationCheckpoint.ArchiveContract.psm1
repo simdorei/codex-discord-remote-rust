@@ -81,7 +81,7 @@ function Assert-CdrCheckpointMetadataContract([object]$Metadata, [object]$Expect
             throw "Checkpoint metadata source_fingerprint.$name mismatch."
         }
     }
-    foreach ($name in @('cdr-runtime.exe', 'cdr-offline-soak.exe', 'cdr-mcp-server.exe')) {
+    foreach ($name in @('cdr-runtime.exe', 'cdr-offline-soak.exe', 'cdr-mcp-server.exe', 'cdr-pro-helper.exe')) {
         $actual = $Metadata.current_artifact_hashes.$name
         $wanted = $Expected.current_artifact_hashes.$name
         if ($actual.sha256 -isnot [string] -or $actual.sha256 -cnotmatch '^[A-F0-9]{64}$' -or

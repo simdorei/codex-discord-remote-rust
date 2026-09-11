@@ -60,8 +60,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plugins\codex-discord-
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plugins\codex-discord-remote\scripts\qa-smoke.ps1 -SkipUnitTests
 ```
 
-This repository selects the Rust runtime by default. Status and restart entrypoints
-dispatch to the Rust-specific scripts; Python is only an explicit manual rollback
-selection. Restart and deployment tools check runtime ownership and readiness before
+This repository uses the Rust runtime only. Status and restart entrypoints
+dispatch to the Rust-specific scripts; Python runtime rollback has been removed.
+Restart and deployment tools check runtime ownership and readiness before
 replacement. Inspect each script's parameters and use its dry-run facilities before
 operating a live installation. These tools are not invoked by cloning this repository.

@@ -1,4 +1,6 @@
 Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.EvidenceShape.psm1') -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.NativeEvidence.psm1') -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'RustMigrationCheckpoint.Quality.psm1') -ErrorAction Stop
 Set-StrictMode -Version Latest
 
 function Assert-CdrOfflineSoakEvidenceContract {
@@ -50,7 +52,7 @@ function Assert-CdrOfflineSoakEvidenceContract {
             $Evidence.memory.interpretation `
             'startup_plumbing_only_not_a_stability_or_production_memory_no_regression_result') `
             'memory interpretation must not claim stability'
-        foreach ($name in @('cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server')) {
+        foreach ($name in @('cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server', 'cdr_pro_helper')) {
             Assert-CdrEvidenceArtifact $Evidence.artifacts.$name "artifacts.$name"
         }
         foreach ($name in @(
@@ -119,7 +121,7 @@ function Assert-CdrWorkspaceGateEvidenceContract {
         Assert-CdrWorkspaceGateEvidenceShape $Evidence
         Assert-CdrEvidenceCondition `
             ((Test-CdrEvidenceInteger $Evidence.schema_version) -and
-                [uint64]$Evidence.schema_version -eq 1) 'schema_version must be integer 1'
+                [uint64]$Evidence.schema_version -eq 2) 'schema_version must be integer 2'
         Assert-CdrEvidenceCondition (Test-CdrEvidenceExactString `
             $Evidence.kind 'windows_full_workspace_gate') 'kind is invalid'
         Assert-CdrEvidenceCondition (Test-CdrEvidenceExactString `
@@ -156,7 +158,7 @@ function Assert-CdrWorkspaceGateEvidenceContract {
         }
         $checkpoint = $Evidence.rust.release_checkpoint_contracts
         $expected = [ordered]@{
-            base = 16; evidence_integrity = 14; rollback_completeness = 6
+            base = 16; evidence_integrity = 19; rollback_completeness = 6
             staged_binding = 5; archive_adversarial = 1; failed = 0
         }
         foreach ($name in $expected.Keys) {
@@ -167,36 +169,21 @@ function Assert-CdrWorkspaceGateEvidenceContract {
                 "rust.release_checkpoint_contracts.$name is not the current passing count"
         }
         foreach ($name in @(
-            'pytest_full_suite', 'pro_plugin_contract_suite', 'installer_unittests',
-            'desktop_bridge_tests', 'durable_store_tests'
+            'operations_suite', 'pro_helper_contracts', 'installer_contracts',
+            'desktop_bridge_contracts', 'durable_store_contracts'
         )) {
-            $result = $Evidence.python.$name
+            $result = $Evidence.native_tools.$name
             Assert-CdrEvidenceCondition `
                 ((Test-CdrEvidenceInteger $result.passed) -and [uint64]$result.passed -gt 0 -and
                     (Test-CdrEvidenceInteger $result.failed) -and [uint64]$result.failed -eq 0) `
-                "python.$name must contain positive passed and zero failed counts"
+                "native_tools.$name must contain positive passed and zero failed counts"
         }
+        Assert-CdrCurrentPcEvidenceContract $Evidence
         Assert-CdrEvidenceCondition (Test-CdrEvidenceExactString `
-            $Evidence.python.workflow_py_compile 'passed') `
-            'python.workflow_py_compile must be passed'
-        Assert-CdrEvidenceCondition (Test-CdrEvidenceExactString `
-            $Evidence.python.install_ps1_dry_run_skip_dependencies_env_plugin 'passed') `
-            'python.install_ps1_dry_run_skip_dependencies_env_plugin must be passed'
-        foreach ($name in @(
-            'rust_utf8_bom_count', 'rust_invalid_utf8_count',
-            'production_rust_files_over_250_lines', 'changed_text_utf8_bom_count',
-            'changed_text_invalid_utf8_count'
-        )) {
-            $value = $Evidence.quality.$name
-            Assert-CdrEvidenceCondition `
-                ((Test-CdrEvidenceInteger $value) -and [uint64]$value -eq 0) `
-                "quality.$name must be zero"
-        }
-        Assert-CdrEvidenceCondition `
-            ((Test-CdrEvidenceInteger $Evidence.quality.rust_files_checked) -and
-                [uint64]$Evidence.quality.rust_files_checked -gt 0) `
-            'quality.rust_files_checked must be a positive integer'
-        foreach ($name in @('cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server')) {
+            $Evidence.native_tools.install_wrappers_dry_run 'passed') `
+            'native_tools.install_wrappers_dry_run must be passed'
+        Assert-CdrQualityEvidenceContract $Evidence.quality
+        foreach ($name in @('cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server', 'cdr_pro_helper')) {
             Assert-CdrEvidenceArtifact $Evidence.artifacts.$name "artifacts.$name"
             Assert-CdrEvidenceCondition (Test-CdrEvidenceExactString `
                 $Evidence.artifacts.$name.pe_magic 'MZ') `

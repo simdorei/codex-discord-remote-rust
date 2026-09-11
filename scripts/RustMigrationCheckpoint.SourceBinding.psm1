@@ -143,7 +143,21 @@ function Assert-CdrCheckpointPowerShellSourceRecord {
     return $expected
 }
 
+function Get-CdrCheckpointRollbackRecordSha256([object]$Record) {
+    $frame = [Text.StringBuilder]::new()
+    $null = $frame.Append("cdr.observation-rollback.v1`0$($Record.file_count)`n")
+    foreach ($file in $Record.files) {
+        $null = $frame.Append("$($file.path)`0$($file.archive_path)`0$($file.sha256)`0$($file.bytes)`n")
+    }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($frame.ToString())
+        return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '')
+    } finally { $sha.Dispose() }
+}
+
 Export-ModuleMember -Function @(
+    'Get-CdrCheckpointRollbackRecordSha256',
     'Get-CdrCheckpointRollbackSourceRecord',
     'Assert-CdrCheckpointRollbackSourceRecord',
     'Get-CdrCheckpointPowerShellSourceRecord',

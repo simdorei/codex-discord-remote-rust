@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -68,6 +69,12 @@ pub fn create_fixture(root: &Path) -> Fixture {
         fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), release.join(name))
             .expect("copy offline executable fixture");
     }
+    let helper = Path::new(env!("CARGO_BIN_EXE_cdr-runtime"))
+        .parent()
+        .unwrap()
+        .join("cdr-pro-helper.exe");
+    fs::copy(&helper, release.join("cdr-pro-helper.exe"))
+        .expect("build the native helper first: cargo build -p cdr-pro --bin cdr-pro-helper");
     write_named_files(
         root,
         &[
@@ -77,24 +84,14 @@ pub fn create_fixture(root: &Path) -> Fixture {
             "codex-discord-atomic-file-runtime.ps1",
             "codex-discord-bot-headless.vbs",
             "codex-discord-memory-ab.ps1",
-            "codex-discord-python-runtime.ps1",
             "codex-discord-rust-restart.ps1",
             "codex-discord-rust-status.ps1",
             "codex-discord-rust-soak.ps1",
-            "codex-discord-watchdog-identity-runtime.ps1",
-            "codex-discord-watchdog-runtime.ps1",
-            "codex-discord-watchdog-heartbeat-runtime.ps1",
-            "codex-discord-watchdog-restart-runtime.ps1",
-            "codex-discord-watchdog-stop-runtime.ps1",
             "codex-discord-watchdog-hidden.vbs",
             "codex-discord-bot.cmd",
-            "codex_discord_bot.py",
-            "codex_discord_helper.py",
+            "codex-discord-helper.sh",
             "install.ps1",
             "install.sh",
-            "requirements.in",
-            "requirements.txt",
-            "runtime-release.json",
             "Cargo.toml",
             "Cargo.lock",
             "rust-toolchain.toml",
@@ -111,13 +108,8 @@ pub fn create_fixture(root: &Path) -> Fixture {
         b"# source rollback dependency fixture\n",
     )
     .expect("write atomic helper fixture");
-    fs::write(
-        root.join("codex_discord_bot.py"),
-        b"import codex_discord_helper\nROLLBACK_FIXTURE = codex_discord_helper.VALUE\n",
-    )
-    .expect("write Python bot fixture");
-    fs::write(root.join("codex_discord_helper.py"), b"VALUE = True\n")
-        .expect("write Python helper fixture");
+    fs::write(root.join("codex-discord-helper.sh"), b"VALUE=true\n")
+        .expect("write operational source fixture");
     fs::create_dir_all(root.join("crates/fixture/src")).expect("create fixture Rust source");
     fs::write(
         root.join("crates/fixture/src/lib.rs"),
@@ -131,6 +123,10 @@ pub fn create_fixture(root: &Path) -> Fixture {
             .expect("copy checkpoint tool");
     }
     for helper in [
+        "CdrCutoverState.ps1",
+        "CdrCutoverRuntime.ps1",
+        "CdrCutoverCompletion.ps1",
+        "CdrCutoverRecovery.ps1",
         "codex-discord-memory-ab-common.ps1",
         "codex-discord-memory-ab-process.ps1",
         "codex-discord-memory-ab-report.ps1",
@@ -144,6 +140,11 @@ pub fn create_fixture(root: &Path) -> Fixture {
         )
         .expect("copy memory A/B rollback helper");
     }
+    fs::write(
+        scripts.join("RustMigrationCheckpoint.QualityApprovals.json"),
+        r#"{"schema":"cdr.reviewed-quality-exceptions.v1","exceptions":[]}"#,
+    )
+    .unwrap();
     let (soak_evidence, workspace_evidence) = write_fixture_evidence(root, &runtime, &release);
     let backups = root.join(".codex-discord-backups");
     fs::create_dir_all(&backups).expect("create fixture backup directory");
@@ -200,6 +201,14 @@ fn write_fixture_evidence(root: &Path, runtime: &Path, release: &Path) -> (PathB
     (soak_evidence, workspace_evidence)
 }
 
+pub fn refresh_fixture_evidence(fixture: &Fixture) {
+    write_fixture_evidence(
+        &fixture.root,
+        &fixture.runtime,
+        &fixture.root.join("target/release"),
+    );
+}
+
 fn artifact_record(path: &Path) -> Value {
     json!({
         "sha256": sha256(path),
@@ -230,7 +239,8 @@ fn short_soak_record(runtime: &Path, release: &Path, source: &Value) -> Value {
         "artifacts": {
             "cdr_runtime": artifact_record(runtime),
             "cdr_offline_soak": artifact_record(&release.join("cdr-offline-soak.exe")),
-            "cdr_mcp_server": artifact_record(&release.join("cdr-mcp-server.exe"))
+            "cdr_mcp_server": artifact_record(&release.join("cdr-mcp-server.exe")),
+            "cdr_pro_helper": artifact_record(&release.join("cdr-pro-helper.exe"))
         },
         "provenance": {
             "same_run_canonical_release_build": true, "canonical_release_harness": true,
@@ -267,7 +277,7 @@ fn workspace_gate_record(
     rollback_source: &Value,
 ) -> Value {
     json!({
-        "schema_version": 1, "kind": "windows_full_workspace_gate",
+        "schema_version": 2, "kind": "windows_full_workspace_gate",
         "status": "passed", "platform": "windows",
         "source_fingerprint": source["aggregate_sha256"],
         "source_scope": {
@@ -283,28 +293,48 @@ fn workspace_gate_record(
             "powershell_5_1_source_fingerprint_evidence_contract": "passed",
             "powershell_7_6_source_fingerprint_evidence_contract": "passed",
             "release_checkpoint_contracts": {
-                "base": 16, "evidence_integrity": 14, "rollback_completeness": 6,
+                "base": 16, "evidence_integrity": 19, "rollback_completeness": 6,
                 "staged_binding": 5, "archive_adversarial": 1, "failed": 0
             }
         },
-        "python": {
-            "pytest_full_suite": { "passed": 1, "failed": 0 },
-            "pro_plugin_contract_suite": { "passed": 1, "failed": 0 },
-            "installer_unittests": { "passed": 1, "failed": 0 },
-            "desktop_bridge_tests": { "passed": 1, "failed": 0 },
-            "durable_store_tests": { "passed": 1, "failed": 0 },
-            "workflow_py_compile": "passed",
-            "install_ps1_dry_run_skip_dependencies_env_plugin": "passed"
+        "native_tools": {
+            "operations_suite": { "passed": 1, "failed": 0 },
+            "pro_helper_contracts": { "passed": 1, "failed": 0 },
+            "installer_contracts": { "passed": 1, "failed": 0 },
+            "desktop_bridge_contracts": { "passed": 1, "failed": 0 },
+            "durable_store_contracts": { "passed": 1, "failed": 0 },
+            "python_unavailable_execution": {
+                "required": false, "status": "not_run", "reason": "User approved current-PC verification; shared Python stays installed."
+            },
+            "dependency_audit": {
+                "scope": "deliverable_dependencies_and_callsites", "status": "passed",
+                "source_fingerprint": source["aggregate_sha256"],
+                "rollback_source_sha256": rollback_record_sha256(rollback_source),
+                "command": "cargo test --test python_free_repository_contract",
+                "exit_code": 0, "passed": 2, "failed": 0
+            },
+            "process_observation": {
+                "schema": "cdr.current-pc-observation.v1", "status": "completed",
+                "scope": "owned_descendants_current_pc",
+                "source_fingerprint": source["aggregate_sha256"],
+                "rollback_source_sha256": rollback_record_sha256(rollback_source),
+                "operations": current_pc_operations()
+            },
+            "install_wrappers_dry_run": "passed"
         },
         "quality": {
             "rust_files_checked": 1, "rust_utf8_bom_count": 0, "rust_invalid_utf8_count": 0,
             "production_rust_files_over_250_lines": 0,
-            "changed_text_utf8_bom_count": 0, "changed_text_invalid_utf8_count": 0
+            "text_scope": "rust_and_checkpoint_rollback_sources",
+            "text_files_checked": rollback_source["file_count"].as_u64().unwrap() + 1,
+            "text_utf8_bom_count": 0, "text_invalid_utf8_count": 0,
+            "exceptions": []
         },
         "artifacts": {
             "cdr_runtime": artifact_record(runtime),
             "cdr_offline_soak": artifact_record(&release.join("cdr-offline-soak.exe")),
             "cdr_mcp_server": artifact_record(&release.join("cdr-mcp-server.exe")),
+            "cdr_pro_helper": artifact_record(&release.join("cdr-pro-helper.exe")),
             "repository_target_release_matches_external_build": true
         },
         "safety": {
@@ -314,8 +344,56 @@ fn workspace_gate_record(
             "secrets_in_evidence": false
         },
         "powershell_source": powershell_source,
-        "rollback_source": rollback_source
+        "rollback_source": rollback_source,
+        "live_verification": { "status": "pending", "recorded_separately": true }
     })
+}
+
+fn current_pc_operations() -> Vec<Value> {
+    [
+        "install_wrappers",
+        "setup_dry_run",
+        "pro_helper_offline",
+        "start_restart_contracts",
+        "mcp_offline_contracts",
+    ]
+    .iter()
+    .map(|id| {
+        json!({
+            "id": id, "command": format!("native fixture {id}"), "exit_code": 0,
+            "status": "completed", "observer": "windows_process_start_stop_trace",
+            "started_at": "2026-09-11T00:00:01Z", "ended_at": "2026-09-11T00:00:02Z",
+            "observation_started_at": "2026-09-11T00:00:00Z",
+            "observation_ended_at": "2026-09-11T00:00:03Z",
+            "canary_observed": true, "owned_process_starts": 3,
+            "command_process": {
+                "observed": true, "pid": 60, "name": "fixture.exe",
+                "created_at": "2026-09-11T00:00:01.1Z", "exited_at": "2026-09-11T00:00:01.9Z",
+                "start_event_at": "2026-09-11T00:00:02.1Z", "stop_event_at": "2026-09-11T00:00:02.2Z"
+            },
+            "recognized_python_process_count": 0, "live_network_invoked": false
+        })
+    })
+    .collect()
+}
+
+fn rollback_record_sha256(record: &Value) -> String {
+    let mut frame = format!(
+        "cdr.observation-rollback.v1\0{}\n",
+        record["file_count"].as_u64().unwrap()
+    );
+    for row in record["files"].as_array().unwrap() {
+        writeln!(
+            frame,
+            "{}\0{}\0{}\0{}",
+            row["path"].as_str().unwrap(),
+            row["archive_path"].as_str().unwrap(),
+            row["sha256"].as_str().unwrap(),
+            row["bytes"].as_u64().unwrap()
+        )
+        .unwrap();
+    }
+    hex::encode_upper(Sha256::digest(frame.as_bytes()))
 }
 
 fn source_fingerprint_record(root: &Path) -> Value {
@@ -441,7 +519,7 @@ $bundle = Get-CdrCheckpointEvidenceBundle `
 $utf8 = [Text.UTF8Encoding]::new($false)
 switch ($env:CDR_MUTATION_KIND) {
     'rollback' {
-        [IO.File]::AppendAllText((Join-Path $root 'codex_discord_helper.py'), "# changed`n", $utf8)
+        [IO.File]::AppendAllText((Join-Path $root 'codex-discord-helper.sh'), "# changed`n", $utf8)
     }
     'artifact' {
         [IO.File]::AppendAllText((Join-Path $root 'target\release\cdr-mcp-server.exe'), 'x', $utf8)
@@ -860,6 +938,15 @@ Write-Output 'publish_failure_clean'
 
 #[allow(clippy::too_many_lines)] // One cohesive embedded PowerShell process-safety fixture.
 pub fn run_injected_bot_off_guard_probe(root: &Path, shell: &str) -> Output {
+    // The legacy writer guard must still work after the real Python source is removed.
+    // Short-name lookup uses a non-executable file only inside this isolated fixture.
+    let legacy_root = root.join("legacy-writer-probe");
+    fs::create_dir_all(&legacy_root).unwrap();
+    fs::write(
+        legacy_root.join("codex_discord_bot.py"),
+        b"read-only identity fixture",
+    )
+    .unwrap();
     let command = r#"
 $ErrorActionPreference = 'Stop'
 Import-Module $env:CDR_PROCESS_SAFETY_MODULE -Force -ErrorAction Stop
@@ -997,12 +1084,12 @@ Write-Output (
             repo_root().join("scripts/RustMigrationCheckpoint.ProcessSafety.psm1"),
         )
         .env("CDR_PROBE_ROOT", root)
-        .env("CDR_REAL_REPO_ROOT", repo_root())
+        .env("CDR_REAL_REPO_ROOT", legacy_root)
         .output()
         .unwrap_or_else(|error| panic!("run injected bot-off guard probe in {shell}: {error}"))
 }
 
-pub fn checkpoint_tools() -> [&'static str; 20] {
+pub fn checkpoint_tools() -> [&'static str; 22] {
     [
         "New-RustMigrationCheckpoint.ps1",
         "RustMigrationCheckpoint.Common.psm1",
@@ -1017,6 +1104,8 @@ pub fn checkpoint_tools() -> [&'static str; 20] {
         "RustMigrationCheckpoint.ArchiveContract.psm1",
         "RustMigrationCheckpoint.ArchivePublish.psm1",
         "RustMigrationCheckpoint.EvidenceShape.psm1",
+        "RustMigrationCheckpoint.NativeEvidence.psm1",
+        "RustMigrationCheckpoint.Quality.psm1",
         "RustMigrationCheckpoint.ProcessSafety.psm1",
         "CodexDiscordSoak.SourceFingerprint.psm1",
         "CodexDiscordSoak.Evidence.psm1",

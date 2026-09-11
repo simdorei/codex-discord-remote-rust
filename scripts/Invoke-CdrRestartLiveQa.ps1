@@ -9,6 +9,7 @@ $binary = Join-Path $root 'target/release/cdr-runtime.exe'
 $watchdog = Join-Path $root 'codex-discord-rust-watchdog.ps1'
 . (Join-Path $root 'codex-discord-rust-drain.ps1')
 . (Join-Path $root 'codex-discord-rust-control.ps1')
+Import-Module (Join-Path $root 'scripts/CdrNativeProcess.psm1') -Force
 $resultPath = Join-Path $folder 'result.json'
 function Save-Result($value) {
     Write-AtomicRestartMarker $resultPath ($value | ConvertTo-Json -Depth 8)
@@ -56,6 +57,7 @@ function Invoke-ExactWatchdog([string[]]$Arguments) {
 }
 function Publish-Result {
     if ($result.Notification -ne 'not_attempted') { return }
+    Assert-Artifact
     # Persist before send: uncertain delivery is not retried automatically.
     $result.Notification = 'attempting'; Save-Result $result
     $caption = if ($result.Phase -eq 'passed') {
@@ -66,9 +68,21 @@ function Publish-Result {
     if ($caption.Length -gt 1800) { $caption=$caption.Substring(0,1800) }
     $captionPath = Join-Path $folder 'notification.txt'
     Write-AtomicRestartMarker $captionPath $caption
-    & $state.Python -X utf8 (Join-Path $root 'send_discord_attachment.py') `
-        --thread-ref $state.ThreadId --content-file $captionPath $resultPath *> $null
-    $result.Notification = if ($LASTEXITCODE -eq 0) { 'sent' } else { 'failed_or_unknown_no_retry' }
+    try {
+        $receipt = Invoke-CdrNative -Executable $binary -Arguments @(
+            '--admin','send-attachment','--repo-root',$root,
+            '--thread-ref',$state.ThreadId,'--content-file',$captionPath,$resultPath
+        ) -TimeoutSeconds 90
+        if ($receipt -cnotmatch '^DISCORD_ATTACHMENT_SENT') { throw 'Rust attachment sender did not return a verified receipt' }
+        $result.Notification = 'sent'
+    } catch {
+        $result.Notification = 'failed_or_unknown_no_retry'
+        $detail = [string]$_.Exception.Message
+        if ($detail.Length -gt 2000) { $detail = $detail.Substring(0,2000) }
+        $result | Add-Member -NotePropertyName NotificationError -NotePropertyValue $detail -Force
+        Save-Result $result
+        throw
+    }
     Save-Result $result
 }
 if ($Mode -eq 'Inspect') {

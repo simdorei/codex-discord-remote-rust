@@ -32,18 +32,18 @@ function Test-CdrCheckpointArchive {
     $metadataPath = $extracted.MetadataPath
     $sumsPath = $extracted.SumsPath
 
-    foreach ($name in @('cdr-runtime.exe', 'cdr-offline-soak.exe', 'cdr-mcp-server.exe')) {
+    foreach ($name in @('cdr-runtime.exe', 'cdr-offline-soak.exe', 'cdr-mcp-server.exe', 'cdr-pro-helper.exe')) {
         Assert-PeMagic (Join-Path $extractRoot "artifacts\$name")
     }
     foreach ($required in @(
         'operations\codex-discord-rust-watchdog.ps1',
         'operations\codex-discord-runtime-cutover.ps1',
-        'operations\codex-discord-python-runtime.ps1',
         'operations\codex-discord-watchdog.ps1',
         'operations\codex-discord-atomic-file-runtime.ps1',
         'operations\codex-discord-bot-headless.vbs',
-        'operations\codex_discord_bot.py', 'operations\install.ps1', 'operations\install.sh',
-        'operations\requirements.txt',
+        'operations\install.ps1', 'operations\install.sh',
+        'operations\scripts\CdrCutoverState.ps1', 'operations\scripts\CdrCutoverRuntime.ps1',
+        'operations\scripts\CdrCutoverRecovery.ps1', 'operations\scripts\CdrCutoverCompletion.ps1',
         'operations\scripts\New-RustMigrationCheckpoint.ps1',
         'operations\scripts\RustMigrationCheckpoint.Common.psm1',
         'operations\scripts\RustMigrationCheckpoint.Package.psm1',

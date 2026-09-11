@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/pro_connector_evidence_hook.py\"",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\pro_connector_evidence_hook.py\"",
+            "command": "\"${PLUGIN_ROOT}/bin/cdr-pro-helper\" connector-hook",
+            "commandWindows": "\"${PLUGIN_ROOT}\\bin\\cdr-pro-helper.exe\" connector-hook",
             "timeout": 10,
             "statusMessage": "Verifying Pro OAuth connector"
           }

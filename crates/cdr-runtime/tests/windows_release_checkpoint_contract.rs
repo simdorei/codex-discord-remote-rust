@@ -30,7 +30,7 @@ fn release_checkpoint_tooling_declares_full_safety_contract() {
         "cdr-runtime.exe",
         "cdr-offline-soak.exe",
         "cdr-mcp-server.exe",
-        "codex-discord-python-runtime.ps1",
+        "cdr-pro-helper.exe",
         "SHA256SUMS",
         "ARCHIVE-METADATA.json",
         "bot_disabled",
@@ -227,6 +227,9 @@ fn checkpoint_rejects_workspace_gate_evidence_for_different_source() {
     let mut evidence: Value =
         serde_json::from_slice(&fs::read(&fixture.workspace_evidence).unwrap()).unwrap();
     evidence["source_fingerprint"] = "0".repeat(64).into();
+    // Keep the stale record internally consistent to exercise the actual-source guard.
+    evidence["native_tools"]["dependency_audit"]["source_fingerprint"] = "0".repeat(64).into();
+    evidence["native_tools"]["process_observation"]["source_fingerprint"] = "0".repeat(64).into();
     fs::write(
         &fixture.workspace_evidence,
         serde_json::to_vec(&evidence).unwrap(),

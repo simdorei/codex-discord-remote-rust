@@ -18,8 +18,15 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), (u8, String)> {
-    let args =
-        StartupArgs::parse(std::env::args_os().skip(1)).map_err(|error| (2, error.to_string()))?;
+    let raw_args: Vec<_> = std::env::args_os().skip(1).collect();
+    if raw_args.first().is_some_and(|arg| arg == "--admin") {
+        let output = cdr_runtime::admin::run(raw_args.into_iter().skip(1))
+            .await
+            .map_err(|error| (1, error))?;
+        println!("{output}");
+        return Ok(());
+    }
+    let args = StartupArgs::parse(raw_args).map_err(|error| (2, error.to_string()))?;
     if args.help {
         println!("{}", help_text());
         return Ok(());

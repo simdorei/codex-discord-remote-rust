@@ -6,6 +6,7 @@ mod fake_backend;
 mod fake_sender;
 mod fixture;
 mod harness;
+pub mod native_fixture;
 mod path_key;
 mod recovery;
 mod report;

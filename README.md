@@ -1,7 +1,11 @@
 # Codex Discord Remote — Rust
 
 Discord에서 Codex 작업을 요청하고, 진행 상황과 최종 답변을 받아 보는
-**Rust 기본 실행 버전**입니다.
+**Rust 실행 버전**입니다.
+
+설치·보조 도구까지 Python 의존성을 제거하는 변경을 검증 중입니다.
+기존에 실행 중인 봇에 자동 반영되는 것은 아닙니다.
+[전환 범위와 검증 상태](docs/python-free-migration.md)를 확인하세요.
 
 기존 [codex-discord-remote](https://github.com/simdorei/codex-discord-remote)에서
 현재 Rust 구현을 분리했습니다. 과거 Git 변경 이력, 실제 대화 기록,
@@ -24,10 +28,11 @@ Discord에서 Codex 작업을 요청하고, 진행 상황과 최종 답변을 �
 `crates/`에 Rust 작업 공간이 있으며, `cdr-runtime`이 Discord 봇 실행 파일입니다.
 저장 상태는 SQLite, Codex 연결은 app-server가 담당합니다.
 
-Python 파일도 의도적으로 남아 있습니다. 설치·설정·플러그인 검사와
-기존 동작 비교 테스트, 명시적으로 선택하는 수동 Python 복구 경로에 필요합니다.
-**봇의 기본 실행은 Rust이며, 모든 보조 도구까지 Rust로 바꾼 저장소는 아닙니다.**
-Rust 실패 시 Python으로 자동 전환하지 않습니다.
+봇뿐 아니라 설치·설정, 플러그인 검사, 첨부파일 전송, 저장 상태 진단과
+Pro 보조 도구도 Rust 실행 파일을 사용합니다. PowerShell·셸은 운영체제 실행과
+예약 작업 연결을, JavaScript는 Chrome 화면 제어를 담당합니다.
+Python 설치 파일·소스·전용 복구 경로는 제거했습니다. 오류가 나면 실제 실패를
+표시하며, 다른 언어의 실행본으로 자동 전환하지 않습니다.
 
 ## Windows 설치
 
@@ -45,10 +50,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-discord-bot.ps1
 ```
 
-설치 도구는 Python 보조 실행 환경과 Rust 봇을 준비합니다.
+설치 도구는 Rust 봇과 Rust Pro 도우미를 빌드하고 플러그인을 확인합니다.
 설정 도구는 로컬 `.env`를 만들고 Windows 자동 실행 작업을 등록합니다.
 기존 봇이 있는 PC에서는 설정 도구를 중복 실행하지 마세요.
 같은 Discord 봇 토큰으로 두 실행본을 동시에 켜지 마세요.
+이미 설치된 실행 파일과 다른 버전이면 설치 도구가 덮어쓰기를 거부합니다.
+업데이트는 별도 폴더에서 빌드한 뒤 검증된 배포 절차로 진행하세요.
 
 설치 전에 변경 없이 확인하려면:
 
@@ -85,13 +92,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-discord-rust-status.
 
 일반 자동 테스트는 가짜 서버와 임시 데이터로 실행합니다.
 실제 계정·기기를 사용하는 `ignored` 테스트는 자동으로 실행하지 않습니다.
-일부 테스트에는 Python 3.12와 PowerShell, Node.js가 필요합니다.
-Python 비교 테스트에는 `requirements.txt`의 봇 보조 환경과
-`remote_mcp_server/uv.lock`의 별도 MCP 환경이 필요합니다.
-두 고정 버전 묶음을 한 환경에 섞지 마세요. 설치 순서와 `PYTHON_EXE` 지정은
+테스트에는 Rust, Git, PowerShell, Node.js 24가 필요하며 Windows에서는 Git Bash도
+사용합니다. Python 실행기나 패키지는 필요하지 않습니다. 과거 동작과의 비교에는
+실행하지 않는 고정 JSON·SQL 자료와 Rust로 작성한 가짜 서버를 사용합니다.
 [Windows 자동 검사 설정](.github/workflows/windows-contract.yml)을 참고하세요.
-백업 패키징 시험 중 일부는 PC 전체에 실행 중인 봇이 없어야 합니다.
-운용 중인 봇이 있다면 해당 시험은 GitHub Actions의 새 검사 환경에서 실행하세요.
+백업 패키징 검사는 대상 저장소의 봇이 꺼져 있는지 확인합니다.
+다른 저장소에서 실행 중인 봇을 해당 검사 대상과 혼동하지 않습니다.
 이 저장소의 테스트를 위해 기존 봇을 자동으로 정지하지 않습니다.
 
 ```powershell
@@ -106,8 +112,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\codex-discord-remo
 
 `cdr-mcp-server`와 `cdr-remote-agent`가 서버 및 PC 측 코드를 제공합니다.
 서버 배포 예시는 `remote_mcp_server/Dockerfile.rust`와 `compose.rust.yaml`입니다.
+기본 `Dockerfile`·`compose.yaml`도 같은 Rust 서버를 사용합니다.
 이 공개 작업에서는 VPS나 기존 MCP 서버를 변경하지 않습니다.
 인증 설정과 HTTPS 프록시는 본인 환경에 맞게 별도로 구성해야 합니다.
+
+기기 두 대 중 한 대의 재시작과 OAuth 인증을 로컬에서 확인하려면:
+
+```powershell
+cargo test --locked -p cdr-mcp-server --test multi_device_restart_smoke_contract --test remote_agent_e2e_contract --test oauth_http_contract --test mcp_http_contract
+```
+
+이 검사는 임시 서버만 사용합니다. 실제 VPS 연결 상태를 보증하는 검사는 아닙니다.
 
 ## 범위와 제한
 

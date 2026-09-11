@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+chrono.workspace = true
 cdr-app-server.workspace = true
 hex.workspace = true
 serde.workspace = true
@@ -15,9 +16,17 @@ thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
 walkdir.workspace = true
+regex.workspace = true
+tempfile.workspace = true
+rusqlite.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "cdr-pro-helper"
+path = "src/bin/helper.rs"

@@ -113,7 +113,7 @@ fn source_binding_types_are_strict_in_windows_powershell_and_pwsh() {
 }
 
 #[test]
-fn checkpoint_proves_the_extracted_python_rollback_is_source_complete() {
+fn checkpoint_proves_the_extracted_rust_rollback_is_source_complete() {
     let temp = tempfile::tempdir().expect("create fixture tempdir");
     let fixture = create_fixture(&temp.path().join("repo"));
     let output = run_checkpoint(&fixture, None, None, None);
@@ -137,10 +137,9 @@ fn checkpoint_proves_the_extracted_python_rollback_is_source_complete() {
     assert_eq!(rollback["powershell_watchdog_dry_run"], "passed_disabled");
     assert_eq!(rollback["powershell_source_parse"], "passed");
     assert_eq!(rollback["memory_ab_module_import_preflight"], "passed");
-    assert_eq!(rollback["python_syntax_compile"], "passed");
-    assert_eq!(rollback["python_import_preflight"], "passed");
-    assert_eq!(rollback["external_python_runtime_bundled"], false);
-    assert_eq!(rollback["external_python_dependencies_bundled"], false);
+    assert_eq!(rollback["rust_setup_preflight"], "passed");
+    assert_eq!(rollback["rust_pro_helper_preflight"], "passed");
+    assert_eq!(rollback["requires_python"], false);
     assert!(
         rollback["source_file_count"]
             .as_u64()
@@ -178,9 +177,8 @@ fn checkpoint_tooling_names_the_watchdog_dependencies_and_honest_boundary() {
         "powershell_watchdog_dry_run",
         "powershell_source_parse",
         "memory_ab_module_import_preflight",
-        "python_import_preflight",
-        "external_python_runtime_bundled",
-        "external_python_dependencies_bundled",
+        "rust_pro_helper_preflight",
+        "requires_python",
         "rollback_source_file_count",
     ] {
         assert!(
@@ -191,12 +189,12 @@ fn checkpoint_tooling_names_the_watchdog_dependencies_and_honest_boundary() {
 }
 
 #[test]
-fn checkpoint_rejects_python_rollback_source_changed_after_the_workspace_gate() {
+fn checkpoint_rejects_operational_rollback_source_changed_after_the_workspace_gate() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = create_fixture(&temp.path().join("repo"));
     fs::write(
-        fixture.root.join("codex_discord_helper.py"),
-        b"VALUE = False\n",
+        fixture.root.join("codex-discord-helper.sh"),
+        b"VALUE=false\n",
     )
     .unwrap();
 
@@ -208,12 +206,12 @@ fn checkpoint_rejects_python_rollback_source_changed_after_the_workspace_gate() 
 }
 
 #[test]
-fn checkpoint_rejects_python_rollback_source_added_after_the_workspace_gate() {
+fn checkpoint_rejects_operational_rollback_source_added_after_the_workspace_gate() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = create_fixture(&temp.path().join("repo"));
     fs::write(
-        fixture.root.join("codex_discord_unverified.py"),
-        b"UNVERIFIED = True\n",
+        fixture.root.join("codex-discord-unverified.sh"),
+        b"UNVERIFIED=true\n",
     )
     .unwrap();
 

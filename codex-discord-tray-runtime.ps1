@@ -5,7 +5,7 @@ function Resolve-TrayRuntimeMode {
         $mode = (Get-Content -LiteralPath $modePath -Raw -Encoding UTF8).Trim()
     }
     if ([string]::IsNullOrWhiteSpace($mode)) { return 'rust' }
-    if ($mode -eq 'rust' -or $mode -eq 'python') { return $mode.ToLowerInvariant() }
+    if ($mode -eq 'rust') { return $mode.ToLowerInvariant() }
     throw "Unsupported Codex Discord runtime selection: '$mode'."
 }
 
@@ -36,31 +36,7 @@ function Get-RustTrayProcessIdentity {
     return "$([int]$Process.ProcessId)|$ticks"
 }
 
-function Test-IsBotProcess {
-    param($Process, [switch]$AllowRuntimeLockFallback)
-    if ($null -eq $Process) { return $false }
-    $name = [string]$Process.Name
-    if ($name -ne 'py.exe' -and $name -ne 'python.exe' -and $name -ne 'pythonw.exe') {
-        return $false
-    }
-    $needle = [IO.Path]::GetFullPath($BotScript).ToLowerInvariant()
-    $commandLine = ([string]$Process.CommandLine).ToLowerInvariant()
-    if (-not $commandLine -and $AllowRuntimeLockFallback) { return $true }
-    return $commandLine.Contains($needle)
-}
-
 function Get-BotProcess {
-    if ($RuntimeMode -eq 'rust') { return Get-RustTrayProcess }
-    if ($RuntimeMode -ne 'python') { throw 'Tray runtime mode was not initialized.' }
-    if (Test-Path -LiteralPath $RuntimeLockPath) {
-        $pidText = (Get-Content -LiteralPath $RuntimeLockPath -Raw -ErrorAction SilentlyContinue).Trim()
-        if ($pidText -match '^\d+$') {
-            $process = Get-CimInstance Win32_Process -Filter "ProcessId=$pidText" -ErrorAction SilentlyContinue
-            if (Test-IsBotProcess $process -AllowRuntimeLockFallback) { return $process }
-        }
-    }
-    foreach ($process in Get-CimInstance Win32_Process) {
-        if (Test-IsBotProcess $process) { return $process }
-    }
-    return $null
+    if ($RuntimeMode -ne 'rust') { throw 'Tray runtime mode was not initialized as Rust.' }
+    return Get-RustTrayProcess
 }

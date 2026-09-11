@@ -1,7 +1,7 @@
 mod browser;
-mod common;
+pub(crate) mod common;
 mod connector;
-mod connector_transcript;
+pub(crate) mod connector_transcript;
 
 use thiserror::Error;
 

@@ -10,6 +10,7 @@ $binary = Join-Path $root 'target\release\cdr-runtime.exe'
 $stop = Join-Path $root '.codex_discord_rust.stop'
 $watchdog = Join-Path $root 'codex-discord-rust-watchdog.ps1'
 . (Join-Path $root 'codex-discord-rust-drain.ps1')
+Import-Module (Join-Path $PSScriptRoot 'CdrNativeProcess.psm1') -Force
 
 function Assert-OriginalRuntime {
     $process = Get-Process -Id $ExpectedPid -ErrorAction Stop
@@ -21,9 +22,12 @@ function Assert-OriginalRuntime {
 }
 
 function Get-ActiveQueueCount {
-    $result = & py -3 -X utf8 -c "import sqlite3; c=sqlite3.connect('file:discord_mirror.sqlite?mode=ro',uri=True); print(c.execute('SELECT count(*) FROM codex_turn_queue WHERE state IN (?,?)',('running','starting')).fetchone()[0])"
-    if ($LASTEXITCODE -ne 0 -or "$result" -notmatch '^\d+$') {
-        throw 'Cannot inspect active queue; no stop requested.'
+    $null = Assert-OriginalRuntime
+    $result = Invoke-CdrNative -Executable $binary -Arguments @(
+        '--admin', 'active-queue-count', '--repo-root', $root
+    ) -TimeoutSeconds 10
+    if ($null -eq $result -or "$result".Trim() -notmatch '^\d+$') {
+        throw 'Cannot inspect active queue: invalid native count receipt; no stop requested.'
     }
     return [int]$result
 }

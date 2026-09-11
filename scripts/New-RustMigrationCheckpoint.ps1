@@ -178,7 +178,7 @@ try {
             fresh_extraction = $true
             exact_names_verified = $true
             all_payload_hashes_verified = $true
-            pe_magic_verified = @('cdr-runtime.exe', 'cdr-offline-soak.exe', 'cdr-mcp-server.exe')
+            pe_magic_verified = @('cdr-runtime.exe', 'cdr-offline-soak.exe', 'cdr-mcp-server.exe', 'cdr-pro-helper.exe')
             source_rollback = [ordered]@{
                 status = $verification.RollbackVerification.Status
                 scope = 'local_windows_bot_and_operational_tooling'
@@ -186,12 +186,10 @@ try {
                 powershell_source_parse = $verification.RollbackVerification.PowerShellSourceParse
                 powershell_source_file_count = $verification.RollbackVerification.PowerShellSourceFileCount
                 memory_ab_module_import_preflight = $verification.RollbackVerification.MemoryAbModuleImportPreflight
-                python_syntax_compile = $verification.RollbackVerification.PythonSyntaxCompile
-                python_import_preflight = $verification.RollbackVerification.PythonImportPreflight
+                rust_setup_preflight = $verification.RollbackVerification.RustSetupPreflight
+                rust_pro_helper_preflight = $verification.RollbackVerification.RustProHelperPreflight
                 source_file_count = $verification.RollbackVerification.SourceFileCount
-                python_file_count = $verification.RollbackVerification.PythonFileCount
-                external_python_runtime_bundled = $verification.RollbackVerification.ExternalPythonRuntimeBundled
-                external_python_dependencies_bundled = $verification.RollbackVerification.ExternalPythonDependenciesBundled
+                requires_python = $verification.RollbackVerification.RequiresPython
             }
             forbidden_entry_count = 0
             offline_smoke = [ordered]@{
@@ -210,7 +208,7 @@ try {
             disabled_marker_sha256_before = $markerBefore.Sha256
             disabled_marker_sha256_after = $verification.MarkerAfter.Sha256
             disabled_marker_preserved = $true
-            cdr_runtime_executed = $false
+            cdr_runtime_admin_only_executed = $true
             cdr_mcp_server_executed = $false
             bot_or_network_started = $false
             local_checkpoint_only = $true

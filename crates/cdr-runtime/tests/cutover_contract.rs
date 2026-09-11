@@ -25,12 +25,6 @@ fn cutover_dry_run_is_non_mutating_and_declares_backup_and_observation() {
         "DISCORD_BOT_TOKEN=do-not-print-me\nDISCORD_ALLOWED_CHANNEL_IDS=42\n",
     )
     .unwrap();
-    fs::copy(
-        repo.join("codex-discord-watchdog-identity-runtime.ps1"),
-        temp.path()
-            .join("codex-discord-watchdog-identity-runtime.ps1"),
-    )
-    .unwrap();
     for name in [
         "codex-discord-watchdog.ps1",
         "codex-discord-rust-watchdog.ps1",
@@ -64,16 +58,18 @@ fn cutover_dry_run_is_non_mutating_and_declares_backup_and_observation() {
 }
 
 #[test]
-fn cutover_script_requires_explicit_manual_python_rollback() {
+fn cutover_script_requires_explicit_rust_recovery() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let text = fs::read_to_string(repo.join("codex-discord-runtime-cutover.ps1")).unwrap();
     assert!(text.contains("Backup-Store"));
     assert!(text.contains("Enter-CutoverMaintenance"));
-    assert!(text.contains("Stop-Python"));
+    assert!(text.contains("Stop-Rust"));
     assert!(text.contains("Wait-RustHealthy"));
     let completion = fs::read_to_string(repo.join("scripts/CdrCutoverCompletion.ps1")).unwrap();
     assert!(completion.contains("automatic rollback disabled"));
-    assert!(text.contains("-Runtime $($transaction.SourceRuntime)"));
+    let recovery = fs::read_to_string(repo.join("scripts/CdrCutoverRecovery.ps1")).unwrap();
+    assert!(recovery.contains("-Runtime rust -Recover"));
+    assert!(recovery.contains("if (-not $Recover)"));
     assert!(!text.contains("rollback=starting"));
     assert!(!text.contains("Python rollback was restored"));
 }
@@ -89,12 +85,6 @@ fn interrupted_cutover_is_durable_and_dry_run_requires_explicit_source_recovery(
         "DISCORD_BOT_TOKEN=do-not-print-me\nDISCORD_ALLOWED_CHANNEL_IDS=42\n",
     )
     .unwrap();
-    fs::copy(
-        repo.join("codex-discord-watchdog-identity-runtime.ps1"),
-        temp.path()
-            .join("codex-discord-watchdog-identity-runtime.ps1"),
-    )
-    .unwrap();
     for name in [
         "codex-discord-watchdog.ps1",
         "codex-discord-rust-watchdog.ps1",
@@ -106,7 +96,7 @@ fn interrupted_cutover_is_durable_and_dry_run_requires_explicit_source_recovery(
     let state = concat!(
         "transaction_id=test-transaction\n",
         "owner_identity=999999|0\n",
-        "source_runtime=python\n",
+        "source_runtime=rust\n",
         "target_runtime=rust\n",
         "phase=source_stopped\n"
     );
@@ -161,12 +151,6 @@ fn failed_rust_cutover_stays_disabled_and_never_invokes_python_watchdog() {
         ),
     )
     .unwrap();
-    fs::copy(
-        repo.join("codex-discord-watchdog-identity-runtime.ps1"),
-        temp.path()
-            .join("codex-discord-watchdog-identity-runtime.ps1"),
-    )
-    .unwrap();
     let python_watchdog = temp.path().join("codex-discord-watchdog.ps1");
     fs::write(
         &python_watchdog,
@@ -178,7 +162,7 @@ fn failed_rust_cutover_stays_disabled_and_never_invokes_python_watchdog() {
         "exit 0\n",
     )
     .unwrap();
-    fs::write(temp.path().join(".codex_discord_runtime"), "python\n").unwrap();
+    fs::write(temp.path().join(".codex_discord_runtime"), "rust\n").unwrap();
     let sentinel = temp.path().join("python-watchdog-invoked.txt");
 
     let output = Command::new("powershell.exe")
@@ -219,179 +203,98 @@ fn failed_rust_cutover_stays_disabled_and_never_invokes_python_watchdog() {
 }
 
 #[test]
-fn explicit_python_recovery_does_not_require_or_invoke_a_rust_binary() {
-    for rust_binary_exists in [false, true] {
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let script = repo.join("codex-discord-runtime-cutover.ps1");
+fn explicit_rust_recovery_preserves_state_when_preflight_is_unusable() {
+    for exists in [false, true] {
         let temp = cutover_fixture();
-        let python_running = temp.path().join("python-running.txt");
-        let rust_invoked = temp.path().join("rust-invoked.txt");
-        let binary_path = temp.path().join("broken-rust.cmd");
-        if rust_binary_exists {
-            fs::write(
-                &binary_path,
-                format!(
-                    "@echo off\r\n>\"{}\" echo invoked\r\nexit /b 91\r\n",
-                    rust_invoked.display()
-                ),
-            )
-            .unwrap();
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let binary = temp.path().join("broken-rust.cmd");
+        let sentinel = temp.path().join("started");
+        if exists {
+            fs::write(&binary, "@echo off\r\nexit /b 91\r\n").unwrap();
         }
         fs::write(
-            temp.path()
-                .join("codex-discord-watchdog-identity-runtime.ps1"),
-            concat!(
-                "function Get-CodexBotProcessIdentity {\n",
-                "    param([string]$BotScript, [string]$RuntimeLockPath)\n",
-                "    $running = Join-Path (Split-Path -Parent $BotScript) 'python-running.txt'\n",
-                "    if (Test-Path -LiteralPath $running) { return '4242|1' }\n",
-                "    return ''\n",
-                "}\n"
+            temp.path().join("runtime.env"),
+            "DISCORD_ALLOWED_CHANNEL_IDS=42\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("codex-discord-rust-watchdog.ps1"),
+            format!(
+                "[IO.File]::WriteAllText('{}','started')",
+                sentinel.display()
             ),
         )
         .unwrap();
-        fs::write(
-            temp.path().join("codex-discord-watchdog.ps1"),
-            "Set-Content -LiteralPath (Join-Path $PSScriptRoot 'python-running.txt') -Value running\nexit 0\n",
-        )
-        .unwrap();
-        let transaction = concat!(
-            "transaction_id=manual-python-recovery\n",
-            "owner_identity=999999|0\n",
-            "source_runtime=python\n",
-            "target_runtime=rust\n",
-            "phase=target_starting\n"
-        );
-        fs::write(
-            temp.path().join(".codex_discord_runtime.cutover"),
-            transaction,
-        )
-        .unwrap();
-        fs::write(
-            temp.path().join(".codex_discord_bot.disabled"),
-            "kind=cutover_recovery\ntransaction_id=manual-python-recovery\n",
-        )
-        .unwrap();
-        fs::write(temp.path().join(".codex_discord_runtime"), "rust\n").unwrap();
-
+        let state = "transaction_id=recover\nowner_identity=999999|0\nsource_runtime=rust\ntarget_runtime=rust\nphase=source_stopped\n";
+        let disabled = "kind=cutover_recovery\ntransaction_id=recover\n";
+        fs::write(temp.path().join(".codex_discord_runtime.cutover"), state).unwrap();
+        fs::write(temp.path().join(".codex_discord_bot.disabled"), disabled).unwrap();
         let output = Command::new("powershell.exe")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(script)
-            .args(["-Runtime", "python", "-RepoRoot"])
+            .arg(repo.join("codex-discord-runtime-cutover.ps1"))
+            .arg("-RepoRoot")
             .arg(temp.path())
-            .args(["-BinaryPath"])
-            .arg(&binary_path)
-            .args(["-EnvPath"])
-            .arg(temp.path().join("missing.env"))
+            .arg("-BinaryPath")
+            .arg(&binary)
+            .arg("-EnvPath")
+            .arg(temp.path().join("runtime.env"))
+            .arg("-Recover")
             .output()
             .unwrap();
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            output.status.success(),
-            "explicit Python recovery failed: stdout={stdout} stderr={stderr}"
+            stderr.contains("Rust configuration preflight failed with exit code 91")
+                || stderr.contains("Rust cutover prerequisite was not found"),
+            "{stderr}"
         );
-        assert!(stdout.contains("recovery=explicit"));
-        assert!(python_running.exists());
-        assert!(!rust_invoked.exists(), "Rust preflight was invoked");
+        assert!(!sentinel.exists());
         assert_eq!(
-            fs::read_to_string(temp.path().join(".codex_discord_runtime")).unwrap(),
-            "python\n"
+            fs::read_to_string(temp.path().join(".codex_discord_runtime.cutover")).unwrap(),
+            state
         );
-        assert!(!temp.path().join(".codex_discord_runtime.cutover").exists());
-        assert!(!temp.path().join(".codex_discord_bot.disabled").exists());
+        assert!(temp.path().join(".codex_discord_bot.disabled").exists());
     }
 }
 
 #[test]
-fn ordinary_manual_python_rollback_backs_up_without_rust_preflight() {
-    let python_output = Command::new("py")
-        .args(["-3", "-c", "import sys; print(sys.executable)"])
-        .output()
-        .unwrap();
-    assert!(python_output.status.success());
-    let python_executable = String::from_utf8(python_output.stdout)
-        .unwrap()
-        .trim()
-        .to_owned();
-
-    for rust_binary_exists in [false, true] {
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let script = repo.join("codex-discord-runtime-cutover.ps1");
+fn removed_runtime_rollback_is_rejected_before_data_or_runtime_changes() {
+    for exists in [false, true] {
         let temp = cutover_fixture();
-        let database = temp.path().join("discord_mirror.sqlite");
-        cdr_store::schema::open_initialized(&database).unwrap();
-        let rust_invoked = temp.path().join("rust-invoked.txt");
-        let binary_path = temp.path().join("broken-rust.cmd");
-        if rust_binary_exists {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let binary = temp.path().join("broken-rust.cmd");
+        let invoked = temp.path().join("invoked");
+        if exists {
             fs::write(
-                &binary_path,
+                &binary,
                 format!(
                     "@echo off\r\n>\"{}\" echo invoked\r\nexit /b 91\r\n",
-                    rust_invoked.display()
+                    invoked.display()
                 ),
             )
             .unwrap();
         }
-        fs::write(
-            temp.path()
-                .join("codex-discord-watchdog-identity-runtime.ps1"),
-            concat!(
-                "function Get-CodexBotProcessIdentity {\n",
-                "    param([string]$BotScript, [string]$RuntimeLockPath)\n",
-                "    $running = Join-Path (Split-Path -Parent $BotScript) 'python-running.txt'\n",
-                "    if (Test-Path -LiteralPath $running) { return '4242|1' }\n",
-                "    return ''\n",
-                "}\n"
-            ),
-        )
-        .unwrap();
-        fs::write(
-            temp.path().join("codex-discord-watchdog.ps1"),
-            "Set-Content -LiteralPath (Join-Path $PSScriptRoot 'python-running.txt') -Value running\nexit 0\n",
-        )
-        .unwrap();
-        fs::write(temp.path().join("codex_discord_bot.py"), "").unwrap();
+        let database = temp.path().join("discord_mirror.sqlite");
+        cdr_store::schema::open_initialized(&database).unwrap();
+        let before = fs::read(&database).unwrap();
         fs::write(temp.path().join(".codex_discord_runtime"), "rust\n").unwrap();
-
         let output = Command::new("powershell.exe")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(script)
+            .arg(repo.join("codex-discord-runtime-cutover.ps1"))
             .args(["-Runtime", "python", "-RepoRoot"])
             .arg(temp.path())
-            .args(["-BinaryPath"])
-            .arg(&binary_path)
-            .args(["-EnvPath"])
-            .arg(temp.path().join("missing.env"))
-            .env("CODEX_DISCORD_PYTHON", &python_executable)
+            .arg("-BinaryPath")
+            .arg(binary)
             .output()
             .unwrap();
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            output.status.success(),
-            "manual Python rollback failed: stdout={stdout} stderr={stderr}"
-        );
-        assert!(stdout.contains("manual_rollback=verified"));
-        assert!(!rust_invoked.exists(), "Rust preflight was invoked");
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("ValidateSet"));
+        assert!(!invoked.exists());
+        assert_eq!(fs::read(database).unwrap(), before);
         assert_eq!(
             fs::read_to_string(temp.path().join(".codex_discord_runtime")).unwrap(),
-            "python\n"
+            "rust\n"
         );
-        let backup_directory = temp.path().join(".codex-discord-backups");
-        let backups = fs::read_dir(&backup_directory)
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        assert_eq!(backups.len(), 1);
-        let backup = rusqlite::Connection::open(backups[0].path()).unwrap();
-        let integrity: String = backup
-            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(integrity, "ok");
-        assert!(temp.path().join("python-running.txt").exists());
         assert!(!temp.path().join(".codex_discord_runtime.cutover").exists());
         assert!(!temp.path().join(".codex_discord_bot.disabled").exists());
     }
@@ -400,12 +303,12 @@ fn ordinary_manual_python_rollback_backs_up_without_rust_preflight() {
 #[test]
 fn cutover_heartbeat_is_pid_bound_with_bounded_bootstrap_grace() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let text = fs::read_to_string(repo.join("codex-discord-runtime-cutover.ps1")).unwrap();
+    let text = fs::read_to_string(repo.join("scripts/CdrCutoverRuntime.ps1")).unwrap();
 
     assert!(text.contains("HeartbeatBootstrapGraceSeconds"));
     assert!(text.contains("Get-VerifiedRustHeartbeatState"));
     assert!(text.contains("heartbeat_pid_mismatch"));
-    assert!(text.contains("target_healthy"));
+    assert!(text.contains("($now - $healthySince).TotalSeconds -ge $ObserveSeconds"));
 }
 
 #[test]
@@ -415,7 +318,8 @@ fn cutover_has_a_durable_transaction_and_final_recovery_guard() {
 
     assert!(text.contains(".codex_discord_runtime.cutover"));
     assert!(text.contains("Recover-InterruptedCutover"));
-    assert!(text.contains("Ensure-CutoverRecoveryDisabled"));
+    let recovery = fs::read_to_string(repo.join("scripts/CdrCutoverState.ps1")).unwrap();
+    assert!(recovery.contains("Ensure-CutoverRecoveryDisabled"));
     assert!(text.contains("source_stopped"));
     assert!(text.contains("target_starting"));
     assert!(text.contains("finally"));

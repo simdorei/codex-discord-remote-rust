@@ -35,7 +35,7 @@ Use this skill for this repository and its local Windows bot runtime.
 ## Useful Scripts
 
 - `plugins/codex-discord-remote/scripts/status.ps1`: show git state, bot PID/process status, recent bot log tail, and bridge thread list.
-- `plugins/codex-discord-remote/scripts/restart.ps1`: request bot restart through `.codex_discord_bot.restart` and run the watchdog.
+- `plugins/codex-discord-remote/scripts/restart.ps1`: request a verified Rust restart through the Rust restart entry and watchdog.
 - `plugins/codex-discord-remote/scripts/qa-smoke.ps1`: run deploy-oriented smoke checks.
 
 ## Sending Files To Discord
@@ -43,12 +43,14 @@ Use this skill for this repository and its local Windows bot runtime.
 When the user asks to send, upload, attach, or deliver a file to Discord, start with the repo helper instead of saying there is no file-send path:
 
 ```powershell
-py -3 .\send_discord_attachment.py --thread-ref <codex-thread-ref> --content-file .\caption.txt .\artifact.zip
+.\target\release\cdr-runtime.exe --admin send-attachment --repo-root . --thread-ref <codex-thread-ref> --content-file .\caption.txt .\artifact.zip
 ```
 
 - Prefer `--thread-ref` or `--work-thread` when sending to a mirrored Codex thread; use `--channel-id` only when the user gives a concrete Discord channel/thread id.
 - Use `--content-file` for Korean or multiline captions so PowerShell encoding does not corrupt text.
 - If the mirror target is stale, run `!mirror check` and `!mirror sync` before retrying.
+- The sender does not retry an upload automatically. If delivery is uncertain, inspect Discord before any explicit retry; do not send a second copy just because the receipt was lost.
+- This one-shot command reads mappings without migrating the bot DB. It accepts at most 10 files and 100 MiB combined as a local safety bound; Discord may reject a lower account/server limit and its actual error is reported.
 - Do not use `!delete_archive` or archive deletion commands for file delivery.
 
 ## Interview Workflow

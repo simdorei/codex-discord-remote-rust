@@ -18,11 +18,11 @@ fn receipt_key(session_id: &str, turn_id: &str) -> String {
 
 #[cfg(windows)]
 #[test]
-fn canonical_browser_code_matches_frozen_python_output() {
+fn canonical_browser_code_matches_current_lexical_binding_contract() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../fixtures/parity/pro_canonical_probe_windows.json"
+        "../../../fixtures/parity/pro_canonical_probe_lexical_windows.json"
     ))
-    .expect("parse frozen Python fixture");
+    .expect("parse explicit lexical binding fixture");
     let root = std::path::Path::new(
         fixture["plugin_root"]
             .as_str()

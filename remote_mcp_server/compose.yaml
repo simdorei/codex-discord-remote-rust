@@ -42,9 +42,8 @@ services:
     healthcheck:
       test:
         - CMD
-        - /app/.venv/bin/python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/healthz', timeout=3)"
+        - /usr/local/bin/cdr-mcp-server
+        - --healthcheck
       interval: 20s
       timeout: 5s
       retries: 3

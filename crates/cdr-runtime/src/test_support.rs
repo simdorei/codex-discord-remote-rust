@@ -17,3 +17,4 @@ pub(crate) mod pro_connection;
 pub(crate) mod pro_fixture;
 #[path = "../tests/support/pro_plugins.rs"]
 pub(crate) mod pro_plugins;
+pub(crate) use crate::soak::native_fixture;

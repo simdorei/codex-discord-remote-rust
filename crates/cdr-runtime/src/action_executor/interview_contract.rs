@@ -53,15 +53,9 @@ async fn prefix_and_slash_deliver_the_complete_python_interview_contract() {
         assert_eq!(starts.len(), 1);
         assert_eq!(starts[0]["params"]["threadId"], "thread-b");
         let sent = starts[0]["params"]["input"][0]["text"].as_str().unwrap();
-        let python =
-            include_str!("../../../../codex_discord_prefix_skill_prompts.py").replace("\r\n", "\n");
-        let expected = python
-            .split("DEEP_INTERVIEW_PROMPT_HEADER = \"\"\"")
-            .nth(1)
-            .unwrap()
-            .split("\"\"\"")
-            .next()
-            .unwrap();
+        // Frozen verbatim from the approved legacy contract, not the Rust implementation.
+        let expected = include_str!("../../../../fixtures/parity/deep_interview_header.txt")
+            .replace("\r\n", "\n");
         assert_eq!(
             sent,
             format!("{expected}원래 요청"),

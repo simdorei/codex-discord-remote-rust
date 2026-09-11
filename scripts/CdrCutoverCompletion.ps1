@@ -1,8 +1,7 @@
 # Completion is a single control-lock decision. Observation outside the lock is
 # useful evidence, but never authority to consume state after a competing intent.
 function Get-CutoverTargetIdentity {
-    param([string]$Target)
-    if ($Target -eq 'python') { return Get-PythonIdentity }
+    param([ValidateSet('rust')][string]$Target)
     return Get-RustIdentity
 }
 

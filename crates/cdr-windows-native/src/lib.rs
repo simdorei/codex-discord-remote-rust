@@ -8,6 +8,10 @@ pub mod resources;
 #[cfg(windows)]
 mod atomic_file;
 #[cfg(windows)]
+mod file_security;
+#[cfg(windows)]
+pub use file_security::copy_file_access_rules;
+#[cfg(windows)]
 mod delete_file;
 #[cfg(windows)]
 pub use delete_file::delete_open_file;

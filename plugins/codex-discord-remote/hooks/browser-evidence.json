@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/browser_evidence_hook.py\"",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\browser_evidence_hook.py\"",
+            "command": "\"${PLUGIN_ROOT}/bin/cdr-pro-helper\" browser-hook",
+            "commandWindows": "\"${PLUGIN_ROOT}\\bin\\cdr-pro-helper.exe\" browser-hook",
             "timeout": 10,
             "statusMessage": "Verifying Chrome evidence"
           }
@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/browser_evidence_hook.py\"",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\browser_evidence_hook.py\"",
+            "command": "\"${PLUGIN_ROOT}/bin/cdr-pro-helper\" browser-hook",
+            "commandWindows": "\"${PLUGIN_ROOT}\\bin\\cdr-pro-helper.exe\" browser-hook",
             "timeout": 10,
             "statusMessage": "Checking Chrome claims"
           }

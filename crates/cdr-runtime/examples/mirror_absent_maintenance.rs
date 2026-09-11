@@ -11,7 +11,10 @@ use cdr_runtime::{
     runtime_paths::{RuntimePaths, discover_inputs},
     startup::{StartupArgs, load_environment},
 };
-use std::{sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
+
+#[path = "support/maintenance_pins.rs"]
+mod pins;
 
 const ROOT: &str = "C:/example/codex-discord-remote-rust";
 const LEGACY_MUTEX_ROOT: &str = r"C:\example\codex-discord-remote-rust";
@@ -44,17 +47,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = StartupArgs::parse(arguments)?;
     let environment = load_environment(&args, &std::env::current_exe()?)?;
     let paths = RuntimePaths::resolve(&environment, &discover_inputs(&environment, root.clone())?)?;
-    if paths.root.as_os_str() != std::ffi::OsStr::new(LEGACY_MUTEX_ROOT) {
-        return Err("maintenance legacy mutex root spelling mismatch".into());
-    }
-    if paths.codex_home.canonicalize()? != std::fs::canonicalize(CODEX_HOME)?
-        || paths.state_db.canonicalize()? != std::fs::canonicalize(STATE_DB)?
-    {
-        return Err("maintenance approved Codex home/state DB mismatch".into());
-    }
-    if paths.mirror_db.canonicalize()? != root.join("discord_mirror.sqlite").canonicalize()? {
-        return Err("maintenance DB mismatch".into());
-    }
+    pins::verify(
+        &paths,
+        Path::new(LEGACY_MUTEX_ROOT),
+        Path::new(CODEX_HOME),
+        Path::new(STATE_DB),
+        &root.join("discord_mirror.sqlite"),
+    )?;
     if mode == "preflight" {
         let config = AppServerConfig::new(&paths.codex_exe).with_environment([(
             "CODEX_HOME".into(),

@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 use std::sync::{Arc, Barrier};
 
 use cdr_store::delivery::{complete as complete_delivery, list_pending};
@@ -11,7 +10,7 @@ use cdr_store::queue::{
 const NOTICE_ID: &str = "turn-start-candidates-ambiguous:held";
 
 #[test]
-fn hold_is_sticky_visible_latest_and_python_compatible_without_notice_recreation() {
+fn hold_is_sticky_visible_latest_and_legacy_compatible_without_notice_recreation() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("hold.sqlite");
     let claimed = seed_starting(&path, "original transport timeout");
@@ -65,7 +64,7 @@ fn hold_is_sticky_visible_latest_and_python_compatible_without_notice_recreation
             .is_some()
     );
     assert!(list_pending(&path).unwrap().is_empty());
-    assert_python_reads_starting_hold(&path);
+    assert_legacy_starting_hold_storage_contract(&path);
 }
 
 #[test]
@@ -155,28 +154,21 @@ fn job<'a>(id: &'a str, prompt: &'a str, created_at: f64) -> NewQueueJob<'a> {
     }
 }
 
-fn assert_python_reads_starting_hold(path: &Path) {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let script = "import sys; from pathlib import Path; from codex_discord_store_queue import list_queue_jobs; jobs=list_queue_jobs(Path(sys.argv[1])); held=[job for job in jobs if job.job_id == 'held']; assert len(held) == 1; assert held[0].state.value == 'starting'; assert held[0].turn_id is None";
-    let output = python_command(&repo)
-        .current_dir(&repo)
-        .args(["-c", script])
-        .arg(path)
-        .output()
-        .expect("run Python rollback reader");
-    assert!(
-        output.status.success(),
-        "Python rollback reader failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn python_command(repo: &Path) -> Command {
-    if cfg!(windows) {
-        let mut command = Command::new("py");
-        command.arg("-3");
-        command
-    } else {
-        Command::new(repo.join("remote_mcp_server/.venv/bin/python"))
-    }
+fn assert_legacy_starting_hold_storage_contract(path: &Path) {
+    // Frozen legacy column/state contract; independent of the Rust queue decoder.
+    // Executable Python rollback is intentionally retired, not required by this check.
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let rows = connection
+        .prepare("SELECT state, turn_id FROM codex_turn_queue WHERE job_id=?")
+        .unwrap()
+        .query_map(["held"], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], ("starting".into(), None));
 }

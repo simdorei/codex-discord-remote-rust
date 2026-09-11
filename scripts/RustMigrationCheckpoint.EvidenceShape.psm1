@@ -46,23 +46,24 @@ function Assert-CdrOfflineSoakEvidenceShape([AllowNull()][object]$Evidence) {
         'harness', 'memory', 'artifacts', 'provenance', 'safety', 'final_eligibility', 'long_run'
     ) 'record'
     Assert-CdrEvidenceRecordSet $Evidence.artifacts @(
-        'cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server'
+        'cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server', 'cdr_pro_helper'
     ) 'artifacts'
 }
 
 function Assert-CdrWorkspaceGateEvidenceShape([AllowNull()][object]$Evidence) {
     Assert-CdrEvidenceCondition (Test-CdrEvidenceRecord $Evidence) 'record must be an object'
     Assert-CdrEvidenceRecordSet $Evidence @(
-        'source_scope', 'rust', 'python', 'quality', 'artifacts', 'safety',
-        'powershell_source', 'rollback_source'
+        'source_scope', 'rust', 'native_tools', 'quality', 'artifacts', 'safety',
+        'powershell_source', 'rollback_source', 'live_verification'
     ) 'record'
     Assert-CdrEvidenceRecordSet $Evidence.rust @('release_checkpoint_contracts') 'rust'
-    Assert-CdrEvidenceRecordSet $Evidence.python @(
-        'pytest_full_suite', 'pro_plugin_contract_suite', 'installer_unittests',
-        'desktop_bridge_tests', 'durable_store_tests'
-    ) 'python'
+    Assert-CdrEvidenceRecordSet $Evidence.native_tools @(
+        'operations_suite', 'pro_helper_contracts', 'installer_contracts',
+        'desktop_bridge_contracts', 'durable_store_contracts', 'python_unavailable_execution',
+        'dependency_audit', 'process_observation'
+    ) 'native_tools'
     Assert-CdrEvidenceRecordSet $Evidence.artifacts @(
-        'cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server'
+        'cdr_runtime', 'cdr_offline_soak', 'cdr_mcp_server', 'cdr_pro_helper'
     ) 'artifacts'
 }
 

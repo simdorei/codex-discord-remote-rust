@@ -2,7 +2,7 @@ services:
   oauth-data-init:
     build:
       context: ..
-      dockerfile: remote_mcp_server/Dockerfile.rust
+      dockerfile: remote_mcp_server/Dockerfile
     user: "0:0"
     entrypoint:
       - /bin/sh
@@ -18,7 +18,7 @@ services:
   gateway:
     build:
       context: ..
-      dockerfile: remote_mcp_server/Dockerfile.rust
+      dockerfile: remote_mcp_server/Dockerfile
     depends_on:
       oauth-data-init:
         condition: service_completed_successfully

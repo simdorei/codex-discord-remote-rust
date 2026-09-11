@@ -5,7 +5,7 @@ use cdr_remote_protocol::message::BridgeResult;
 use super::LocalProjectDispatcher;
 use super::error::session_error;
 use super::state::{ActiveProject, SessionActivation};
-use crate::computer::{ComputerAccessMode, new_computer_controller};
+use crate::computer::{ComputerAccessMode, SessionComputer};
 use crate::terminal::{TerminalExecutionEngine, TerminalWindowManager};
 
 impl LocalProjectDispatcher {
@@ -90,10 +90,7 @@ impl LocalProjectDispatcher {
             Ok(value) => value,
             Err(error) => return session_error(request_id, &error.to_string()),
         };
-        let computer = match new_computer_controller(computer_mode) {
-            Ok(value) => value,
-            Err(error) => return session_error(request_id, &error.to_string()),
-        };
+        let computer = SessionComputer::new(computer_mode);
         let previous = current.replace(Arc::new(SessionActivation {
             connection_generation,
             session_generation,

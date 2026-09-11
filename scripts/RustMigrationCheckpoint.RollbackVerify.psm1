@@ -50,23 +50,6 @@ function Invoke-CdrRollbackProbe {
     } finally { $process.Dispose() }
 }
 
-function Resolve-CdrRollbackPython {
-    $configured = [string]$env:PYTHON_EXE
-    if (-not [string]::IsNullOrWhiteSpace($configured) -and
-        (Test-Path -LiteralPath $configured -PathType Leaf)) {
-        return [pscustomobject]@{ FilePath = [IO.Path]::GetFullPath($configured); Prefix = @() }
-    }
-    $launcher = Get-Command 'py.exe' -ErrorAction SilentlyContinue
-    if ($null -ne $launcher) {
-        return [pscustomobject]@{ FilePath = $launcher.Source; Prefix = @('-3') }
-    }
-    $python = Get-Command 'python.exe' -ErrorAction SilentlyContinue
-    if ($null -ne $python) {
-        return [pscustomobject]@{ FilePath = $python.Source; Prefix = @() }
-    }
-    throw 'Python rollback verification requires an existing external Python 3 runtime.'
-}
-
 function Test-CdrExtractedPowerShellSources {
     param(
         [Parameter(Mandatory = $true)][string]$PowerShellPath,
@@ -136,8 +119,6 @@ function Test-CdrCheckpointRollbackPayload {
             'codex-discord-atomic-file-runtime.ps1',
             'codex-discord-bot-headless.vbs',
             'codex-discord-memory-ab.ps1',
-            'codex_discord_bot.py',
-            'requirements.txt',
             'scripts\codex-discord-memory-ab-common.ps1',
             'scripts\codex-discord-memory-ab-process.ps1',
             'scripts\codex-discord-memory-ab-report.ps1',
@@ -160,10 +141,10 @@ function Test-CdrCheckpointRollbackPayload {
             (Join-Path $operations 'codex-discord-watchdog.ps1'), '-DryRun'
         ) `
         -WorkingDirectory $operations `
-        -Label 'Extracted Python watchdog dry run' `
-        -Environment @{ CODEX_DISCORD_RUNTIME = 'python' }
+        -Label 'Extracted Rust watchdog dry run' `
+        -Environment @{ CODEX_DISCORD_RUNTIME = 'rust' }
     if ($watchdog.Stdout -cne 'disabled') {
-        throw "Extracted Python watchdog dry run returned unexpected output: $($watchdog.Stdout)"
+        throw "Extracted Rust watchdog dry run returned unexpected output: $($watchdog.Stdout)"
     }
     $powerShellProbe = @{
         PowerShellPath = $powerShell.Source
@@ -171,30 +152,27 @@ function Test-CdrCheckpointRollbackPayload {
     }
     $powerShellFileCount = Test-CdrExtractedPowerShellSources @powerShellProbe
 
-    $python = Resolve-CdrRollbackPython
-    $pythonFiles = @(Get-ChildItem -LiteralPath $operations -Recurse -File -Filter '*.py')
-    if ($pythonFiles.Count -eq 0) { throw 'Extracted source rollback contains no Python files.' }
-    $compileCode = (
-        "import pathlib,sys; files=sorted(pathlib.Path(sys.argv[1]).rglob('*.py')); " +
-        "[compile(p.read_bytes(),str(p),'exec') for p in files]; print(len(files))"
-    )
-    $compile = Invoke-CdrRollbackProbe `
-        -FilePath $python.FilePath `
-        -Arguments (@($python.Prefix) + @('-c', $compileCode, $operations)) `
-        -WorkingDirectory $operations `
-        -Label 'Extracted Python source compile' `
-        -Environment @{ PYTHONDONTWRITEBYTECODE = '1' }
-    if ($compile.Stdout -cne [string]$pythonFiles.Count) {
-        throw 'Extracted Python source compile count did not match the packaged files.'
+    $probeRoot = Join-Path (Split-Path -Parent $ExtractRoot) 'native-rollback-probe'
+    $null = New-Item -ItemType Directory -Path $probeRoot
+    $runtime = Join-Path $ExtractRoot 'artifacts\cdr-runtime.exe'
+    $setup = Invoke-CdrRollbackProbe -FilePath $runtime -Arguments @(
+        '--admin', 'setup-discord', '--repo-root', $probeRoot, '--dry-run', '--bot-id', '42'
+    ) -WorkingDirectory $probeRoot -Label 'Extracted Rust setup preflight'
+    if ($setup.Stdout -notmatch 'client_id=42' -or
+        (Test-Path -LiteralPath (Join-Path $probeRoot '.env'))) {
+        throw 'Extracted Rust setup preflight was invalid or unexpectedly wrote configuration.'
     }
-    $import = Invoke-CdrRollbackProbe `
-        -FilePath $python.FilePath `
-        -Arguments (@($python.Prefix) + @('-c', "import codex_discord_bot; print('import_ok')")) `
-        -WorkingDirectory $operations `
-        -Label 'Extracted Python bot import preflight' `
-        -Environment @{ PYTHONDONTWRITEBYTECODE = '1' }
-    if ($import.Stdout -cne 'import_ok') {
-        throw "Extracted Python bot import preflight returned unexpected output: $($import.Stdout)"
+    $pro = Invoke-CdrRollbackProbe `
+        -FilePath (Join-Path $ExtractRoot 'artifacts\cdr-pro-helper.exe') `
+        -Arguments @('conversation', 'status', '--scope', 'codex-pro-000000000000000000000000') `
+        -WorkingDirectory $probeRoot -Label 'Extracted Rust Pro helper preflight' `
+        -Environment @{ SIMDOREI_PRO_CONVERSATION_DB = (Join-Path $probeRoot 'pro.sqlite') }
+    $proState = $pro.Stdout | ConvertFrom-Json
+    if ($proState.status -cne 'missing') {
+        throw 'Extracted Rust Pro helper returned an unexpected conversation state.'
+    }
+    if (@(Get-ChildItem -LiteralPath $operations -Recurse -File -Filter '*.py').Count -ne 0) {
+        throw 'Python sources are not part of a Rust-only rollback payload.'
     }
 
     return [pscustomobject][ordered]@{
@@ -203,12 +181,10 @@ function Test-CdrCheckpointRollbackPayload {
         PowerShellSourceParse = 'passed'
         PowerShellSourceFileCount = $powerShellFileCount
         MemoryAbModuleImportPreflight = 'passed'
-        PythonSyntaxCompile = 'passed'
-        PythonImportPreflight = 'passed'
+        RustSetupPreflight = 'passed'
+        RustProHelperPreflight = 'passed'
         SourceFileCount = $SourceFileCount
-        PythonFileCount = $pythonFiles.Count
-        ExternalPythonRuntimeBundled = $false
-        ExternalPythonDependenciesBundled = $false
+        RequiresPython = $false
     }
 }
 

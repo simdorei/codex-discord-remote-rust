@@ -5,9 +5,11 @@ use thiserror::Error;
 
 mod discovery;
 mod helpers;
+pub(crate) mod state_paths;
+pub(crate) mod store_paths;
 
 pub use discovery::{PathDiscoveryError, discover_inputs};
-use helpers::{env_path, expand_home, latest_state_db, resolve_executable, resolved_codex_path};
+use helpers::{env_path, expand_home, resolve_executable, resolved_codex_path};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PathSource {
@@ -61,6 +63,8 @@ impl PathInputs {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum RuntimePathError {
+    #[error("could not expand configured database path: user home is missing")]
+    UserHomeMissing,
     #[error("configured CODEX_EXE does not exist or is not a file: {0}")]
     ConfiguredExecutableMissing(PathBuf),
     #[error("Codex resolves only to a WindowsApps alias; configure the real CODEX_EXE")]
@@ -74,22 +78,8 @@ impl RuntimePaths {
         env: &BTreeMap<String, String>,
         inputs: &PathInputs,
     ) -> Result<Self, RuntimePathError> {
-        let codex_home = env_path(env, "CODEX_HOME").map_or_else(
-            || inputs.user_home.join(".codex"),
-            |path| expand_home(path, &inputs.user_home),
-        );
-        let root = env_path(env, "CODEX_DISCORD_ROOT").map_or_else(
-            || inputs.root.clone(),
-            |path| expand_home(path, &inputs.user_home),
-        );
-        let mirror_db = env_path(env, "CODEX_DISCORD_MIRROR_DB").map_or_else(
-            || root.join("discord_mirror.sqlite"),
-            |path| expand_home(path, &inputs.user_home),
-        );
-        let state_db = env_path(env, "CODEX_STATE_DB").map_or_else(
-            || latest_state_db(&codex_home),
-            |path| expand_home(path, &inputs.user_home),
-        );
+        let (codex_home, state_db) = state_paths::resolve(env, Some(&inputs.user_home))?;
+        let (root, mirror_db) = store_paths::resolve(env, &inputs.root, Some(&inputs.user_home))?;
         let bridge_state = env_path(env, "CODEX_BRIDGE_STATE").map_or_else(
             || codex_home.join("codex_desktop_bridge_state.json"),
             |path| expand_home(path, &inputs.user_home),

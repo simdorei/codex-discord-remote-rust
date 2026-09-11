@@ -34,7 +34,7 @@ fn assert_post_verification_mutation_rejected(mutation: &str, expected: &str) {
 fn staged_binding_rejects_rollback_source_mutated_after_verification() {
     assert_post_verification_mutation_rejected(
         "rollback",
-        "Rollback source codex_discord_helper.py SHA-256 mismatch after staging",
+        "Rollback source codex-discord-helper.sh SHA-256 mismatch after staging",
     );
 }
 

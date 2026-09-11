@@ -15,6 +15,8 @@ $script:CheckpointToolPaths = [string[]]@(
     'scripts/RustMigrationCheckpoint.ArchiveContract.psm1',
     'scripts/RustMigrationCheckpoint.ArchivePublish.psm1',
     'scripts/RustMigrationCheckpoint.EvidenceShape.psm1',
+    'scripts/RustMigrationCheckpoint.NativeEvidence.psm1',
+    'scripts/RustMigrationCheckpoint.Quality.psm1',
     'scripts/RustMigrationCheckpoint.ProcessSafety.psm1',
     'scripts/CodexDiscordSoak.Evidence.psm1',
     'scripts/CodexDiscordSoak.ProcessOwnership.psm1',
@@ -51,31 +53,26 @@ function Get-CdrCheckpointRollbackSourceEntries {
     }
 
     foreach ($item in @(Get-ChildItem -LiteralPath $root -File | Where-Object {
-                $_.Extension -in @('.py', '.ps1', '.sh', '.cmd', '.vbs')
+                $_.Extension -in @('.ps1', '.sh', '.cmd', '.vbs')
             } | Sort-Object Name)) { Add-SourceFile $item.FullName }
-    foreach ($relative in @('requirements.in', 'requirements.txt', 'runtime-release.json')) {
-        Add-SourceFile (Join-Path $root $relative)
-    }
     foreach ($relative in $script:CheckpointToolPaths) {
         Add-SourceFile (Join-Path $root $relative.Replace('/', '\'))
     }
+    # Reviewed policy is bound/package data, not an executable PowerShell tool.
+    Add-SourceFile (Join-Path $root 'scripts/RustMigrationCheckpoint.QualityApprovals.json')
 
     $trees = @(
         [pscustomobject]@{
             path = 'scripts'
-            extensions = @('.ps1', '.psm1', '.py')
-        },
-        [pscustomobject]@{
-            path = 'simdorei_mcp_common'
-            extensions = @('.py')
+            extensions = @('.ps1', '.psm1')
         },
         [pscustomobject]@{
             path = 'plugins/codex-discord-remote'
-            extensions = @('.json', '.md', '.mjs', '.ps1', '.py', '.yaml', '.yml')
+            extensions = @('.json', '.md', '.mjs', '.ps1', '.yaml', '.yml')
         },
         [pscustomobject]@{
             path = '.agents/skills/ask-chatgpt-pro'
-            extensions = @('.md', '.mjs', '.py', '.yaml', '.yml')
+            extensions = @('.md', '.mjs', '.yaml', '.yml')
         }
     )
     foreach ($tree in $trees) {
