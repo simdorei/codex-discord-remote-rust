@@ -3,9 +3,9 @@
 Discord에서 Codex 작업을 요청하고, 진행 상황과 최종 답변을 받아 보는
 **Rust 실행 버전**입니다.
 
-설치·보조 도구까지 Python 의존성을 제거하는 변경을 검증 중입니다.
+설치·보조 도구도 Rust를 사용하며 Python 설치는 필요하지 않습니다.
 기존에 실행 중인 봇에 자동 반영되는 것은 아닙니다.
-[전환 범위와 검증 상태](docs/python-free-migration.md)를 확인하세요.
+[전환 범위와 개발 당시 검증 기록](docs/python-free-migration.md)을 확인하세요.
 
 기존 [codex-discord-remote](https://github.com/simdorei/codex-discord-remote)에서
 현재 Rust 구현을 분리했습니다. 과거 Git 변경 이력, 실제 대화 기록,
@@ -50,6 +50,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-discord-bot.ps1
 ```
 
+`install.ps1`이 소스를 빌드해 `target\release\cdr-runtime.exe`까지 만듭니다.
+별도로 `cargo build`를 실행할 필요는 없습니다. 실행 파일 제작·설치까지만
+하려면 `setup-discord-bot.ps1`은 아직 실행하지 마세요. 이 두 번째 단계는
+토큰을 저장하고 자동 실행을 등록한 뒤 실제 봇을 시작합니다.
+
+첫 번째 단계가 끝나면 다음 명령으로 실행 파일을 확인할 수 있습니다.
+도움말만 출력하며 Discord에는 연결하지 않습니다.
+
+```powershell
+.\target\release\cdr-runtime.exe --help
+```
+
+기존 Python판을 사용하던 PC는 신규 설치 명령을 그대로 실행하기 전에
+[Python판에서 Rust판으로 전환하기](docs/windows-python-to-rust.md)를 따르세요.
+기존 설정·대화방 연결 정보를 보존하고, 구버전과 신버전의 중복 실행을 막는
+순서가 별도로 필요합니다. Python 자체를 먼저 삭제할 필요는 없습니다.
+
 설치 도구는 Rust 봇과 Rust Pro 도우미를 빌드하고 플러그인을 확인합니다.
 설정 도구는 로컬 `.env`를 만들고 Windows 자동 실행 작업을 등록합니다.
 기존 봇이 있는 PC에서는 설정 도구를 중복 실행하지 마세요.
@@ -77,7 +94,8 @@ cargo build --release --locked -p cdr-runtime
 .\target\release\cdr-runtime.exe --env .\.env
 ```
 
-설치 후에는 `codex-discord-bot.cmd`로 트레이 실행을 사용할 수 있습니다.
+설치 후에는 `codex-discord-bot.cmd`로 콘솔에서 봇을 실행할 수 있습니다.
+설정 도구로 자동 실행을 켰다면 이 명령으로 두 번째 봇을 시작하지 마세요.
 상태 확인은 다음 명령으로 실행합니다. 이 명령은 봇을 시작하거나 멈추지 않습니다.
 
 ```powershell
