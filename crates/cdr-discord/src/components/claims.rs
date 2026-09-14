@@ -10,6 +10,9 @@ pub fn persistent_claim_key(message_id: u64, custom_id: &str) -> Option<String> 
 #[must_use]
 pub fn persistent_component_claim_key(message_id: u64, component: &ComponentId) -> Option<String> {
     let kind = match component {
+        ComponentId::AsyncChoice { question_id, .. } => {
+            return Some(format!("async-question:{message_id}:{question_id}"));
+        }
         ComponentId::Approval { .. } => "codex_approval",
         ComponentId::Input { .. } => "codex_input",
         ComponentId::BoundApproval {

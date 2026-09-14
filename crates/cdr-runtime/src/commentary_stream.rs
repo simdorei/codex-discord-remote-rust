@@ -72,6 +72,9 @@ impl CommentaryBuffer {
         };
         self.items.remove(&key);
         let item = params.get("item")?;
+        if cdr_app_server::async_questions::is_async_message(item) {
+            return None;
+        }
         let value = if text(item, "type") == Some("agentMessage") {
             if text(item, "phase") != Some("commentary") {
                 return None;

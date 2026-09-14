@@ -1,4 +1,5 @@
 mod approval_replies;
+pub mod async_questions;
 mod client;
 mod contract;
 mod control;
@@ -6,6 +7,7 @@ mod dead_generation;
 mod diagnostics;
 mod error;
 pub mod goal;
+pub mod idle_release;
 mod input_replies;
 mod input_validation;
 mod manager;

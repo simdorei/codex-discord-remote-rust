@@ -116,6 +116,19 @@ impl AppServerClient {
         wait: Duration,
         write_started: impl FnOnce(),
     ) -> Result<Value, AppServerError> {
+        self.request_admitted_with_checks(method, params, wait, || Ok(()), write_started, || {})
+            .await
+    }
+
+    pub(crate) async fn request_admitted_with_checks(
+        &self,
+        method: &str,
+        params: Value,
+        wait: Duration,
+        preflight: impl FnOnce() -> Result<(), AppServerError>,
+        write_started: impl FnOnce(),
+        write_complete: impl FnOnce(),
+    ) -> Result<Value, AppServerError> {
         if self.inner.closed.load(Ordering::Acquire) {
             return Err(AppServerError::Closed);
         }
@@ -125,14 +138,28 @@ impl AppServerClient {
         let displaced = pending::insert(&self.inner, id.clone(), pending);
         drop(displaced);
         pending::spawn_deadline(Arc::downgrade(&self.inner), id.clone(), wait);
+        let deadline = tokio::time::Instant::now() + wait;
         if let Err(error) = self
-            .write_with_hook(request_value(&id, method, &params), write_started)
+            .write_with_preflight(
+                request_value(&id, method, &params),
+                || {
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(AppServerError::Timeout {
+                            method: method.into(),
+                            timeout_ms: wait.as_millis(),
+                        });
+                    }
+                    preflight()
+                },
+                write_started,
+            )
             .await
         {
             let removed = pending::take(&self.inner, &id);
             drop(removed);
             return Err(error);
         }
+        write_complete();
         match receiver.await {
             Ok(PendingOutcome::Response(Ok(result))) => Ok(result),
             Ok(PendingOutcome::Response(Err(error))) => Err(AppServerError::Remote {

@@ -19,6 +19,8 @@ use crate::{AppServerConfig, AppServerError};
 
 const CHILD_ENV: &str = "CDR_WRITE_PAUSE_CHILD";
 
+#[path = "write_cancel_tests/idle_gate.rs"]
+mod idle_gate;
 #[path = "write_cancel_tests/response.rs"]
 mod response;
 #[path = "write_cancel_tests/settings.rs"]
@@ -76,6 +78,7 @@ fn server_from_client(client: AppServerClient) -> ResidentAppServer {
     let (server_requests, _) = broadcast::channel(8);
     let (forwarder_generation, _) = watch::channel(1);
     ResidentAppServer {
+        instance_id: uuid::Uuid::new_v4().to_string(),
         state: ResidentState::new(client),
         config: AppServerConfig::new(std::env::current_exe().expect("test executable")),
         restart_lock: AsyncMutex::new(()),
@@ -84,6 +87,7 @@ fn server_from_client(client: AppServerClient) -> ResidentAppServer {
         forwarder_generation,
         forwarders: Mutex::new(None),
         dead_generation_fence: None,
+        target_gate: Arc::default(),
     }
 }
 

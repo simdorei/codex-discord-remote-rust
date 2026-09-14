@@ -56,6 +56,7 @@ pub fn component_claim_identity(
     component: &ComponentId,
 ) -> Option<String> {
     match component {
+        ComponentId::AsyncChoice { question_id, .. } => Some(question_id.clone()),
         ComponentId::Busy { choice_id, .. } => Some(choice_id.clone()),
         ComponentId::Approval { .. }
         | ComponentId::BoundApproval { .. }
@@ -67,6 +68,10 @@ pub fn component_claim_identity(
 
 fn component_identity(component: &ComponentId) -> String {
     match component {
+        ComponentId::AsyncChoice {
+            question_id,
+            option,
+        } => format!("async-question:{question_id}:{option}"),
         ComponentId::Approval { thread_id, answer } => {
             let mut identity = String::from("approval;");
             push_field(&mut identity, "thread", thread_id);

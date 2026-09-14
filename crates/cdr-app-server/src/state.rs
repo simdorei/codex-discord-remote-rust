@@ -7,6 +7,7 @@ use crate::{AppServerError, Notification, RequestId, ServerRequest, ServerReques
 const MAX_NOTIFICATIONS: usize = 1_000;
 
 mod dead_generation;
+mod idle_observation;
 mod server_requests;
 mod settings;
 
@@ -41,6 +42,9 @@ pub(crate) struct RuntimeState {
     active_turns: HashMap<String, String>,
     notifications: VecDeque<Notification>,
     notification_revision: u64,
+    idle_observed_revision: u64,
+    idle_observation_gap: bool,
+    pub(crate) process_exit_confirmed: bool,
     server_requests: ServerRequestState,
 }
 

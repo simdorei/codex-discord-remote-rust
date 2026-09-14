@@ -52,6 +52,11 @@ where
     if let Some(child) = child_slot.as_mut() {
         let reaped = reap_child(child, graceful_timeout, forced_timeout, &mut first_error).await;
         if reaped {
+            inner
+                .state
+                .lock()
+                .expect("runtime state lock")
+                .process_exit_confirmed = true;
             child_slot.take();
         }
     }

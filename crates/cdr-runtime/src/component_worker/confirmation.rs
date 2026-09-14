@@ -76,7 +76,9 @@ pub fn standard_confirmation_plan(
         ComponentId::Input { .. } | ComponentId::BoundInput { .. } => {
             ("input", "Codex input choice submitted.")
         }
-        ComponentId::Busy { .. } => return Err(ConfirmationPlanError::BusyComponent),
+        ComponentId::Busy { .. } | ComponentId::AsyncChoice { .. } => {
+            return Err(ConfirmationPlanError::BusyComponent);
+        }
     };
     Ok(ConfirmationPlan {
         content,

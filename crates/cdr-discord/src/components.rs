@@ -2,10 +2,12 @@ use serde::Serialize;
 use thiserror::Error;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
 
+mod async_choice;
 mod claims;
 mod fingerprint;
 mod rows;
 
+pub use async_choice::async_choice_rows;
 pub use claims::{persistent_claim_key, persistent_component_claim_key};
 pub use fingerprint::{ComponentRequestId, request_fingerprint, thread_fingerprint};
 pub use rows::{
@@ -33,6 +35,10 @@ pub enum ApprovalAnswer {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum ComponentId {
+    AsyncChoice {
+        question_id: String,
+        option: usize,
+    },
     Busy {
         choice_id: String,
         action: BusyAction,
@@ -72,6 +78,13 @@ pub fn parse_component_id(custom_id: &str) -> Option<ComponentId> {
     }
     let parts = custom_id.split(':').collect::<Vec<_>>();
     match parts.as_slice() {
+        ["codex_async", question, option] if valid_fingerprint(question, 64) => {
+            let index = option.parse::<usize>().ok()?;
+            (index < 25 && index.to_string() == *option).then(|| ComponentId::AsyncChoice {
+                question_id: (*question).into(),
+                option: index,
+            })
+        }
         ["codex_busy", choice_id, action] if valid_choice_id(choice_id) => {
             parse_busy_action(action).map(|action| ComponentId::Busy {
                 choice_id: (*choice_id).into(),

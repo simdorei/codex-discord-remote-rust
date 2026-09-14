@@ -31,6 +31,7 @@ pub fn build_component_response(
     generation: u64,
 ) -> Result<ComponentResponse, ComponentWorkerError> {
     match component {
+        ComponentId::AsyncChoice { .. } => Err(ComponentWorkerError::InvalidComponent),
         ComponentId::Approval { thread_id, answer } => {
             let request = legacy_request(requests, thread_id, |request| {
                 is_approval_method(&request.method, &request.params)

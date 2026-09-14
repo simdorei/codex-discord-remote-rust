@@ -141,6 +141,9 @@ pub fn extract_turn_final_text(
         ) {
             continue;
         }
+        if crate::async_questions::is_async_message(item) {
+            continue;
+        }
         let message = agent_message_text(item);
         if message.is_empty() {
             continue;
@@ -163,7 +166,8 @@ pub fn extract_completed_final_answer(params: &Value) -> Option<CompletedFinalAn
     if !matches!(
         item.get("type").and_then(Value::as_str),
         Some("agentMessage" | "agent_message")
-    ) || item.get("phase").and_then(Value::as_str) != Some("final_answer")
+    ) || crate::async_questions::is_async_message(item)
+        || item.get("phase").and_then(Value::as_str) != Some("final_answer")
     {
         return None;
     }

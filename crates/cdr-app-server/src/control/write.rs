@@ -48,7 +48,7 @@ impl AppServerClient {
             .await
     }
 
-    pub(super) async fn write_with_preflight<T>(
+    pub(crate) async fn write_with_preflight<T>(
         &self,
         value: Value,
         preflight: impl FnOnce() -> Result<T, AppServerError>,

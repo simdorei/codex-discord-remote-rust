@@ -12,6 +12,9 @@ use crate::action_executor::ActionExecutor;
 use crate::discord_dispatch::{InboundInteractionWork, InteractionProcessingMode};
 use crate::queue_runner::TurnBackend;
 
+mod async_choice;
+#[cfg(test)]
+mod async_choice_tests;
 mod busy;
 #[cfg(test)]
 mod busy_preflight_tests;
@@ -61,6 +64,8 @@ impl PreparedComponentConfirmation {
 
 #[derive(Debug, Error)]
 pub enum ComponentWorkerError {
+    #[error("{0}")]
+    AsyncQuestion(String),
     #[error("component interaction did not include its source Discord message")]
     MissingSourceMessage,
     #[error("no matching pending app-server request is available")]
@@ -124,7 +129,13 @@ pub async fn handle_component_work<B: TurnBackend>(
     executor: &ActionExecutor<B>,
     server: &ResidentAppServer,
 ) -> Result<PreparedComponentConfirmation, ComponentWorkerError> {
-    let plan = if work.processing_mode == InteractionProcessingMode::ConfirmationOnly {
+    let plan = if let ComponentId::AsyncChoice {
+        question_id,
+        option,
+    } = component
+    {
+        async_choice::handle(work, question_id, *option, executor, server).await?
+    } else if work.processing_mode == InteractionProcessingMode::ConfirmationOnly {
         busy::prepare_confirmation_only(work, component, executor.mirror_db())?
     } else {
         prepare_component_action(work, component, executor, server).await?

@@ -20,10 +20,25 @@ impl AppServerClient {
         result: Value,
         write_started: impl FnOnce(),
     ) -> Result<(), AppServerError> {
+        self.respond_current_admitted_with_checks(id, occurrence, result, || Ok(()), write_started)
+            .await
+    }
+
+    pub(crate) async fn respond_current_admitted_with_checks(
+        &self,
+        id: &RequestId,
+        occurrence: ServerRequestOccurrence,
+        result: Value,
+        preflight: impl FnOnce() -> Result<(), AppServerError>,
+        write_started: impl FnOnce(),
+    ) -> Result<(), AppServerError> {
         let claim = self
             .write_with_preflight(
                 crate::rpc::response_value(id, &result),
-                || super::response_claim::ServerResponseClaim::begin_current(self, id, occurrence),
+                || {
+                    preflight()?;
+                    super::response_claim::ServerResponseClaim::begin_current(self, id, occurrence)
+                },
                 write_started,
             )
             .await?;

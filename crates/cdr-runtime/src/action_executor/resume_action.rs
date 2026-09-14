@@ -78,7 +78,9 @@ async fn recover(
     generation: u64,
     deadline: Instant,
 ) -> Result<&'static str, ActionError> {
-    if read_status(server, thread, generation, deadline).await? {
+    if read_status(server, thread, generation, deadline).await?
+        && !server.subscription_resume_required(thread)?
+    {
         return Ok("already loaded");
     }
     let response = server

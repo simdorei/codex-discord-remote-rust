@@ -48,6 +48,9 @@ impl AppServerTurnBackend {
 }
 
 impl TurnBackend for AppServerTurnBackend {
+    fn resident_instance_id(&self) -> Option<&str> {
+        Some(self.server.instance_id())
+    }
     fn remember_new_thread(&self, thread_id: &str, generation: u64) {
         self.fresh_threads.remember(thread_id, generation);
     }

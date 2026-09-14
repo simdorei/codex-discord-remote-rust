@@ -1,14 +1,9 @@
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 
 use serde_json::Value;
 use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
 
-use crate::requests::AppRequest;
-use crate::{
-    AppServerClient, AppServerConfig, AppServerError, RequestId, RpcErrorPayload, ServerRequest,
-    ServerRequestOccurrence,
-};
+use crate::{AppServerClient, AppServerConfig, AppServerError, ServerRequest};
 
 mod admission;
 mod close;
@@ -23,7 +18,9 @@ mod death;
 #[cfg(test)]
 #[path = "manager/death_tests.rs"]
 mod death_tests;
+mod dispatch;
 mod events;
+mod idle_maintenance;
 mod lifecycle_changes;
 #[cfg(test)]
 #[path = "manager/replacement_failure_tests.rs"]
@@ -52,6 +49,7 @@ mod supervisor_state_race_tests;
 #[cfg(test)]
 #[path = "manager/supervisor_tests.rs"]
 mod supervisor_tests;
+mod target_mutation;
 #[cfg(test)]
 #[path = "manager/write_cancel_tests.rs"]
 mod write_cancel_tests;
@@ -73,6 +71,7 @@ pub struct ResidentLifecycleSnapshot {
 }
 
 pub struct ResidentAppServer {
+    instance_id: String,
     state: ResidentState,
     config: AppServerConfig,
     restart_lock: AsyncMutex<()>,
@@ -81,6 +80,7 @@ pub struct ResidentAppServer {
     forwarder_generation: watch::Sender<u64>,
     forwarders: StdMutex<Option<ResidentForwarders>>,
     dead_generation_fence: Option<Arc<dyn crate::DeadGenerationFence>>,
+    target_gate: Arc<crate::idle_release::gate::TargetGate>,
 }
 
 impl ResidentAppServer {
@@ -116,6 +116,7 @@ impl ResidentAppServer {
         let forwarders = forwarders.with_death_monitor(&client, state.clone(), 1);
         forwarders.activate();
         Ok(Self {
+            instance_id: uuid::Uuid::new_v4().to_string(),
             state,
             config,
             restart_lock: AsyncMutex::new(()),
@@ -124,44 +125,8 @@ impl ResidentAppServer {
             forwarder_generation,
             forwarders: StdMutex::new(Some(forwarders)),
             dead_generation_fence,
+            target_gate: Arc::default(),
         })
-    }
-
-    pub async fn request(
-        &self,
-        method: &str,
-        params: Value,
-        wait: Duration,
-        expected_generation: Option<u64>,
-    ) -> Result<Value, AppServerError> {
-        let admission = self.state.admit_request(expected_generation)?;
-        if let Some(fence) = &self.dead_generation_fence {
-            fence.check_request(admission.generation, method, &params)?;
-        }
-        let mut written = self.state.track_written_request(admission.generation);
-        let result = admission
-            .client
-            .request_admitted_with_hook(method, params, wait, || written.confirm_write_started())
-            .await;
-        if matches!(result, Err(AppServerError::Timeout { .. })) && method != "thread/read" {
-            self.state.mark_timeout(admission.generation);
-        }
-        written.finish(&result);
-        result
-    }
-
-    pub async fn execute(
-        &self,
-        request: AppRequest,
-        expected_generation: Option<u64>,
-    ) -> Result<Value, AppServerError> {
-        self.request(
-            request.method,
-            request.params,
-            request.timeout,
-            expected_generation,
-        )
-        .await
     }
 
     pub async fn close(&self) -> Result<(), AppServerError> {
@@ -176,44 +141,6 @@ impl ResidentAppServer {
     #[must_use]
     pub fn subscribe_server_requests(&self) -> broadcast::Receiver<ResidentServerRequestEvent> {
         self.server_requests.subscribe()
-    }
-
-    pub async fn respond(
-        &self,
-        id: &RequestId,
-        occurrence: ServerRequestOccurrence,
-        result: Value,
-        expected_generation: u64,
-    ) -> Result<(), AppServerError> {
-        let admission = self.state.admit_response(expected_generation)?;
-        let mut written = self.state.track_written_request(admission.generation);
-        let result = admission
-            .client
-            .respond_admitted_with_hook(id, occurrence, result, || {
-                written.confirm_write_started();
-            })
-            .await;
-        written.finish(&result);
-        result
-    }
-
-    pub async fn respond_error(
-        &self,
-        id: &RequestId,
-        occurrence: ServerRequestOccurrence,
-        error: RpcErrorPayload,
-        expected_generation: u64,
-    ) -> Result<(), AppServerError> {
-        let admission = self.state.admit_response(expected_generation)?;
-        let mut written = self.state.track_written_request(admission.generation);
-        let result = admission
-            .client
-            .respond_error_admitted_with_hook(id, occurrence, error, || {
-                written.confirm_write_started();
-            })
-            .await;
-        written.finish(&result);
-        result
     }
 
     #[allow(clippy::unused_async)] // Preserve the existing async resident API.
@@ -237,6 +164,12 @@ impl ResidentAppServer {
     #[must_use]
     pub fn generation(&self) -> u64 {
         self.state.generation()
+    }
+
+    /// Generation numbers restart at one in a new resident. Never confuse two owners.
+    #[must_use]
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
     }
 
     pub fn observed_thread_settings(

@@ -101,6 +101,8 @@ fn migrate_rust_extensions(connection: &Connection) -> Result<()> {
     crate::goal_progress::migrate_schema(connection)?;
     crate::observed_completion::migrate_schema(connection)?;
     crate::observed_final_answer::migrate_schema(connection)?;
+    crate::async_question::migrate_schema(connection)?;
+    crate::idle_release::migrate_schema(connection)?;
     crate::control_binding::migrate_schema(connection)?;
     crate::claims::migrate_schema(connection)?;
     crate::delivery_receipt::migrate_schema(connection)?;
@@ -135,6 +137,8 @@ fn rust_extensions_current(connection: &Connection) -> Result<bool> {
     }
     Ok(crate::observed_completion::schema_current(connection)?
         && crate::observed_final_answer::schema_current(connection)?
+        && crate::async_question::schema_current(connection)?
+        && crate::idle_release::schema_current(connection)?
         && crate::goal_progress::schema_current(connection)?
         && crate::control_binding::schema_current(connection)?
         && crate::claims::schema_current(connection)?

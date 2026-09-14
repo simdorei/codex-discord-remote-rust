@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cdr_store::delivery::{StoredDelivery, stage_queue_completion};
+use cdr_store::delivery::{StoredDelivery, stage_queue_completion_with_release};
 use cdr_store::queue::{
     QueueJobState, attach_goal_turn, complete, list_filtered, mark_goal_waiting,
 };
@@ -46,6 +46,22 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         turn_id: &str,
         content: &str,
     ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
+        self.stage_turn_completion_on_generation(
+            target_thread_id,
+            turn_id,
+            content,
+            generation_i64(self.backend.generation())?,
+        )
+        .await
+    }
+
+    pub async fn stage_turn_completion_on_generation(
+        &self,
+        target_thread_id: &str,
+        turn_id: &str,
+        content: &str,
+        evidence_generation: i64,
+    ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
         let lock = self.target_lock(target_thread_id)?;
         let _guard = lock.lock().await;
         if cdr_store::dead_generation::target_is_held(&self.db_path, target_thread_id)? {
@@ -59,7 +75,16 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             return Ok(None);
         };
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
-        let delivery = stage_queue_completion(&self.db_path, &job.job_id, content, now)?;
+        let delivery = stage_queue_completion_with_release(
+            &self.db_path,
+            &job.job_id,
+            content,
+            now,
+            self.backend
+                .resident_instance_id()
+                .filter(|_| evidence_generation == generation)
+                .map(|owner| (owner, generation)),
+        )?;
         self.notify_delivery_ready();
         let _ = self.start_next_locked(target_thread_id, generation).await?;
         Ok(Some(delivery))

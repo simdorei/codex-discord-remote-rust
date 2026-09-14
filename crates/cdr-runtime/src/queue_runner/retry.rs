@@ -124,6 +124,9 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         generation: i64,
         recovered_turns: Option<&[TurnRecord]>,
     ) -> Result<Option<StoredQueueJob>, QueueRunnerError> {
+        if cdr_store::async_question::target_dispatch_held(&self.db_path, target_thread_id)? {
+            return Ok(None);
+        }
         let _admission = match &self.admission {
             Some(gate) => match gate.try_enter() {
                 Ok(permit) => Some(permit),

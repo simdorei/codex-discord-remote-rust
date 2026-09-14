@@ -30,9 +30,17 @@ where
         }
     }
     if let Some(client) = plan.current {
-        match cleanup(client.clone()).await {
-            Ok(()) => record_first(&mut first_error, server.state.finish_current_close(&client)),
-            Err(error) => record_first(&mut first_error, Err(error)),
+        let generation = server.generation();
+        let cleanup_result = cleanup(client.clone()).await;
+        let journal_result = server.settle_exited_idle_owner(&client, generation);
+        // Keep this exact sealed client and its wait/reap evidence until both
+        // cleanup and the durable exit journal succeed. A failed journal can
+        // then be retried by close() without losing proof or launching a child.
+        let finished = cleanup_result.is_ok() && journal_result.is_ok();
+        record_first(&mut first_error, cleanup_result);
+        record_first(&mut first_error, journal_result);
+        if finished {
+            record_first(&mut first_error, server.state.finish_current_close(&client));
         }
     }
     first_error.map_or(Ok(()), Err)

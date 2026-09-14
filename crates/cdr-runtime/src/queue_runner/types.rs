@@ -118,6 +118,10 @@ pub struct TurnRecord {
 
 pub trait TurnBackend: Send + Sync + 'static {
     fn generation(&self) -> u64;
+    /// Only a resident backend can own a subscription; other backends do not release.
+    fn resident_instance_id(&self) -> Option<&str> {
+        None
+    }
     /// A successful thread/start on this exact generation has an empty baseline.
     fn remember_new_thread(&self, _thread_id: &str, _generation: u64) {}
     fn requires_app_server_fork(&self) -> bool {

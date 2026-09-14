@@ -26,6 +26,7 @@ mod delivery_order;
 mod driver;
 mod goal_progress;
 mod history_request;
+mod idle_release;
 mod observation;
 mod receipt;
 mod recovery;
@@ -44,6 +45,10 @@ mod goal_handoff_boundary_tests;
 mod goal_handoff_tests;
 #[cfg(test)]
 mod goal_mirror_boundary_tests;
+#[cfg(test)]
+mod idle_protocol_tests;
+#[cfg(test)]
+mod idle_release_tests;
 #[cfg(test)]
 mod new_attachment_tests;
 #[cfg(test)]
@@ -110,6 +115,16 @@ struct CompletionWorker {
 }
 
 impl CompletionWorker {
+    async fn deliver_questions(&self) -> Result<(), CompletionWorkerError> {
+        crate::async_question_ui::deliver_pending(
+            self.queue.db_path(),
+            self.server.instance_id(),
+            self.server.generation(),
+            &self.http,
+        )
+        .await
+    }
+
     async fn handle(&self, event: ResidentNotificationEvent) -> Result<(), CompletionWorkerError> {
         let ResidentNotificationEvent::Notification {
             generation,
@@ -118,6 +133,14 @@ impl CompletionWorker {
         else {
             return self.recover().await;
         };
+        if notification.method == "item/completed"
+            && notification
+                .params
+                .get("item")
+                .is_some_and(cdr_app_server::async_questions::is_async_message)
+        {
+            return self.deliver_questions().await;
+        }
         if self.commentary_enabled {
             let block = self
                 .commentary
@@ -134,7 +157,17 @@ impl CompletionWorker {
                     extract_thread_id(&notification.params),
                     extract_turn_id(&notification.params),
                 ) {
+                    cdr_store::async_question::supersede(
+                        self.queue.db_path(),
+                        self.server.instance_id(),
+                        i64::try_from(generation).map_err(|_| QueueRunnerError::IntegerRange)?,
+                        &thread,
+                        &turn,
+                    )?;
                     let _ = self.queue.goal_turn_started(&thread, &turn).await?;
+                    // The observer may already have journalled this successor's
+                    // questions while goal-progress delivery delayed the handoff.
+                    self.deliver_questions().await?;
                 }
             }
             "turn/completed" => {
@@ -191,7 +224,9 @@ impl CompletionWorker {
             {
                 Ok(text) => text,
                 Err(CompletionWorkerError::Outcome(TurnOutcomeError::TurnNotFound)) => {
-                    return self.finish_without_exact_reply(completion, goal).await;
+                    return self
+                        .finish_without_exact_reply(completion, goal, evidence_generation)
+                        .await;
                 }
                 Err(error) => return Err(error),
             }
@@ -216,7 +251,12 @@ impl CompletionWorker {
         let text = completion_message(completion, &exact, goal);
         if let Some(delivery) = self
             .queue
-            .stage_turn_completion(&completion.thread_id, &completion.turn_id, &text)
+            .stage_turn_completion_on_generation(
+                &completion.thread_id,
+                &completion.turn_id,
+                &text,
+                evidence_generation,
+            )
             .await?
         {
             self.deliver_one(&delivery).await?;
@@ -238,6 +278,7 @@ impl CompletionWorker {
         &self,
         completion: &TurnCompletion,
         goal: Option<ThreadGoalStatus>,
+        evidence_generation: i64,
     ) -> Result<(), CompletionWorkerError> {
         let text = "ERROR: Codex turn completed, but its exact final reply could not be recovered: \
 thread/read did not contain the requested turn and no matching final-answer event was stored.";
@@ -253,7 +294,12 @@ thread/read did not contain the requested turn and no matching final-answer even
         }
         if let Some(delivery) = self
             .queue
-            .stage_turn_completion(&completion.thread_id, &completion.turn_id, text)
+            .stage_turn_completion_on_generation(
+                &completion.thread_id,
+                &completion.turn_id,
+                text,
+                evidence_generation,
+            )
             .await?
         {
             self.deliver_one(&delivery).await?;

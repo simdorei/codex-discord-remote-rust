@@ -19,6 +19,10 @@ pub(super) async fn run(
     let mut tasks = tokio::task::JoinSet::new();
     let processing = Arc::clone(&worker);
     tasks.spawn(async move { process(&processing, pending).await });
+    tasks.spawn(super::idle_release::run(
+        Arc::clone(&worker),
+        shutdown.clone(),
+    ));
     let work = async {
         tokio::select! {
             () = observe(Arc::clone(&worker), receiver, sender, shutdown) => {},
@@ -54,6 +58,23 @@ async fn observe(
                                 && let Ok(completion)=cdr_app_server::outcomes::parse_turn_completion(&notification.params,false) {
                                 worker.terminal_fence.stop(*generation,&completion.thread_id,&completion.turn_id);
                             }
+                            if notification.method=="item/completed"
+                                && notification.params.get("item").is_some_and(cdr_app_server::async_questions::is_async_message) {
+                                let db=worker.queue.db_path().to_owned();
+                                let runtime=worker.server.instance_id().to_owned();
+                                let generation=*generation;
+                                let params=notification.params.clone();
+                                match tokio::task::spawn_blocking(move||crate::async_question_ui::observe(&db,&runtime,generation,&params)).await {
+                                    Ok(result)=>{
+                                        if result.is_err() { worker.server.mark_idle_observation_gap(); }
+                                        CompletionWorker::report(result);
+                                    },
+                                    Err(error)=>{
+                                        worker.server.mark_idle_observation_gap();
+                                        eprintln!("async_question_journal_error error={error}");
+                                    },
+                                }
+                            }
                             let durable_completion_event = notification.method == "turn/completed"
                                 || (notification.method == "item/completed"
                                     && cdr_app_server::outcomes::extract_completed_final_answer(
@@ -66,16 +87,27 @@ async fn observe(
                                 let journal_worker=Arc::clone(&worker);
                                 let observed=event.clone();
                                 match tokio::task::spawn_blocking(move||journal_worker.observe_terminal(&observed)).await {
-                                    Ok(result)=>CompletionWorker::report(result),
-                                    Err(error)=>eprintln!("completion_journal_task_error error={error}"),
+                                    Ok(result)=>{
+                                        if result.is_err() { worker.server.mark_idle_observation_gap(); }
+                                        CompletionWorker::report(result);
+                                    },
+                                    Err(error)=>{
+                                        worker.server.mark_idle_observation_gap();
+                                        eprintln!("completion_journal_task_error error={error}");
+                                    },
                                 }
                             }
+                            worker.server.confirm_idle_observation(*generation, notification);
+                        } else {
+                            worker.server.mark_idle_observation_gap();
                         }
                         if let Err(error) = sender.try_send(event) {
+                            worker.server.mark_idle_observation_gap();
                             eprintln!("completion_processing_queue_gap error={error}; durable terminals retained; readonly reconciliation required");
                         }
                     },
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        worker.server.mark_idle_observation_gap();
                         eprintln!("app_server_completion_gap skipped={skipped}; readonly reconciliation required");
                     },
                     Err(broadcast::error::RecvError::Closed) => return,
@@ -92,12 +124,14 @@ pub(super) async fn process(
     CompletionWorker::report(worker.recover_observed().await);
     CompletionWorker::report(worker.recover_goal_progress().await);
     CompletionWorker::report(worker.recover().await);
+    CompletionWorker::report(worker.deliver_questions().await);
     let mut retry = interval(Duration::from_secs(30));
     retry.set_missed_tick_behavior(MissedTickBehavior::Delay);
     retry.tick().await;
     loop {
         tokio::select! {
             () = worker.queue.wait_for_delivery_ready() => {
+                CompletionWorker::report(worker.deliver_questions().await);
                 CompletionWorker::report(worker.deliver_pending_commentary().await);
                 CompletionWorker::report(worker.recover_goal_progress().await);
                 CompletionWorker::report(worker.deliver_pending().await);
@@ -107,6 +141,7 @@ pub(super) async fn process(
                 None => return,
             },
             _ = retry.tick() => {
+                CompletionWorker::report(worker.deliver_questions().await);
                 CompletionWorker::report(worker.recover_observed().await);
                 CompletionWorker::report(worker.recover_goal_progress().await);
                 CompletionWorker::report(worker.recover().await);
@@ -137,6 +172,14 @@ where
         () = ticks => {},
     }
 }
+
+#[cfg(test)]
+#[path = "async_question_driver_tests.rs"]
+mod async_question_tests;
+
+#[cfg(test)]
+#[path = "async_question_goal_tests.rs"]
+mod async_question_goal_tests;
 
 #[cfg(test)]
 mod tests {

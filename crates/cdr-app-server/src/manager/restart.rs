@@ -61,7 +61,9 @@ impl ResidentAppServer {
         };
         let new_generation = self.state.replacement_generation();
         self.stop_forwarders().await;
-        cleanup(old).await?;
+        let old_generation = self.state.generation();
+        cleanup(old.clone()).await?;
+        self.settle_exited_idle_owner(&old, old_generation)?;
         let generation_rx = self.forwarder_generation.subscribe();
         let mut recorded_cleanup = None;
         let replacement_start =

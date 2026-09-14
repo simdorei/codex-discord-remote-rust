@@ -15,6 +15,8 @@ pub struct RpcErrorPayload {
 
 #[derive(Debug, Error)]
 pub enum AppServerError {
+    #[error("idle subscription release: {message}")]
+    IdleRelease { message: String },
     #[error("dead app-server work could not be durably fenced: {message}")]
     DeadGenerationFence { message: String },
     #[error("could not start Codex app-server at {executable}: {source}")]

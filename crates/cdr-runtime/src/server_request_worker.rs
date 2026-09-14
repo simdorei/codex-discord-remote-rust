@@ -80,10 +80,12 @@ pub async fn run_server_request_worker(
                         WorkerAction::Process { generation, request }
                     }
                     Ok(ResidentServerRequestEvent::Gap { generation, skipped }) => {
+                        worker.server.mark_idle_observation_gap();
                         eprintln!("app_server_request_gap generation={generation} skipped={skipped}");
                         WorkerAction::Recover
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        worker.server.mark_idle_observation_gap();
                         eprintln!("server_request_worker_gap skipped={skipped}");
                         WorkerAction::Recover
                     }

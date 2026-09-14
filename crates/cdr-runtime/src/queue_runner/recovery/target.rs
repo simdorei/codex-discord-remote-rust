@@ -18,6 +18,9 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         generation: i64,
         report: &mut RecoveryReport,
     ) -> Result<(), QueueRunnerError> {
+        if cdr_store::async_question::target_dispatch_held(&self.db_path, target)? {
+            return Ok(());
+        }
         if cdr_store::dead_generation::target_is_held(&self.db_path, target)? {
             return Ok(());
         }
@@ -46,6 +49,9 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         generation: i64,
         report: &mut RecoveryReport,
     ) -> Result<(), QueueRunnerError> {
+        if cdr_store::async_question::target_dispatch_held(&self.db_path, target)? {
+            return Ok(());
+        }
         if cdr_store::dead_generation::target_is_held(&self.db_path, target)? {
             return Ok(());
         }

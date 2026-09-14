@@ -51,8 +51,20 @@ impl AppServerClient {
         result: Value,
         write_started: impl FnOnce(),
     ) -> Result<(), AppServerError> {
+        self.respond_admitted_with_checks(id, occurrence, result, || Ok(()), write_started)
+            .await
+    }
+
+    pub(crate) async fn respond_admitted_with_checks(
+        &self,
+        id: &RequestId,
+        occurrence: ServerRequestOccurrence,
+        result: Value,
+        preflight: impl FnOnce() -> Result<(), AppServerError>,
+        write_started: impl FnOnce(),
+    ) -> Result<(), AppServerError> {
         let claim = ServerResponseClaim::begin(self, id, occurrence)?;
-        self.write_with_hook(response_value(id, &result), write_started)
+        self.write_with_preflight(response_value(id, &result), preflight, write_started)
             .await?;
         #[cfg(test)]
         self.pause_before_response_resolve().await;
@@ -86,8 +98,20 @@ impl AppServerClient {
         error: RpcErrorPayload,
         write_started: impl FnOnce(),
     ) -> Result<(), AppServerError> {
+        self.respond_error_admitted_with_checks(id, occurrence, error, || Ok(()), write_started)
+            .await
+    }
+
+    pub(crate) async fn respond_error_admitted_with_checks(
+        &self,
+        id: &RequestId,
+        occurrence: ServerRequestOccurrence,
+        error: RpcErrorPayload,
+        preflight: impl FnOnce() -> Result<(), AppServerError>,
+        write_started: impl FnOnce(),
+    ) -> Result<(), AppServerError> {
         let claim = ServerResponseClaim::begin(self, id, occurrence)?;
-        self.write_with_hook(error_value(id, &error), write_started)
+        self.write_with_preflight(error_value(id, &error), preflight, write_started)
             .await?;
         #[cfg(test)]
         self.pause_before_response_resolve().await;

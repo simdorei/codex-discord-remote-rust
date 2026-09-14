@@ -4,10 +4,13 @@ use cdr_store::StoreError;
 use cdr_store::schema::{LATEST_STORE_SCHEMA_VERSION, assert_integrity, open_initialized};
 use rusqlite::Connection;
 
-const OWNED_TABLES: [&str; 27] = [
+const OWNED_TABLES: [&str; 30] = [
     "busy_choices",
     "cdr_archive_fences",
+    "cdr_async_question_inbox",
+    "cdr_async_questions",
     "cdr_cleanup_fences",
+    "cdr_idle_release",
     "codex_app_server_runtime",
     "codex_archive_fences",
     "codex_dead_generation_holds",
@@ -34,7 +37,10 @@ const OWNED_TABLES: [&str; 27] = [
     "session_mirror_details",
 ];
 
-const OWNED_INDEXES: [&str; 8] = [
+const OWNED_INDEXES: [&str; 11] = [
+    "cdr_async_question_inbox_pending",
+    "cdr_async_question_pending",
+    "cdr_async_question_reply_job",
     "codex_cancelled_message",
     "codex_new_first_replies_pending",
     "codex_prompt_intakes_message_id",

@@ -12,11 +12,24 @@ pub struct HttpFixture {
 }
 
 pub async fn start() -> HttpFixture {
+    start_inner(None).await
+}
+
+pub async fn start_with_progress_barrier()
+-> (HttpFixture, oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let (seen, observed) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    (start_inner(Some((seen, released))).await, observed, release)
+}
+
+async fn start_inner(
+    mut barrier: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
+) -> HttpFixture {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
     let (stop, mut stopped) = oneshot::channel();
     let task = tokio::spawn(async move {
-        let mut traffic = Vec::new();
+        let mut traffic: Vec<(bool, Value)> = Vec::new();
         loop {
             let (mut socket, _) = tokio::select! {
                 _ = &mut stopped => break,
@@ -49,6 +62,16 @@ pub async fn start() -> HttpFixture {
                 post || raw.starts_with(b"PATCH /api/v10/webhooks/2/fixture/messages/@original ")
             );
             traffic.push((post, serde_json::from_slice(&raw[body_start..]).unwrap()));
+            if traffic.last().unwrap().1["content"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("[Goal progress]"))
+                && let Some((seen, release)) = barrier.take()
+            {
+                let _ = seen.send(());
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(10), release)
+                    .await
+                    .unwrap();
+            }
             let body = json!({"id":traffic.len().to_string(),"channel_id":"42",
                 "author":{"id":"1","username":"test","discriminator":"0001","avatar":null,"bot":false},
                 "content":"accepted","timestamp":"2020-02-02T02:02:02.020000+00:00","edited_timestamp":null,

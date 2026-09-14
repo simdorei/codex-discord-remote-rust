@@ -10,10 +10,14 @@ mod action;
 mod approval;
 #[path = "app_server/archive.rs"]
 mod archive;
+#[path = "app_server/async_question.rs"]
+mod async_question;
 #[path = "app_server/display.rs"]
 mod display;
 #[path = "app_server/goal.rs"]
 mod goal;
+#[path = "app_server/idle_release.rs"]
+mod idle_release;
 #[path = "app_server/resume.rs"]
 mod resume;
 #[path = "app_server/settings.rs"]
@@ -26,11 +30,13 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + 
 pub fn run() -> Result {
     match std::env::args().nth(2).as_deref() {
         Some("action") => action::run(),
+        Some("async-question") => async_question::run(),
         Some("approval") => approval::run(false),
         Some("interaction") => approval::run(true),
         Some("archive") => archive::run(),
         Some("display") => display::run(),
         Some("goal") => goal::run(),
+        Some("idle-release") => idle_release::run(),
         Some("resume") => resume::run(),
         Some("settings") => settings::run(),
         Some("usage") => usage::run(),

@@ -319,7 +319,16 @@ async fn start_app_server(
         runtime_id.to_owned(),
         startup_channel_id,
     )?);
-    Ok(Arc::new(
-        ResidentAppServer::start_with_dead_generation_fence(config, fence).await?,
-    ))
+    let server =
+        Arc::new(ResidentAppServer::start_with_dead_generation_fence(config, fence).await?);
+    if let Err(error) = crate::idle_release::install(&server, &paths.mirror_db) {
+        if let Err(cleanup) = server.close().await {
+            return Err(AppServerError::StartupCleanup {
+                primary: Box::new(error),
+                cleanup: Box::new(cleanup),
+            });
+        }
+        return Err(error);
+    }
+    Ok(server)
 }

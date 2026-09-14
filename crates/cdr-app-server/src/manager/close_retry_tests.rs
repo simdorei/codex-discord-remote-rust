@@ -63,6 +63,7 @@ pub(super) fn test_server() -> (ResidentAppServer, AppServerClient) {
     let (server_requests, _) = broadcast::channel(1);
     let (forwarder_generation, _) = watch::channel(1);
     let server = ResidentAppServer {
+        instance_id: uuid::Uuid::new_v4().to_string(),
         state: ResidentState::new(client.clone()),
         config: AppServerConfig::new(std::env::current_exe().expect("test executable")),
         restart_lock: AsyncMutex::new(()),
@@ -71,6 +72,7 @@ pub(super) fn test_server() -> (ResidentAppServer, AppServerClient) {
         forwarder_generation,
         forwarders: Mutex::new(None),
         dead_generation_fence: None,
+        target_gate: Arc::default(),
     };
     (server, client)
 }

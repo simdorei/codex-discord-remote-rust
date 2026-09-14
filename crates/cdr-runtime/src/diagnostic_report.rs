@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Semaphore;
+mod idle_release;
 #[path = "protocol_report.rs"]
 mod protocol;
 
@@ -41,6 +42,7 @@ pub async fn report(paths: Paths) -> Result<String, String> {
             true,
         ));
         lines.push(json_file("bridge_state", &paths.bridge));
+        lines.push(idle_release::report(&paths.mirror));
         if let Some(home) = paths.state.parent() {
             lines.push(readable("session_index", &home.join("session_index.jsonl")));
             lines.push(json_file(

@@ -32,6 +32,13 @@ pub(crate) fn enqueue_in_transaction(
     transaction: &Connection,
     new_job: NewQueueJob<'_>,
 ) -> Result<QueueEnqueueResult> {
+    crate::idle_release::before_enqueue(transaction, new_job.target_thread_id)?;
+    if crate::async_question::dispatch_held_in(transaction, new_job.target_thread_id)? {
+        return Err(StoreError::Integrity(
+            "async question reply outcome is unconfirmed; target held without automatic retry"
+                .into(),
+        ));
+    }
     super::super::fork_handoff::ensure_no_unresolved_handoff(
         transaction,
         new_job.target_thread_id,

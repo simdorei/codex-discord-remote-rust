@@ -47,6 +47,16 @@ pub fn stage_queue_completion(
     content: &str,
     now: f64,
 ) -> Result<StoredDelivery> {
+    stage_queue_completion_with_release(path, job_id, content, now, None)
+}
+
+pub fn stage_queue_completion_with_release(
+    path: &Path,
+    job_id: &str,
+    content: &str,
+    now: f64,
+    owner: Option<(&str, i64)>,
+) -> Result<StoredDelivery> {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let job = select_job(&transaction, job_id)?;
@@ -93,6 +103,11 @@ pub fn stage_queue_completion(
         params![job.target_thread_id, turn_id],
     )?;
     let delivery = select(&transaction, &job.job_id)?;
+    if let Some((owner, generation)) = owner
+        && job.app_server_generation == generation
+    {
+        crate::idle_release::stage_candidate(&transaction, &job, owner)?;
+    }
     transaction.commit()?;
     Ok(delivery)
 }
