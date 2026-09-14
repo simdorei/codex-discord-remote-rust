@@ -64,20 +64,7 @@ pub(super) fn run() -> Result {
                     json!({"goal":null})
                 }
             }
-            "thread/read" => {
-                let items = if goal {
-                    vec![json!({"type":"agentMessage","text":"진행 시험","phase":"final_answer"})]
-                } else {
-                    vec![]
-                };
-                let mut turns = vec![
-                    json!({"id":latest,"status":if active {"inProgress"} else {"completed"},"items":items}),
-                ];
-                if goal && latest != "original" {
-                    turns.insert(0, json!({"id":"original","status":"completed","items":[{"type":"agentMessage","text":"진행 시험","phase":"final_answer"}]}));
-                }
-                json!({"thread":{"id":"thread-b","turns":turns}})
-            }
+            "thread/read" => thread_snapshot(goal, &latest, active),
             "turn/steer" => {
                 assert!(active);
                 assert_eq!(params["threadId"], "thread-b");
@@ -107,6 +94,21 @@ pub(super) fn run() -> Result {
         };
         reply(&request, &result)
     })
+}
+
+fn thread_snapshot(goal: bool, latest: &str, active: bool) -> serde_json::Value {
+    let items = if goal {
+        vec![json!({"type":"agentMessage","text":"진행 시험","phase":"final_answer"})]
+    } else {
+        vec![]
+    };
+    let mut turns = vec![
+        json!({"id":latest,"status":if active {"inProgress"} else {"completed"},"items":items}),
+    ];
+    if goal && latest != "original" {
+        turns.insert(0, json!({"id":"original","status":"completed","items":[{"type":"agentMessage","text":"진행 시험","phase":"final_answer"}]}));
+    }
+    json!({"thread":{"id":"thread-b","turns":turns}})
 }
 
 fn emit_question(turn_id: &str) -> Result {

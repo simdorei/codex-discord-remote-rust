@@ -53,6 +53,57 @@ fn token(server: &ResidentAppServer) -> IdleReleaseToken {
     }
 }
 
+async fn mutate(
+    server: &ResidentAppServer,
+    request: &ServerRequest,
+    route: u8,
+) -> Result<(), AppServerError> {
+    let occurrence = request.occurrence;
+    match route {
+        0 => server
+            .request(
+                "turn/steer",
+                json!({"threadId":"A","expectedTurnId":"T1"}),
+                Duration::from_secs(2),
+                Some(1),
+            )
+            .await
+            .map(|_| ()),
+        1 => server
+            .update_settings_with_watermark(
+                "A",
+                &ThreadSettingsUpdate {
+                    model: Some("test".into()),
+                    effort: None,
+                    service_tier: ServiceTierUpdate::Unchanged,
+                },
+                1,
+            )
+            .await
+            .map(|_| ()),
+        2 => server.respond(&request.id, occurrence, json!({}), 1).await,
+        3 => {
+            server
+                .respond_current(&request.id, occurrence, json!({}), 1)
+                .await
+        }
+        _ => {
+            server
+                .respond_error(
+                    &request.id,
+                    occurrence,
+                    crate::RpcErrorPayload {
+                        code: -1,
+                        message: "test".into(),
+                        data: None,
+                    },
+                    1,
+                )
+                .await
+        }
+    }
+}
+
 #[tokio::test]
 async fn ir10_all_mutation_routes_waiting_for_stdin_exclude_release_until_resolution() {
     for route in 0..5 {
@@ -80,51 +131,7 @@ async fn ir10_all_mutation_routes_waiting_for_stdin_exclude_release_until_resolu
         let writer = client.inner.stdin.lock().await;
         let running = tokio::spawn({
             let server = Arc::clone(&server);
-            async move {
-                match route {
-                    0 => server
-                        .request(
-                            "turn/steer",
-                            json!({"threadId":"A","expectedTurnId":"T1"}),
-                            Duration::from_secs(2),
-                            Some(1),
-                        )
-                        .await
-                        .map(|_| ()),
-                    1 => server
-                        .update_settings_with_watermark(
-                            "A",
-                            &ThreadSettingsUpdate {
-                                model: Some("test".into()),
-                                effort: None,
-                                service_tier: ServiceTierUpdate::Unchanged,
-                            },
-                            1,
-                        )
-                        .await
-                        .map(|_| ()),
-                    2 => server.respond(&request.id, occurrence, json!({}), 1).await,
-                    3 => {
-                        server
-                            .respond_current(&request.id, occurrence, json!({}), 1)
-                            .await
-                    }
-                    _ => {
-                        server
-                            .respond_error(
-                                &request.id,
-                                occurrence,
-                                crate::RpcErrorPayload {
-                                    code: -1,
-                                    message: "test".into(),
-                                    data: None,
-                                },
-                                1,
-                            )
-                            .await
-                    }
-                }
-            }
+            async move { mutate(&server, &request, route).await }
         });
         timeout(Duration::from_secs(2), pause.wait_until_before_lock())
             .await

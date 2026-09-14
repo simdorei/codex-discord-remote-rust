@@ -55,3 +55,22 @@ database edit, alternate transport or Python fallback is introduced here.
 Machine-specific deployment tickets, credentials, local review transcripts and
 generated binaries are not part of this source update. Build and update using the
 existing README instructions; no additional dependency is introduced.
+
+## Publication verification
+
+The isolated publication checkout passed the workspace build, all workspace
+library tests (498 passed, 8 pre-existing ignored), and 15 focused integration
+tests covering question outcomes, idle-release persistence and shared HTTP
+fixture consumers. Workspace/all-target Clippy with `-D warnings`, formatting,
+and Windows/shell installer dry-runs also passed. Setup dry-runs explicitly used
+the temporary QA executable and did not change credentials or register tasks.
+
+The broader `cargo test --workspace --all-targets` attempt did not finish its
+link stage because the test machine ran out of disk space (LNK1180). It is not
+claimed as a complete pass. Temporary generated artifacts were cleaned up.
+
+Publication checks also corrected test-only lint issues by factoring setup,
+sharing one fixture module, using explicit imports and checked conversions.
+No assertions, timeouts or lint rules were weakened. The 61 reviewed non-test
+source files still matched their accepted SHA-256 hashes. These test-only
+cleanups do not change the deployed bot's runtime logic.

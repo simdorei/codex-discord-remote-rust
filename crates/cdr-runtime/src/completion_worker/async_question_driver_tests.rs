@@ -11,17 +11,14 @@ use cdr_store::{async_question as aq, queue};
 use serde_json::json;
 use tokio::sync::Mutex;
 
-#[tokio::test]
-async fn production_observer_and_processor_deliver_each_async_question_not_final() {
-    let temp = tempfile::tempdir().unwrap();
-    let remote = approval_http::start().await;
-    let http = Arc::new(
-        twilight_http::Client::builder()
-            .token("fixture-token".into())
-            .proxy(remote.address.clone(), true)
-            .ratelimiter(None)
-            .build(),
-    );
+async fn setup(
+    temp: &tempfile::TempDir,
+    http: Arc<twilight_http::Client>,
+) -> (
+    MessageFixture,
+    Arc<ResidentAppServer>,
+    Arc<CompletionWorker>,
+) {
     let mut config = native_fixture::config("async-question");
     config.environment.insert(
         "CDR_ACTION_RPC_LOG".into(),
@@ -39,7 +36,7 @@ async fn production_observer_and_processor_deliver_each_async_question_not_final
         )
         .await
         .unwrap();
-    let f = MessageFixture::with_server(&temp, http.clone(), server.clone());
+    let f = MessageFixture::with_server(temp, http.clone(), server.clone());
     let db = f.executor.mirror_db();
     queue::enqueue(
         db,
@@ -68,6 +65,22 @@ async fn production_observer_and_processor_deliver_each_async_question_not_final
         commentary: Mutex::new(CommentaryBuffer::default()),
         terminal_fence: TerminalFence::default(),
     });
+    (f, server, worker)
+}
+
+#[tokio::test]
+async fn production_observer_and_processor_deliver_each_async_question_not_final() {
+    let temp = tempfile::tempdir().unwrap();
+    let remote = approval_http::start().await;
+    let http = Arc::new(
+        twilight_http::Client::builder()
+            .token("fixture-token".into())
+            .proxy(remote.address.clone(), true)
+            .ratelimiter(None)
+            .build(),
+    );
+    let (f, server, worker) = setup(&temp, http).await;
+    let db = f.executor.mirror_db();
     let (stop, shutdown) = watch::channel(false);
     let (sender, pending) = mpsc::channel(128);
     let observed = tokio::spawn(observe(

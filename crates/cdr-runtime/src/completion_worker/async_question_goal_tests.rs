@@ -25,18 +25,14 @@ async fn control(server: &ResidentAppServer, method: &'static str) {
         .unwrap();
 }
 
-#[tokio::test]
-async fn async_question_goal_handoff_preserves_question_during_progress_http_barrier() {
-    let temp = tempfile::tempdir().unwrap();
-    let (remote, progress_seen, release_progress) =
-        approval_http::start_with_progress_barrier().await;
-    let http = Arc::new(
-        twilight_http::Client::builder()
-            .token("fixture-token".into())
-            .proxy(remote.address.clone(), true)
-            .ratelimiter(None)
-            .build(),
-    );
+async fn setup(
+    temp: &tempfile::TempDir,
+    http: Arc<twilight_http::Client>,
+) -> (
+    MessageFixture,
+    Arc<ResidentAppServer>,
+    Arc<CompletionWorker>,
+) {
     let mut config = native_fixture::config("async-question");
     config.environment.insert(
         "CDR_ACTION_RPC_LOG".into(),
@@ -45,7 +41,7 @@ async fn async_question_goal_handoff_preserves_question_during_progress_http_bar
     let server = Arc::new(ResidentAppServer::start(config).await.unwrap());
     control(&server, "test/active-turn").await;
     control(&server, "test/goal-on").await;
-    let f = MessageFixture::with_server(&temp, http.clone(), server.clone());
+    let f = MessageFixture::with_server(temp, http.clone(), server.clone());
     let db = f.executor.mirror_db();
     queue::enqueue(
         db,
@@ -74,6 +70,25 @@ async fn async_question_goal_handoff_preserves_question_during_progress_http_bar
         commentary: Mutex::new(CommentaryBuffer::default()),
         terminal_fence: TerminalFence::default(),
     });
+    (f, server, worker)
+}
+
+#[tokio::test]
+async fn async_question_goal_handoff_preserves_question_during_progress_http_barrier() {
+    let temp = tempfile::tempdir().unwrap();
+    let (seen_progress, progress_seen) = tokio::sync::oneshot::channel();
+    let (release_progress, resume_http) = tokio::sync::oneshot::channel();
+    let remote =
+        approval_http::start_with_progress_barrier(Some((seen_progress, resume_http))).await;
+    let http = Arc::new(
+        twilight_http::Client::builder()
+            .token("fixture-token".into())
+            .proxy(remote.address.clone(), true)
+            .ratelimiter(None)
+            .build(),
+    );
+    let (f, server, worker) = setup(&temp, http).await;
+    let db = f.executor.mirror_db();
     let (stop, shutdown) = watch::channel(false);
     let (sender, pending) = mpsc::channel(128);
     let (seen, mut seen_rx) = mpsc::channel(128);

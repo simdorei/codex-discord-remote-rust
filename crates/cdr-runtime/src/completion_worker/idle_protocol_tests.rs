@@ -3,9 +3,7 @@ use cdr_app_server::requests::{AppRequest, resume_thread, start_turn};
 use cdr_store::idle_release as store;
 use serde_json::{Value, json};
 
-#[path = "../../tests/support/approval_http.rs"]
-#[allow(dead_code)]
-mod http_fixture;
+use crate::test_support::approval_http as http_fixture;
 
 async fn fixture(temp: &tempfile::TempDir) -> CompletionWorker {
     let mut worker = goal_handoff_tests::make_worker(temp).await;

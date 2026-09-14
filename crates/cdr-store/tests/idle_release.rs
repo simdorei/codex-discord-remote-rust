@@ -106,7 +106,7 @@ fn ir11_capacity_defers_release_without_losing_final_and_errors_are_bounded() {
     assert!(queue::list(&path).unwrap().is_empty());
     assert_eq!(
         delivery::list_pending(&path).unwrap().len(),
-        idle::MAX_UNRESOLVED as usize + 1
+        usize::try_from(idle::MAX_UNRESOLVED).unwrap() + 1
     );
     let first = idle::get(&path, "t0").unwrap().unwrap();
     let bounded = idle::transition(&path, &first, "Candidate", &"가".repeat(2000)).unwrap();

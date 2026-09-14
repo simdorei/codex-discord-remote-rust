@@ -1,5 +1,5 @@
 //! Wire fault fixture: methods are logged before the configured response loss.
-use super::*;
+use super::{Logging, Result, emit, env, json, method, reply, serve, thread, turn};
 
 pub(super) fn run() -> Result {
     let dir = std::path::PathBuf::from(env("IDLE_TEST_DIR"));
