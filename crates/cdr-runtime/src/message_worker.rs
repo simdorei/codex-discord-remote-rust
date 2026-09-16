@@ -24,6 +24,9 @@ mod approval_contract;
 #[cfg(test)]
 mod bound_text_contract;
 mod classification;
+mod cleanup_refusal;
+#[cfg(test)]
+mod cleanup_refusal_tests;
 mod custody;
 mod discard;
 mod execution;
@@ -60,6 +63,8 @@ use reply_delivery::{MessageReplyKind, deliver_reply_text};
 
 #[derive(Debug, Error)]
 pub enum MessageWorkerError {
+    #[error(transparent)]
+    KnownOutcomeNotification(#[from] crate::cleanup_refusal::NotificationFailure),
     #[error(transparent)]
     PromptDelivery(#[from] crate::server_prompt_delivery::PromptDeliveryError),
     #[error("Codex Discord is restarting. Please retry after restart.")]
@@ -152,8 +157,19 @@ pub(crate) async fn process_admitted_gateway_message<B: TurnBackend>(
         return Ok(());
     }
     let plan = enrich_plan(&message, context, plan).await?;
-    execute_plan(&message, context, channel_id, user_id, plan).await?;
-    custody.finish()?;
+    let known_refusal = execute_plan(&message, context, channel_id, user_id, plan).await?;
+    if let Err(error) = custody.finish() {
+        return Err(if known_refusal {
+            crate::cleanup_refusal::NotificationFailure::confirmation(
+                context.executor.mirror_db(),
+                &format!("message:{}", message.id),
+                error,
+            )
+            .into()
+        } else {
+            error.into()
+        });
+    }
     context.executor.notify_delivery_ready();
     Ok(())
 }

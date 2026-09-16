@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::is_usage_limit_error;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -25,6 +26,7 @@ pub struct TurnCompletion {
     pub error_message: String,
     pub interrupt_origin: Option<InterruptOrigin>,
     pub duration_ms: Option<i64>,
+    pub usage_limit: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -108,11 +110,27 @@ pub fn parse_thread_turn_states(
     Ok(states)
 }
 
+/// Preserve whether history contains an explicit final answer or only a legacy
+/// last-agent/empty fallback. Callers must not let weaker text displace a journal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TurnText {
+    pub text: String,
+    pub explicit_final: bool,
+}
+
 pub fn extract_turn_final_text(
     result: &Value,
     expected_thread_id: &str,
     expected_turn_id: &str,
 ) -> Result<String, TurnOutcomeError> {
+    Ok(extract_turn_text(result, expected_thread_id, expected_turn_id)?.text)
+}
+
+pub fn extract_turn_text(
+    result: &Value,
+    expected_thread_id: &str,
+    expected_turn_id: &str,
+) -> Result<TurnText, TurnOutcomeError> {
     let thread = result
         .get("thread")
         .and_then(Value::as_object)
@@ -150,10 +168,14 @@ pub fn extract_turn_final_text(
             message.clone_into(&mut final_answer);
         }
     }
-    Ok(if final_answer.is_empty() {
-        fallback
-    } else {
-        final_answer
+    let explicit_final = !final_answer.is_empty();
+    Ok(TurnText {
+        text: if explicit_final {
+            final_answer
+        } else {
+            fallback
+        },
+        explicit_final,
     })
 }
 
@@ -229,7 +251,7 @@ fn parse_turn_payload(
     if require_terminal && status == TurnStatus::InProgress {
         return Err(TurnOutcomeError::InProgressCompletion);
     }
-    let error_message = parse_error(turn, status)?;
+    let (error_message, usage_limit) = parse_error(turn, status)?;
     let interrupt_origin = (status == TurnStatus::Interrupted).then_some(if remote_user_intent {
         InterruptOrigin::RemoteUserIntent
     } else {
@@ -242,15 +264,16 @@ fn parse_turn_payload(
         error_message,
         interrupt_origin,
         duration_ms: turn.get("durationMs").and_then(Value::as_i64),
+        usage_limit,
     })
 }
 
-fn parse_error(turn: &Value, status: TurnStatus) -> Result<String, TurnOutcomeError> {
+fn parse_error(turn: &Value, status: TurnStatus) -> Result<(String, bool), TurnOutcomeError> {
     let Some(error) = turn.get("error") else {
-        return Ok(String::new());
+        return Ok((String::new(), false));
     };
     if error.is_null() {
-        return Ok(String::new());
+        return Ok((String::new(), false));
     }
     let error = error.as_object().ok_or(TurnOutcomeError::InvalidError)?;
     let message = error
@@ -258,9 +281,29 @@ fn parse_error(turn: &Value, status: TurnStatus) -> Result<String, TurnOutcomeEr
         .and_then(Value::as_str)
         .ok_or(TurnOutcomeError::MissingErrorMessage)?;
     if status != TurnStatus::Failed {
-        return Ok(String::new());
+        return Ok((String::new(), false));
     }
-    Ok(message.trim().chars().take(1_000).collect())
+    let usage_limit = is_usage_limit_error(Some(&Value::Object(error.clone())));
+    Ok((message.trim().chars().take(1_000).collect(), usage_limit))
+}
+
+/// Bounded terminal metadata for durable recovery; no arbitrary additionalDetails.
+#[must_use]
+pub fn completion_journal_payload(completion: &TurnCompletion) -> Value {
+    let status = match completion.status {
+        TurnStatus::Completed => "completed",
+        TurnStatus::Interrupted => "interrupted",
+        TurnStatus::Failed => "failed",
+        TurnStatus::InProgress => "inProgress",
+    };
+    serde_json::json!({"threadId":completion.thread_id,"turn":{
+        "id":completion.turn_id,"status":status,"durationMs":completion.duration_ms,
+        "error":{"message":completion.error_message,"codexErrorInfo":
+            if completion.status == TurnStatus::Failed && completion.usage_limit {
+                Some("usageLimitExceeded")
+            } else { None }
+        }
+    }})
 }
 
 fn text(value: Option<&Value>) -> String {

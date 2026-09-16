@@ -198,33 +198,22 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             return Ok(recovered);
         }
         if candidate_turn_ids.is_empty() && (cold || job.app_server_generation != generation) {
-            if cdr_store::new_reply::get(&self.db_path, &job.job_id)?
-                .is_some_and(|reply| reply.turn_id.is_none())
-            {
-                // A newly accepted turn may not be present in thread/read yet.
-                // An empty snapshot, even after restart, cannot prove non-execution.
-                if job.last_error.is_empty() {
-                    record_start_failure_if_claimed(
-                        &self.db_path,
-                        job,
-                        "new first-turn acceptance remains unknown; empty history does not authorize retry",
-                        true,
-                    )?;
-                }
-                report.unresolved += 1;
-                return Ok(false);
+            // Starting was committed before dispatch, but its outcome may not
+            // have been saved. This also covers a definite usage rejection whose
+            // atomic hold + notice transaction rolled back. An empty snapshot,
+            // an expired lease, or a new process/generation proves neither
+            // non-dispatch nor permission to replay, for ordinary and /new jobs.
+            // Definite retryable failures already persisted Pending at dispatch.
+            if job.last_error.is_empty() {
+                record_start_failure_if_claimed(
+                    &self.db_path,
+                    job,
+                    "turn/start acceptance remains unknown; empty history does not authorize retry",
+                    true,
+                )?;
             }
-            let requeued = record_start_failure_if_claimed(
-                &self.db_path,
-                job,
-                "previous app-server generation ended before a turn appeared",
-                false,
-            )?
-            .is_some();
-            if requeued {
-                report.requeued += 1;
-            }
-            return Ok(requeued);
+            report.unresolved += 1;
+            return Ok(false);
         }
         if candidate_turn_ids.len() > 1 {
             let _ = hold_starting_for_ambiguous_candidates_if_claimed(

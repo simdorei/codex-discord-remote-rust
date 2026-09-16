@@ -1,5 +1,6 @@
-use cdr_app_server::requests::list_models;
+use cdr_app_server::requests::{list_models, rate_limits};
 
+use super::model_catalog::reserve;
 use super::{ActionError, ActionExecutor, ActionResult, immediate};
 use crate::queue_runner::TurnBackend;
 #[cfg(test)]
@@ -59,8 +60,21 @@ impl<B: TurnBackend> ActionExecutor<B> {
         let server = self.server.as_ref().ok_or(ActionError::MissingAppServer)?;
         let generation = server.generation();
         super::settings_action::ready(server, generation).await?;
-        let catalog = server.execute(list_models(), Some(generation)).await?;
-        let text = if let Some(target) = &target {
+        let mut catalog = server.execute(list_models(), Some(generation)).await?;
+        let mut reserve_listed = false;
+        // Optional quota discovery must not turn an unavailable Reserve read into a normal-model outage.
+        if matches!(field, None | Some("model"))
+            && let Ok(Ok(rates)) = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                server.execute(rate_limits(), Some(generation)),
+            )
+            .await
+            && let Ok(extended) = reserve::catalog(&catalog, &rates)
+        {
+            catalog = extended;
+            reserve_listed = true;
+        }
+        let mut text = if let Some(target) = &target {
             if matches!(field, Some("effort" | "reasoning")) {
                 let observation = server.observed_thread_settings(&target.id, generation)?;
                 let (model, source) = if let Some((_, value)) = &observation {
@@ -83,6 +97,10 @@ impl<B: TurnBackend> ActionExecutor<B> {
                         "마지막 저장 모델 · 현재 실행값 미확인",
                     )
                 };
+                if model == reserve::MODEL {
+                    let rates = server.execute(rate_limits(), Some(generation)).await?;
+                    catalog = reserve::catalog(&catalog, &rates)?;
+                }
                 format!(
                     "대화: {}\n{source}: {model}\n{}",
                     target.id,
@@ -98,6 +116,9 @@ impl<B: TurnBackend> ActionExecutor<B> {
         } else {
             super::model_catalog::options(&catalog, field)?
         };
+        if reserve_listed {
+            text.push_str("\nLuna Reserve: !settings --model reserve (gpt-reserve, standard; 일반 Luna와 별도)");
+        }
         super::settings_action::ready(server, generation).await?;
         if reference.is_none()
             && let Some(target) = target
@@ -140,7 +161,7 @@ impl<B: TurnBackend> ActionExecutor<B> {
             .unwrap_or_else(|error| format!("runner 조회 실패: {error}"));
         Ok(immediate(format!(
             "Rust runtime resources\nruntime_pid: {}\napp_server: {lifecycle}\n{host}\n{runners}",
-            std::process::id(),
+            std::process::id()
         )))
     }
 

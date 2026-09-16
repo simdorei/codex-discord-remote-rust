@@ -23,7 +23,7 @@ mod ingress_inspection;
 mod lifecycle_custody;
 mod list_view;
 mod mirror_action;
-mod model_catalog;
+pub(crate) mod model_catalog;
 mod new_thread;
 mod operator_actions;
 mod prompt_intake;
@@ -36,7 +36,7 @@ mod runner_target;
 mod runners_status;
 mod selection;
 mod service_actions;
-mod settings_action;
+pub(crate) mod settings_action;
 mod settings_custody;
 mod target_resolution;
 mod types;
@@ -56,6 +56,7 @@ pub struct ActionExecutor<B: TurnBackend> {
     archive_delete_paths: ArchiveDeletePaths,
     prompt_preprocessor: Option<Arc<dyn PromptPreprocessor>>,
     mirror_sync: std::sync::OnceLock<crate::mirror_sync::MirrorSynchronizer>,
+    pub(crate) reserve_auto: Option<Arc<crate::reserve_auto::ReserveAutoController>>,
 }
 
 impl<B: TurnBackend> ActionExecutor<B> {
@@ -90,12 +91,22 @@ impl<B: TurnBackend> ActionExecutor<B> {
             archive_delete_paths,
             prompt_preprocessor: None,
             mirror_sync: std::sync::OnceLock::new(),
+            reserve_auto: None,
         }
     }
 
     #[must_use]
     pub fn with_server(mut self, server: Arc<ResidentAppServer>) -> Self {
         self.server = Some(server);
+        self
+    }
+
+    #[must_use]
+    pub fn with_reserve_auto(
+        mut self,
+        controller: Arc<crate::reserve_auto::ReserveAutoController>,
+    ) -> Self {
+        self.reserve_auto = Some(controller);
         self
     }
 
@@ -184,22 +195,8 @@ impl<B: TurnBackend> ActionExecutor<B> {
             CommandAction::Status { reference } => {
                 return self.status(channel_id, reference.as_deref()).await;
             }
-            CommandAction::Settings {
-                reference,
-                model,
-                effort,
-                speed,
-            } => {
-                return self
-                    .settings(
-                        channel_id,
-                        reference.as_deref(),
-                        model.as_deref(),
-                        effort.as_deref(),
-                        speed.as_deref(),
-                        None,
-                    )
-                    .await;
+            action @ (CommandAction::Settings { .. } | CommandAction::AutoReserve { .. }) => {
+                return self.settings_command(channel_id, action).await;
             }
             CommandAction::Context {
                 all_threads,

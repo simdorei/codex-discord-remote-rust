@@ -1,13 +1,17 @@
+use super::model_catalog::reserve;
 use super::{ActionError, ActionExecutor, ActionResult, immediate};
 use crate::queue_runner::TurnBackend;
 use cdr_app_server::{
     ResidentAppServer, extract_thread_id,
-    requests::{ServiceTierUpdate, ThreadSettingsUpdate, list_models, resume_thread_with_timeout},
+    requests::{
+        ServiceTierUpdate, ThreadSettingsUpdate, list_models, rate_limits,
+        resume_thread_with_timeout,
+    },
 };
 use std::time::Duration;
 use tokio::time::Instant;
-mod snapshot;
-mod verification;
+pub(crate) mod snapshot;
+pub(crate) mod verification;
 
 struct Change<'a> {
     model: Option<&'a str>,
@@ -17,6 +21,61 @@ struct Change<'a> {
 }
 
 impl<B: TurnBackend> ActionExecutor<B> {
+    pub(super) async fn settings_command(
+        &self,
+        channel: u64,
+        action: crate::command_plan::CommandAction,
+    ) -> Result<ActionResult, ActionError> {
+        use crate::command_plan::CommandAction;
+        match action {
+            CommandAction::Settings {
+                reference,
+                model,
+                effort,
+                speed,
+            } => {
+                self.settings(
+                    channel,
+                    reference.as_deref(),
+                    model.as_deref(),
+                    effort.as_deref(),
+                    speed.as_deref(),
+                    None,
+                )
+                .await
+            }
+            CommandAction::AutoReserve { reference, enabled } => {
+                self.auto_reserve_setting(channel, reference.as_deref(), enabled, None)
+                    .await
+            }
+            _ => Err(ActionError::Invalid("not a settings command".into())),
+        }
+    }
+
+    pub(super) async fn auto_reserve_setting(
+        &self,
+        channel: u64,
+        reference: Option<&str>,
+        enabled: bool,
+        binding: Option<&crate::settings_binding::SettingsBinding>,
+    ) -> Result<ActionResult, ActionError> {
+        let thread = if let Some(binding) = binding {
+            self.settings_resolver().validate(binding, channel)?;
+            self.resolve_reference(&binding.target, false)?
+        } else {
+            self.resolve_thread(channel, reference)?
+        };
+        let controller = self
+            .reserve_auto
+            .as_ref()
+            .ok_or(ActionError::MissingAppServer)?;
+        let _guard = self.control_lock(&thread.id).await?;
+        if let Some(binding) = binding {
+            self.settings_resolver().validate(binding, channel)?;
+        }
+        Ok(immediate(controller.set_manual_mode(&thread.id, enabled)?))
+    }
+
     pub(super) async fn settings(
         &self,
         channel: u64,
@@ -91,18 +150,14 @@ impl<B: TurnBackend> ActionExecutor<B> {
             binding,
         } = change;
         let server = self.server.as_ref().ok_or(ActionError::MissingAppServer)?;
-        let service_tier = match speed {
-            Some("fast") => ServiceTierUpdate::Set("priority".into()),
-            Some("standard") => ServiceTierUpdate::Clear,
-            None => ServiceTierUpdate::Unchanged,
-            Some(_) => {
-                return Err(ActionError::Invalid(
-                    "unsupported speed; use standard or fast".into(),
-                ));
-            }
-        };
+        let mut service_tier = requested_tier(speed)?;
         ready(server, generation).await?;
-        let catalog = server.execute(list_models(), Some(generation)).await?;
+        let mut catalog = server.execute(list_models(), Some(generation)).await?;
+        let requested_reserve = model.is_some_and(reserve::requested);
+        if requested_reserve {
+            let rates = server.execute(rate_limits(), Some(generation)).await?;
+            catalog = reserve::catalog(&catalog, &rates)?;
+        }
         let model = model
             .map(|value| super::model_catalog::canonical_model(&catalog, value))
             .transpose()?;
@@ -122,7 +177,29 @@ impl<B: TurnBackend> ActionExecutor<B> {
             ));
         }
         let current = snapshot::Settings::from_resume(&resumed)?;
-        if let Some(effort) = effort {
+        let is_reserve = model.as_deref().unwrap_or(&current.model) == reserve::MODEL;
+        let mut applied_effort = effort.map(str::to_owned);
+        let mut stored_speed = speed;
+        if is_reserve {
+            if !requested_reserve {
+                let rates = server.execute(rate_limits(), Some(generation)).await?;
+                catalog = reserve::catalog(&catalog, &rates)?;
+            }
+            if speed == Some("fast") {
+                return Err(ActionError::Invalid(
+                    "Luna Reserve uses standard speed; no settings update was sent".into(),
+                ));
+            }
+            applied_effort = Some(reserve::effort(
+                &catalog,
+                effort,
+                current.effort.as_deref(),
+            )?);
+            // Select standard explicitly: the installed server can report "default"
+            // after a null clear. Keep exact verification of the effective tier.
+            service_tier = ServiceTierUpdate::Set("default".into());
+            stored_speed = Some("standard");
+        } else if let Some(effort) = effort {
             super::model_catalog::validate_effort(
                 &catalog,
                 model.as_deref().unwrap_or(&current.model),
@@ -131,32 +208,41 @@ impl<B: TurnBackend> ActionExecutor<B> {
         }
         let update = ThreadSettingsUpdate {
             model,
-            effort: effort.map(str::to_owned),
+            effort: applied_effort,
+            effort_clear: false,
             service_tier,
         };
+        if let Some(controller) = &self.reserve_auto {
+            // Record user ownership before any server mutation or acknowledgement.
+            controller.manual_override(thread)?;
+        }
         ready(server, generation).await?;
         self.validate_settings_route(channel, reference, thread, binding)?;
-        let notifications = server.subscribe_notifications();
-        let before = server
-            .update_settings_with_watermark(thread, &update, generation)
-            .await?;
-        let applied =
-            verification::wait(server, thread, generation, before, &update, notifications).await?;
+        let (applied, already_applied) =
+            verification::apply_or_confirm(server, thread, generation, current, &update).await?;
         ready(server, generation).await?;
         self.validate_settings_route(channel, reference, thread, binding)?;
         self.bridge_state.remember_thread_settings(
             thread,
             update.model.as_deref(),
             update.effort.as_deref(),
-            speed,
+            stored_speed,
         )?;
-        Ok(immediate(
-            if update.model.is_some() && effort.is_none() && speed.is_none() {
-                format!("모델이 변경되었습니다: {}", applied.model)
-            } else {
-                applied.display(thread, "설정 변경 확인 · 다음 요청부터 적용")
-            },
-        ))
+        let result = if already_applied {
+            applied.display(thread, "이미 적용된 설정 확인 · 변경 요청을 보내지 않음")
+        } else if is_reserve {
+            applied.display(thread, "Luna Reserve 설정 변경 확인 · 다음 요청부터 적용 (이전 실패 요청은 재실행하지 않음)")
+        } else if update.model.is_some() && effort.is_none() && speed.is_none() {
+            format!("모델이 변경되었습니다: {}", applied.model)
+        } else {
+            applied.display(thread, "설정 변경 확인 · 다음 요청부터 적용")
+        };
+        let result = if self.reserve_auto.is_some() {
+            format!("{result}\n자동 Reserve 전환·복귀 정책: 사용자 수동 설정으로 해제됨")
+        } else {
+            result
+        };
+        Ok(immediate(result))
     }
 }
 
@@ -172,4 +258,15 @@ pub(super) async fn ready(server: &ResidentAppServer, generation: u64) -> Result
         ));
     }
     Ok(())
+}
+
+fn requested_tier(speed: Option<&str>) -> Result<ServiceTierUpdate, ActionError> {
+    match speed {
+        Some("fast") => Ok(ServiceTierUpdate::Set("priority".into())),
+        Some("standard") => Ok(ServiceTierUpdate::Clear),
+        None => Ok(ServiceTierUpdate::Unchanged),
+        Some(_) => Err(ActionError::Invalid(
+            "unsupported speed; use standard or fast".into(),
+        )),
+    }
 }

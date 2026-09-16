@@ -1,0 +1,320 @@
+{
+    "source_hashes_verified":  1315,
+    "source_manifest_sha256":  "c8668f3de6fb76e9368ca5f8b4d3f8c1f2552d70ae97a84ecb8bf06572af12d1",
+    "device":  "sim-pc-5060",
+    "qualifications":  {
+                           "initial_parallel_completion_run":  "78 passed, 4 two-second timeouts; unchanged tests passed in final isolated/low-parallel groups",
+                           "not_verified":  "live Discord/app-server/actual archived room state, cross-PC or other-CODEX_HOME inventory",
+                           "whole_workspace_cargo_fmt":  "Windows os error 206; read-only batched fallback used",
+                           "reviewer":  "same-session adversarial self-review, not a separate reviewer",
+                           "out_of_scope_format_differences":  [
+                                                                   "crates/cdr-app-server/examples/question_transport_probe.rs",
+                                                                   "crates/cdr-runtime/src/action_executor/new_thread/verification_tests.rs",
+                                                                   "crates/cdr-runtime/src/action_executor/settings_custody.rs",
+                                                                   "crates/cdr-runtime/src/command_plan.rs",
+                                                                   "crates/cdr-runtime/src/completion_worker/goal_handoff_boundary_tests.rs",
+                                                                   "crates/cdr-runtime/src/completion_worker/goal_handoff_tests.rs",
+                                                                   "crates/cdr-runtime/src/discord_runtime.rs",
+                                                                   "crates/cdr-runtime/src/queue_runner/types.rs",
+                                                                   "crates/cdr-runtime/src/settings_binding.rs",
+                                                                   "crates/cdr-runtime/tests/completion_message_contract.rs",
+                                                                   "crates/cdr-runtime/tests/final_watch_contract.rs",
+                                                                   "crates/cdr-runtime/tests/luna_reserve_auto_switch_contract.rs",
+                                                                   "crates/cdr-store/src/lib.rs"
+                                                               ]
+                       },
+    "source_manifest":  "target/qa-source/mirror-list-fix-20260917/candidate-source.json",
+    "plan_verdict":  "PASS",
+    "deployment_performed":  false,
+    "utc":  "2026-09-16T20:28:44.0413857Z",
+    "strict_clippy":  {
+                          "exit_code":  0,
+                          "name":  "strict-clippy-final-source",
+                          "elapsed_ms":  23347,
+                          "pid":  4020,
+                          "arguments":  "clippy --offline --locked --workspace --all-targets -- -D warnings",
+                          "utc":  "2026-09-16T20:23:50.9260414Z"
+                      },
+    "runtime_coverage":  {
+                             "inventory":  430,
+                             "executed_or_existing_ignored":  430,
+                             "missing":  0,
+                             "duplicates":  0
+                         },
+    "changed_source_format":  {
+                                  "exit_code":  0,
+                                  "files":  22,
+                                  "failed_batches":  0,
+                                  "batches":  2,
+                                  "arguments":  "rustfmt --edition 2024 --config skip_children=true --check \u003c20 paths per batch\u003e",
+                                  "utc":  "2026-09-16T20:25:54.3960149Z",
+                                  "receipts":  [
+                                                   {
+                                                       "exit_code":  0,
+                                                       "end":  19,
+                                                       "count":  20,
+                                                       "start":  0
+                                                   },
+                                                   {
+                                                       "exit_code":  0,
+                                                       "end":  21,
+                                                       "count":  2,
+                                                       "start":  20
+                                                   }
+                                               ]
+                              },
+    "root":  "C:\\repos\\simdorei\\codex-discord-remote-rust",
+    "final_tests":  {
+                        "ignored":  6,
+                        "groups":  [
+                                       {
+                                           "ignored":  1,
+                                           "name":  "state-regression",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "state-regression",
+                                                           "elapsed_ms":  7526,
+                                                           "pid":  28004,
+                                                           "arguments":  "test --offline --locked -p cdr-codex-state",
+                                                           "utc":  "2026-09-16T20:06:43.3952561Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  29
+                                       },
+                                       {
+                                           "ignored":  2,
+                                           "name":  "store-final",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "store-final",
+                                                           "elapsed_ms":  80066,
+                                                           "pid":  18988,
+                                                           "arguments":  "test --offline --locked -p cdr-store",
+                                                           "utc":  "2026-09-16T20:22:04.9189658Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  254
+                                       },
+                                       {
+                                           "ignored":  0,
+                                           "name":  "runtime-first-reply-isolated",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "runtime-first-reply-isolated",
+                                                           "elapsed_ms":  41201,
+                                                           "pid":  8152,
+                                                           "arguments":  "test --offline --locked -p cdr-runtime --lib completion_worker::new_first_reply_tests -- --test-threads=1",
+                                                           "utc":  "2026-09-16T20:18:39.0865032Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  4
+                                       },
+                                       {
+                                           "ignored":  3,
+                                           "name":  "runtime-other-final",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "runtime-other-final",
+                                                           "elapsed_ms":  53964,
+                                                           "pid":  12832,
+                                                           "arguments":  "test --offline --locked -p cdr-runtime --lib -- --skip completion_worker --test-threads=2",
+                                                           "utc":  "2026-09-16T20:19:47.3665799Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  345
+                                       },
+                                       {
+                                           "ignored":  0,
+                                           "name":  "runtime-completion-final",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "runtime-completion-final",
+                                                           "elapsed_ms":  29279,
+                                                           "pid":  28644,
+                                                           "arguments":  "test --offline --locked -p cdr-runtime --lib completion_worker -- --skip completion_worker::new_first_reply_tests --test-threads=2",
+                                                           "utc":  "2026-09-16T20:20:33.9248606Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  78
+                                       },
+                                       {
+                                           "ignored":  0,
+                                           "name":  "mirror-final-source",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "mirror-final-source",
+                                                           "elapsed_ms":  29313,
+                                                           "pid":  6348,
+                                                           "arguments":  "test --offline --locked -p cdr-runtime --test mirror_sync_contract",
+                                                           "utc":  "2026-09-16T20:27:02.1088537Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  48
+                                       },
+                                       {
+                                           "ignored":  0,
+                                           "name":  "list-integration-final",
+                                           "receipt":  {
+                                                           "exit_code":  0,
+                                                           "name":  "list-integration-final",
+                                                           "elapsed_ms":  27659,
+                                                           "pid":  16240,
+                                                           "arguments":  "test --offline --locked -p cdr-runtime --test mirror_readonly_contract --test action_executor_contract --test action_write_ownership_contract --test action_ingress_inspection_listing_contract",
+                                                           "utc":  "2026-09-16T20:23:16.1126787Z"
+                                                       },
+                                           "failed":  0,
+                                           "passed":  14
+                                       }
+                                   ],
+                        "failed":  0,
+                        "passed":  772
+                    },
+    "live_room_deleted":  false,
+    "changes":  [
+                    {
+                        "after_sha256":  "3e5a906cb6442234d92d191179ebeaa86cbdb974fdaadda00ab92d4159f3af00",
+                        "path":  "crates/cdr-store/src/room_cleanup.rs",
+                        "before_sha256":  "c1c27d63ff6db1812a0f93587dbc8d207b5969cfa2e7f20ef2f053a1eced96cf",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "954d7993841825e3e70ed5885d0a34c3cd90d5fc673c7b8876bcadc85ed1ad5a",
+                        "path":  "crates/cdr-store/src/room_cleanup/pending.rs",
+                        "before_sha256":  "84a5f7194727064dde15eb753dbb82749f8d6dc6103f753a79d35fdd2c7cea00",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "667ce4ffbc353ddc90a05050af397a34474e2982e9267fd757b2713a4b5f2ad5",
+                        "path":  "crates/cdr-store/src/room_cleanup/schema.rs",
+                        "before_sha256":  "9b751e64581d41cd58e7f8beffa0d17c3f95666a5191adb76c4b1bba26d7fb6d",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "b1d16d530f4a6a457fcdd4296f44c41b5c6b79e0e715b40b667276b51db899d6",
+                        "path":  "crates/cdr-store/src/ingress/recovery.rs",
+                        "before_sha256":  "3235b44620d0878f45e25fa005910f7b8edb35d274c4d4f432d94d67c6c176d3",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "6952e8c24a04ae6b066546140cd7e97239d94c2e6c768173dc1f30ddc940b61e",
+                        "path":  "crates/cdr-runtime/src/mirror_sync.rs",
+                        "before_sha256":  "a02f3c38f1142db03b1a8464a4170e86bc6662881de3998ced9a215aea346e08",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "ef490123d6f24fdd628afde73e4e69de00eac7fca4681de773e469f45b64f9c2",
+                        "path":  "crates/cdr-runtime/src/mirror_sync/cleanup.rs",
+                        "before_sha256":  "aa78c0488a948d387a75c742e39df823981aceeb6929b877357f773ccc3ddc76",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "6004c5102e055ac87f5850c4020eb9849e6d798de6a8e691661e2266799e5453",
+                        "path":  "crates/cdr-runtime/src/mirror_sync/delete_guard.rs",
+                        "before_sha256":  "68e99df1d64372fe7cbd41866fd9d9f5c02eab57d5cf2d3c88f65fcea619be6a",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "00326fc07806afbb01a4434091f5cb87bca04f8f773150ad919d64050db97643",
+                        "path":  "crates/cdr-runtime/src/mirror_sync/scope.rs",
+                        "before_sha256":  "4f64c6f7bee674d9eb59f245a4e5175e8a23cd47cb9f0077ec04f0bc737daa7e",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "2d756a61e28245f385fb37115c0d9f871ccb4429c814ee015b7a6335c8412e23",
+                        "path":  "crates/cdr-runtime/src/mirror_sync/inspection.rs",
+                        "before_sha256":  "112681edc8640322fa7cb616abb6d6921d55ef76c87f704c598c12a8c78b1e18",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "2c5509db263ac70cc2bcaf57c9340b3b668bfb362ba81690588254af75a9a0df",
+                        "path":  "crates/cdr-runtime/src/action_executor/list_view.rs",
+                        "before_sha256":  "88871039b1e7d6c596b0386b0b1053ae1228b5f838469645cce4820aa03d147d",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "116e879cac94fa88bc0b7d29a89ff5a43a4c82718d85bc8a1afc914d04cf03d6",
+                        "path":  "crates/cdr-runtime/tests/mirror_sync_contract.rs",
+                        "before_sha256":  "244082f8654caeb399dcf6ced129fe99416aa88c7287e07dbd1215c6bf5747ea",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "ab311172a96b1d6f6fd0917a2183e38807496f6e302e95971b5df2a096ae3395",
+                        "path":  "crates/cdr-codex-state/src/store.rs",
+                        "before_sha256":  "1e8fb3e22e5953d21ec99531135bf7b3a952eae39191d12dcaeef0f9612e4001",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "c0c2f288a91b878ad8655f3e586d4edfb666f0d01bef5ba2820a587a108de9b1",
+                        "path":  "crates/cdr-store/tests/schema_contract.rs",
+                        "before_sha256":  "6efdf5e54575bc40bffe12f6bbb50235b2d4137a0e4f897430f99849888306fc",
+                        "kind":  "modified"
+                    },
+                    {
+                        "after_sha256":  "93dc016b09b2be165f468d95cb5a9a1b392c06c964d7bc0d8e3dbe5c253b27cd",
+                        "path":  "crates/cdr-store/src/room_cleanup/archived_rejections.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "1ec891c612badf0d4addb12f580e8ba0e6d6143f7ae8c6a15647137434eb0dcb",
+                        "path":  "crates/cdr-store/src/room_cleanup/archived_rejections/evidence.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "3e26c32fcdb3cde3cc0c2823b71fd16c7310605b6f0620a1c4447b47decd5218",
+                        "path":  "crates/cdr-store/tests/archived_cleanup_evidence_contract.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "cc75630394d407816b1f0eb528f0fab07ac59c7275d73af8bb76a8bdf4ecd5dd",
+                        "path":  "crates/cdr-runtime/src/mirror_sync/archived_rejections.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "82d986eeb3111fe3879c27f7a4d3ce93b5479f0e6de5c0bda79384ce7d189c26",
+                        "path":  "crates/cdr-runtime/src/action_executor/list_visibility_tests.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "9dabff666fb2c84837df1eeef9277d22e4ddfc41bd298ed7f4a06f818df0afef",
+                        "path":  "crates/cdr-runtime/tests/support/mirror_archive_rejection.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "0223d28347b72fb37f5516e5c972462c112bf80e33fb5a01718f8b49979b8f43",
+                        "path":  "crates/cdr-runtime/tests/support/mirror_archive_safety.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "d7a421b9f03d32b9747a5a6a5d58cf939403a2b6adae7dd63e73f383c969327e",
+                        "path":  "crates/cdr-runtime/tests/support/mirror_archive_completion.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    },
+                    {
+                        "after_sha256":  "f1824dc8647a44cb6edd138de6d35699853cb586a58e592cd428ea7f6f25b0a4",
+                        "path":  "crates/cdr-codex-state/tests/mirror_inventory.rs",
+                        "before_sha256":  null,
+                        "kind":  "added"
+                    }
+                ],
+    "code_verdict":  "PASS for the requested change set",
+    "documents":  [
+                      {
+                          "path":  "docs/mirror-cleanup-and-list-plan-20260917.md",
+                          "sha256":  "7fac9875d0178949ef858aeb8ab014b0c73bb168257d455258f34643c565ee33",
+                          "bytes":  9026
+                      },
+                      {
+                          "path":  "docs/mirror-cleanup-and-list-review-20260917.md",
+                          "sha256":  "4daa885e6beeaccb762a2075a3dc978069011f1d3e1fd75bfbed459bb547361b",
+                          "bytes":  11647
+                      }
+                  ]
+}

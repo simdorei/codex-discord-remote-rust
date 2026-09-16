@@ -22,7 +22,7 @@ pub(crate) fn schema_current(connection: &Connection) -> Result<bool> {
     )?)
 }
 
-/// Never claim an app-owned turn or a terminal event from an old generation.
+/// Record only the exact owned turn and its bound observation generation.
 pub fn record(
     path: &Path,
     thread: &str,
@@ -34,7 +34,7 @@ pub fn record(
         "INSERT OR IGNORE INTO codex_observed_completions
         (thread_id,turn_id,generation,payload)
         SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM codex_turn_queue
-        WHERE target_thread_id=? AND turn_id=? AND app_server_generation=? AND state='running')",
+        WHERE target_thread_id=? AND turn_id=? AND COALESCE(turn_observation_generation,app_server_generation)=? AND state='running')",
         params![thread, turn, generation, payload, thread, turn, generation],
     )? == 1)
 }

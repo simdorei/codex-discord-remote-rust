@@ -23,16 +23,17 @@ pub fn interaction_error_disposition(
         InteractionErrorDisposition::IgnoreDuplicate
     } else if matches!(
         error,
-        InteractionWorkerError::Component(
-            ComponentWorkerError::ActionUnconfirmed
-                | ComponentWorkerError::ActionOutcomeIndeterminate(_)
-                | ComponentWorkerError::Confirmation(_)
-                | ComponentWorkerError::Busy(
-                    BusyComponentError::ActionUnconfirmed
-                        | BusyComponentError::ActionOutcomeIndeterminate(_)
-                        | BusyComponentError::Confirmation(_)
-                )
-        )
+        InteractionWorkerError::KnownOutcomeNotification(_)
+            | InteractionWorkerError::Component(
+                ComponentWorkerError::ActionUnconfirmed
+                    | ComponentWorkerError::ActionOutcomeIndeterminate(_)
+                    | ComponentWorkerError::Confirmation(_)
+                    | ComponentWorkerError::Busy(
+                        BusyComponentError::ActionUnconfirmed
+                            | BusyComponentError::ActionOutcomeIndeterminate(_)
+                            | BusyComponentError::Confirmation(_)
+                    )
+            )
     ) {
         InteractionErrorDisposition::LogOnly
     } else {

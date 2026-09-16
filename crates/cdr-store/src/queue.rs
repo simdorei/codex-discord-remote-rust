@@ -28,7 +28,10 @@ pub use fork_handoff::{
     unresolved_app_server_fork_handoff_for_source,
 };
 pub use generation::{adopt_generation, adopt_target_generation};
-pub use goal::{attach_goal_turn, mark_goal_waiting};
+pub use goal::{
+    attach_goal_turn, attach_goal_turn_if_owned, attach_goal_turn_observed_if_owned,
+    mark_goal_waiting,
+};
 pub use managed_target::mark_app_server_managed_target;
 pub(crate) use managed_target::mark_in_transaction as mark_managed_target_in_transaction;
 pub(crate) use read::select_job;
@@ -59,6 +62,9 @@ pub struct StoredQueueJob {
     pub owner_user_id: Option<i64>,
     pub discord_message_id: Option<i64>,
     pub app_server_generation: i64,
+    pub execution_generation: Option<i64>,
+    /// Observation evidence for the currently attached turn, not original-input execution authority.
+    pub turn_observation_generation: Option<i64>,
     pub goal_waiting: bool,
     pub prompt: String,
     pub queued: bool,
@@ -70,6 +76,14 @@ pub struct StoredQueueJob {
     pub last_error: String,
     pub created_at: f64,
     pub updated_at: f64,
+}
+
+impl StoredQueueJob {
+    #[must_use]
+    pub fn completion_evidence_generation(&self) -> i64 {
+        self.turn_observation_generation
+            .unwrap_or(self.app_server_generation)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

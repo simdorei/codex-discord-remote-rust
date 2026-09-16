@@ -74,7 +74,7 @@ impl TurnBackend for GenerationBackend {
 }
 
 #[tokio::test]
-async fn old_ambiguous_start_blocks_new_generation_until_recovery_starts_old_once() {
+async fn old_ambiguous_start_and_new_submission_stay_blocked_after_empty_recovery() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("mirror.sqlite");
     mark_app_server_managed_target(&db, TARGET, 2).unwrap();
@@ -92,26 +92,34 @@ async fn old_ambiguous_start_blocks_new_generation_until_recovery_starts_old_onc
     assert!(submitted.queued);
     assert_eq!(submitted.turn_id, None);
     assert!(backend.starts.lock().await.is_empty());
-    let first_recovery = queue.recover().await.unwrap();
-    assert_eq!(first_recovery.requeued, 1);
+    for _ in 0..3 {
+        expire_retry(&db, "old");
+        let recovery = queue.recover().await.unwrap();
+        assert_eq!(recovery.requeued, 0);
+        assert_eq!(recovery.started, 0);
+        assert_eq!(recovery.unresolved, 1);
+        queue.kick_target(TARGET).await.unwrap();
+        assert!(
+            backend.starts.lock().await.is_empty(),
+            "new-generation kick bypassed the old Starting hold"
+        );
+    }
     assert!(backend.starts.lock().await.is_empty());
-    expire_retry(&db, "old");
-
-    let second_recovery = queue.recover().await.unwrap();
-
-    assert_eq!(second_recovery.started, 1);
-    assert_eq!(backend.starts.lock().await.as_slice(), &["old prompt"]);
     let jobs = list(&db).unwrap();
     let old = jobs.iter().find(|job| job.job_id == "old").unwrap();
     let new = jobs
         .iter()
         .find(|job| job.discord_message_id == Some(2))
         .unwrap();
-    assert_eq!(old.state, QueueJobState::Running);
-    assert_eq!(old.turn_id.as_deref(), Some("turn-1"));
+    assert_eq!(old.state, QueueJobState::Starting);
+    assert_eq!(old.attempt_count, 1);
+    assert_eq!(old.app_server_generation, 1);
+    assert_eq!(old.last_error, "generation one response was lost");
+    assert_eq!(old.turn_id, None);
     assert_eq!(new.state, QueueJobState::Pending);
+    assert_eq!(new.attempt_count, 0);
     assert_eq!(new.turn_id, None);
-    assert_eq!(jobs.iter().filter(|job| job.turn_id.is_some()).count(), 1);
+    assert_eq!(jobs.iter().filter(|job| job.turn_id.is_some()).count(), 0);
 }
 
 #[tokio::test]

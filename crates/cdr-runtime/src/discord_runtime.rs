@@ -41,6 +41,7 @@ use typed_ingress::{InteractionResources, TypedIngressContext, TypedIngressWorke
 use worker_supervision::{WorkerSet, exit_channel};
 use workers::{
     prepare_remote_worker, spawn_unit_worker, start_remote_worker, start_session_mirror_worker,
+    start_reserve_auto_worker,
 };
 
 const INTERACTION_QUEUE_CAPACITY: usize = 64;
@@ -188,6 +189,14 @@ pub async fn run(
             completion_shutdown_rx,
         ),
     ));
+    if let Some(worker) = start_reserve_auto_worker(
+        executor.reserve_auto.clone(),
+        Arc::clone(&queue),
+        completion_shutdown.subscribe(),
+        worker_exit_notifier.clone(),
+    ) {
+        workers.push(worker);
+    }
     workers.push(spawn_unit_worker(
         "new-first-reply-verification",
         worker_exit_notifier.clone(),

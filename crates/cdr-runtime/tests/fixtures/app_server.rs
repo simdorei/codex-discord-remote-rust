@@ -14,6 +14,8 @@ mod archive;
 mod display;
 #[path = "app_server/goal.rs"]
 mod goal;
+#[path = "app_server/reserve_auto.rs"]
+mod reserve_auto;
 #[path = "app_server/resume.rs"]
 mod resume;
 #[path = "app_server/settings.rs"]
@@ -33,6 +35,7 @@ pub fn run() -> Result {
         Some("goal") => goal::run(),
         Some("resume") => resume::run(),
         Some("settings") => settings::run(),
+        Some("reserve-auto") => reserve_auto::run(),
         Some("usage") => usage::run(),
         _ => Err("unknown native app-server fixture scenario".into()),
     }

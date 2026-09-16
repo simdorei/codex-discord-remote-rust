@@ -4,7 +4,9 @@
 mod admission;
 mod busy;
 mod cancellation;
+mod cleanup_refusal;
 pub(crate) use cancellation::cancellation_owners;
+pub use cleanup_refusal::CleanupRefusal;
 mod lifecycle;
 mod mapped_slash;
 pub use mapped_slash::{admit_mapped_slash_prompt, frozen_slash_target};

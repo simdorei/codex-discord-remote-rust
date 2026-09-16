@@ -35,6 +35,7 @@ const GUARDED: [(&str, &str); 8] = [
 
 pub(crate) fn migrate_schema(connection: &Connection) -> Result<()> {
     super::archive_schema::migrate(connection)?;
+    super::archived_rejections::migrate(connection)?;
     connection.execute_batch("CREATE TABLE IF NOT EXISTS cdr_cleanup_fences (channel_id INTEGER PRIMARY KEY CHECK(channel_id>0),target_thread_id TEXT,token TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('deleting','deleted')),created_at REAL NOT NULL);")?;
     for (table, predicate) in GUARDED {
         for operation in ["INSERT", "UPDATE"] {
@@ -48,7 +49,9 @@ pub(crate) fn migrate_schema(connection: &Connection) -> Result<()> {
 }
 
 pub(crate) fn schema_current(connection: &Connection) -> Result<bool> {
-    if !super::archive_schema::current(connection)? {
+    if !super::archive_schema::current(connection)?
+        || !super::archived_rejections::schema_current(connection)?
+    {
         return Ok(false);
     }
     let exists:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='cdr_cleanup_fences')",[],|r|r.get(0))?;

@@ -124,6 +124,19 @@ pub(crate) fn validate_claim_in(
     guard: Option<&DeliveryGuard<'_>>,
 ) -> Result<Option<String>> {
     super::notice::validate_notice_in(connection, key, hash)?;
+    crate::reserve_policy::transition_notice::validate_claim_in(connection, key, hash)?;
+    if let Some(job) =
+        crate::reserve_policy::start_notice::validate_claim_in(connection, key, hash)?
+        && let Some(record) = get_in(connection, &job)?
+    {
+        validate_identity_in(connection, &record)?;
+        let (channel, _, _, _): (i64, String, String, usize) = serde_json::from_str(key)?;
+        if record.turn_id.is_some() || record.identity.channel_id != channel {
+            return Err(StoreError::Integrity(
+                "Reserve no-turn failure notice has a changed /new identity".into(),
+            ));
+        }
+    }
     if let Some(guard) = guard
         && let Some(record) = get_in(connection, guard.job_id)?
     {

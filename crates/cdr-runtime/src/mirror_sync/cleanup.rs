@@ -53,6 +53,20 @@ impl MirrorSynchronizer {
         row: &StaleThread,
         parent: Option<u64>,
     ) -> Result<bool, MirrorSyncError> {
+        // Only archived mapped rooms may reconcile exact expired Steer
+        // non-dispatch evidence. Ordinary, orphan and absent-source paths stay strict.
+        if parent.is_none()
+            && cdr_store::room_cleanup::pending_reason(
+                &self.mirror_db,
+                row.discord_thread_id,
+                Some(&row.thread_id),
+            )? == Some("ingress")
+            && let Some(archived) = store.load_thread(&row.thread_id, true)?
+        {
+            return self
+                .retire_archived_rejections(store, guild, started, row, &archived)
+                .await;
+        }
         // A missing Discord room is not permission to drop its pending work mapping.
         self.ensure_no_requests(discord_id(row.discord_thread_id)?)?;
         let channel = self

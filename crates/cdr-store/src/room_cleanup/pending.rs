@@ -25,13 +25,39 @@ pub(super) fn reason_for_schema(
     confirmation: Option<&str>,
     allow_pre_commentary_schema: bool,
 ) -> Result<Option<&'static str>> {
+    reason_with_exclusions(
+        connection,
+        channel,
+        target,
+        confirmation,
+        allow_pre_commentary_schema,
+        &[],
+    )
+}
+
+pub(super) fn reason_with_exclusions(
+    connection: &Connection,
+    channel: i64,
+    target: Option<&str>,
+    confirmation: Option<&str>,
+    allow_pre_commentary_schema: bool,
+    excluded: &[String],
+) -> Result<Option<&'static str>> {
     for (reason, table, extra) in [
         ("queued requests", "codex_turn_queue", ""),
         ("prompt intake", "codex_prompt_intakes", ""),
         (
             "ingress",
             "discord_ingress_journal",
-            "AND (state!='completed' OR confirmation_delivered=0)",
+            // An acknowledged prompt handoff stays `owned` permanently. Its
+            // intake/queue/delivery machinery, checked independently here, owns
+            // any unfinished work. CASE is deliberate: nullable/malformed owner
+            // fields must not disappear through SQL's three-valued NOT logic.
+            "AND CASE
+                WHEN state='completed' AND confirmation_delivered=1 THEN 0
+                WHEN state='owned' AND confirmation_delivered=1
+                    AND owner_kind='prompt' AND length(trim(owner_id))>0 THEN 0
+                ELSE 1 END",
         ),
         ("undelivered result", "codex_delivery_outbox", ""),
         ("undelivered progress", "codex_commentary_outbox", ""),
@@ -57,10 +83,17 @@ pub(super) fn reason_for_schema(
         );
         let exists = if table == "discord_ingress_journal" {
             sql.pop();
-            sql.push_str(" AND (?3 IS NULL OR ingress_id!=?3))");
-            connection.query_row(&sql, params![channel, target, confirmation], |r| {
-                r.get::<_, bool>(0)
-            })?
+            sql.push_str(" AND (?3 IS NULL OR ingress_id!=?3) AND ingress_id NOT IN (SELECT value FROM json_each(?4)))");
+            connection.query_row(
+                &sql,
+                params![
+                    channel,
+                    target,
+                    confirmation,
+                    serde_json::to_string(excluded)?
+                ],
+                |r| r.get::<_, bool>(0),
+            )?
         } else {
             connection.query_row(&sql, params![channel, target], |r| r.get::<_, bool>(0))?
         };

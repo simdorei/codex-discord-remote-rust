@@ -23,7 +23,7 @@ pub fn begin_attempt(
         path,
         job_id,
         generation,
-        "UPDATE codex_turn_queue SET state = 'starting', goal_waiting = 0, \
+        "UPDATE codex_turn_queue SET state = 'starting', execution_generation = app_server_generation, turn_observation_generation = NULL, goal_waiting = 0, \
          attempt_count = CASE WHEN attempt_count < 9223372036854775807 \
              THEN attempt_count + 1 ELSE attempt_count END, \
          turn_id = NULL, baseline_turn_ids = ?, last_error = '', updated_at = ? \
@@ -48,11 +48,15 @@ pub fn try_begin_attempt(
         Err(StoreError::QueueJobNotFound(_)) => return Ok(None),
         Err(error) => return Err(error),
     };
-    if !crate::dead_generation::job_can_mutate(&transaction, &candidate)? {
+    if !crate::dead_generation::job_can_mutate(&transaction, &candidate)?
+        || candidate
+            .last_error
+            .starts_with(crate::reserve_policy::HOLD_PREFIX)
+    {
         return Ok(None);
     }
     let updated = transaction.execute(
-        "UPDATE codex_turn_queue SET state = 'starting', goal_waiting = 0, \
+        "UPDATE codex_turn_queue SET state = 'starting', execution_generation = ?, turn_observation_generation = NULL, goal_waiting = 0, \
          attempt_count = CASE WHEN attempt_count < 9223372036854775807 \
              THEN attempt_count + 1 ELSE attempt_count END, \
          turn_id = NULL, baseline_turn_ids = ?, last_error = '', updated_at = ? \
@@ -60,7 +64,7 @@ pub fn try_begin_attempt(
          AND NOT EXISTS (SELECT 1 FROM codex_thread_fork_handoffs handoff \
              WHERE handoff.source_thread_id = codex_turn_queue.target_thread_id \
              AND handoff.target_thread_id IS NULL)",
-        params![baseline, now()?, job_id, generation],
+        params![generation, baseline, now()?, job_id, generation],
     )?;
     claimed_result(transaction, job_id, updated)
 }
@@ -75,7 +79,7 @@ pub fn mark_running(
         path,
         job_id,
         generation,
-        "UPDATE codex_turn_queue SET state = 'running', goal_waiting = 0, turn_id = ?, updated_at = ? \
+        "UPDATE codex_turn_queue SET state = 'running', turn_observation_generation = app_server_generation, goal_waiting = 0, turn_id = ?, updated_at = ? \
          WHERE job_id = ? AND app_server_generation = ?",
         None,
         Some(turn_id),
@@ -97,7 +101,7 @@ pub fn mark_running_if_claimed(
         return Ok(None);
     };
     let updated = transaction.execute(
-        "UPDATE codex_turn_queue SET state = 'running', goal_waiting = 0, \
+        "UPDATE codex_turn_queue SET state = 'running', turn_observation_generation = app_server_generation, goal_waiting = 0, \
          turn_id = ?, updated_at = ? WHERE job_id = ? AND target_thread_id = ? \
          AND app_server_generation = ? AND attempt_count = ? AND updated_at = ? \
          AND baseline_turn_ids = ? AND state = 'starting' AND turn_id IS NULL \
@@ -185,6 +189,14 @@ pub fn record_start_failure_if_claimed(
             baseline,
         ],
     )?;
+    if updated == 1 && !ambiguous && error.starts_with(crate::reserve_policy::HOLD_PREFIX) {
+        crate::reserve_policy::stage_usage_failure_in(
+            &transaction,
+            &claimed.target_thread_id,
+            &bounded_error,
+        )?;
+        crate::reserve_policy::start_notice::stage_in(&transaction, claimed, &bounded_error)?;
+    }
     claimed_result(transaction, &claimed.job_id, updated)
 }
 

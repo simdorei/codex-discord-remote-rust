@@ -57,24 +57,27 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 "settings command differs from its admitted envelope".into(),
             ));
         }
-        let CommandAction::Settings {
-            reference,
-            model,
-            effort,
-            speed,
-        } = action
-        else {
-            unreachable!()
-        };
-        self.settings(
-            context.channel_id,
-            reference.as_deref(),
-            model.as_deref(),
-            effort.as_deref(),
-            speed.as_deref(),
-            Some(&binding),
-        )
-        .await
+        match action {
+            CommandAction::Settings { reference, model, effort, speed } => {
+                self.settings(
+                    context.channel_id,
+                    reference.as_deref(),
+                    model.as_deref(),
+                    effort.as_deref(),
+                    speed.as_deref(),
+                    Some(&binding),
+                ).await
+            }
+            CommandAction::AutoReserve { enabled, .. } => {
+                self.auto_reserve_setting(
+                    context.channel_id,
+                    Some(binding.target.as_str()),
+                    enabled,
+                    Some(&binding),
+                ).await
+            }
+            _ => unreachable!(),
+        }
     }
 
     pub(super) fn validate_settings_route(

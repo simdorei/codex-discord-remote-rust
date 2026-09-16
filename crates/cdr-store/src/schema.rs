@@ -108,13 +108,16 @@ fn migrate_rust_extensions(connection: &Connection) -> Result<()> {
     crate::mirror::migrate_schema(connection)?;
     migrate_delivery_outbox(connection)?;
     migrate_goal_waiting(connection)?;
+    migrate_queue_execution_generation(connection)?;
+    migrate_turn_observation_generation(connection)?;
     crate::prompt_intake::migrate_schema(connection)?;
     crate::dead_generation::migrate_schema(connection)?;
     crate::ingress::migrate_schema(connection)?;
     crate::new_reply::migrate_schema(connection)?;
     crate::queue::migrate_cancellation_schema(connection)?;
     crate::room_cleanup::migrate_schema(connection)?;
-    crate::archive_fence::migrate_schema(connection)
+    crate::archive_fence::migrate_schema(connection)?;
+    crate::reserve_policy::migrate_schema(connection)
 }
 
 fn rust_extensions_current(connection: &Connection) -> Result<bool> {
@@ -133,6 +136,18 @@ fn rust_extensions_current(connection: &Connection) -> Result<bool> {
     if !columns.iter().any(|column| column == "goal_waiting") {
         return Ok(false);
     }
+    if !columns
+        .iter()
+        .any(|column| column == "execution_generation")
+    {
+        return Ok(false);
+    }
+    if !columns
+        .iter()
+        .any(|column| column == "turn_observation_generation")
+    {
+        return Ok(false);
+    }
     Ok(crate::observed_completion::schema_current(connection)?
         && crate::observed_final_answer::schema_current(connection)?
         && crate::goal_progress::schema_current(connection)?
@@ -147,7 +162,8 @@ fn rust_extensions_current(connection: &Connection) -> Result<bool> {
         && crate::queue::cancellation_schema_current(connection)?
         && crate::room_cleanup::schema_current(connection)?
         && crate::mirror::schema_current(connection)?
-        && crate::archive_fence::schema_current(connection)?)
+        && crate::archive_fence::schema_current(connection)?
+        && crate::reserve_policy::schema_current(connection)?)
 }
 
 fn migrate_goal_waiting(connection: &Connection) -> Result<()> {
@@ -190,6 +206,37 @@ fn migrate_queue_generation(connection: &Connection) -> Result<()> {
         connection.execute(
             "ALTER TABLE codex_turn_queue ADD COLUMN app_server_generation INTEGER NOT NULL DEFAULT 0",
             [],
+        )?;
+    }
+    Ok(())
+}
+
+fn migrate_queue_execution_generation(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(codex_turn_queue)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns
+        .iter()
+        .any(|column| column == "execution_generation")
+    {
+        connection.execute(
+            "ALTER TABLE codex_turn_queue ADD COLUMN execution_generation INTEGER",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+// NULL is historical evidence, not permission to invent a new resident owner.
+fn migrate_turn_observation_generation(connection: &Connection) -> Result<()> {
+    let present: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('codex_turn_queue') WHERE name='turn_observation_generation')",
+        [], |row| row.get(0),
+    )?;
+    if !present {
+        connection.execute_batch(
+            "ALTER TABLE codex_turn_queue ADD COLUMN turn_observation_generation INTEGER;",
         )?;
     }
     Ok(())

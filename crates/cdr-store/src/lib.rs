@@ -23,6 +23,7 @@ pub mod prompt_intake;
 pub mod queue;
 pub mod restart_readiness;
 pub mod room_cleanup;
+pub mod reserve_policy;
 pub mod schema;
 
 pub use error::{Result, StoreError};

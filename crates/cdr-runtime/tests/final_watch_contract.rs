@@ -12,7 +12,8 @@ fn completion(status: TurnStatus) -> TurnCompletion {
         status,
         error_message: String::new(),
         interrupt_origin: None,
-        duration_ms: None,
+            duration_ms: None,
+            usage_limit: false,
     }
 }
 

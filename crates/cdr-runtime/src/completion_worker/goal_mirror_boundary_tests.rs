@@ -62,6 +62,21 @@ async fn prepare(
     (worker, mirror)
 }
 
+async fn request_goal_transition(worker: &CompletionWorker, method: &'static str) {
+    worker
+        .server
+        .execute(
+            cdr_app_server::requests::AppRequest {
+                method,
+                params: json!({}),
+                timeout: Duration::from_secs(2),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+}
+
 async fn scenario(early: bool) {
     let temp = tempfile::tempdir().unwrap();
     let gate = http_boundary::start().await;
@@ -71,18 +86,7 @@ async fn scenario(early: bool) {
     let worker = Arc::new(worker);
     let mut notifications = worker.server.subscribe_notifications();
     if early {
-        worker
-            .server
-            .execute(
-                cdr_app_server::requests::AppRequest {
-                    method: "test/early-goal",
-                    params: json!({}),
-                    timeout: Duration::from_secs(2),
-                },
-                None,
-            )
-            .await
-            .unwrap();
+        request_goal_transition(&worker, "test/early-goal").await;
     }
     let completing = Arc::clone(&worker);
     let t1 = tokio::spawn(async move {
@@ -97,6 +101,7 @@ async fn scenario(early: bool) {
                     error_message: String::new(),
                     interrupt_origin: None,
                     duration_ms: None,
+                    usage_limit: false,
                 },
             )
             .await
@@ -108,18 +113,7 @@ async fn scenario(early: bool) {
             "prior completion is genuinely blocked on HTTP"
         );
         assert!(queue::list(&db).unwrap()[0].goal_waiting);
-        worker
-            .server
-            .execute(
-                cdr_app_server::requests::AppRequest {
-                    method: "test/advance-goal",
-                    params: json!({}),
-                    timeout: Duration::from_secs(2),
-                },
-                None,
-            )
-            .await
-            .unwrap();
+        request_goal_transition(&worker, "test/advance-goal").await;
     }
     let started = notifications.recv().await.unwrap();
     let terminal = notifications.recv().await.unwrap();

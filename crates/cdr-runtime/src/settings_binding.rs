@@ -40,20 +40,18 @@ impl SettingsTargetResolver {
         action: &CommandAction,
         channel: u64,
     ) -> Result<Option<SettingsBinding>, ActionError> {
-        let CommandAction::Settings {
-            reference,
-            model,
-            effort,
-            speed,
-        } = action
-        else {
-            return Ok(None);
-        };
-        if model.is_none() && effort.is_none() && speed.is_none() {
-            return Ok(None);
+        match action {
+            CommandAction::Settings { reference, model, effort, speed } => {
+                if model.is_none() && effort.is_none() && speed.is_none() {
+                    return Ok(None);
+                }
+                self.bind_reference(action, reference.as_deref(), channel, "settings").map(Some)
+            }
+            CommandAction::AutoReserve { reference, .. } => {
+                self.bind_reference(action, reference.as_deref(), channel, "settings").map(Some)
+            }
+            _ => Ok(None),
         }
-        self.bind_reference(action, reference.as_deref(), channel, "settings")
-            .map(Some)
     }
 
     pub(crate) fn bind_lifecycle(
@@ -162,7 +160,9 @@ impl SettingsTargetResolver {
 
 #[must_use]
 pub fn is_settings_mutation(action: &CommandAction) -> bool {
-    matches!(action,CommandAction::Settings {model,effort,speed,..} if model.is_some() || effort.is_some() || speed.is_some())
+    matches!(action,
+        CommandAction::Settings {model,effort,speed,..} if model.is_some() || effort.is_some() || speed.is_some()
+    ) || matches!(action, CommandAction::AutoReserve { .. })
 }
 
 /// Input/routing rejection is not evidence of database or custody corruption.

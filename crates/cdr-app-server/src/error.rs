@@ -72,3 +72,39 @@ pub enum AppServerError {
     #[error("resident app-server replacement state invalid: {message}")]
     ReplacementState { message: String },
 }
+
+/// Only known structured usage-exhaustion codes authorize a Reserve decision.
+/// A transient rate limit, arbitrary prose, arrays, and HTTP 429 alone do not.
+#[must_use]
+pub fn is_usage_limit_error(data: Option<&Value>) -> bool {
+    fn token(value: &str) -> bool {
+        matches!(
+            value,
+            "usageLimitExceeded"
+                | "UsageLimitExceeded"
+                | "usage_limit_exceeded"
+                | "usage_limit_reached"
+                | "usage_limit"
+        )
+    }
+    fn visit(value: &Value, depth: u8) -> bool {
+        if depth > 4 {
+            return false;
+        }
+        match value {
+            Value::String(value) => token(value),
+            Value::Object(object) => {
+                // Prefer the typed app-server variant over incidental nested metadata.
+                if let Some(info) = object.get("codexErrorInfo").filter(|v| !v.is_null()) {
+                    return visit(info, depth + 1);
+                }
+                ["type", "errorType", "reason", "code"]
+                    .iter()
+                    .any(|key| object.get(*key).and_then(Value::as_str).is_some_and(token))
+                    || object.get("data").is_some_and(|v| visit(v, depth + 1))
+            }
+            _ => false,
+        }
+    }
+    data.is_some_and(|value| visit(value, 0))
+}

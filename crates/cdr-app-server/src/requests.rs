@@ -13,6 +13,7 @@ pub struct AppRequest {
 pub struct ThreadSettingsUpdate {
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub effort_clear: bool,
     pub service_tier: ServiceTierUpdate,
 }
 
@@ -78,7 +79,9 @@ pub fn update_thread_settings(thread_id: &str, settings: &ThreadSettingsUpdate) 
     if let Some(model) = &settings.model {
         params.insert("model".into(), Value::String(model.clone()));
     }
-    if let Some(effort) = &settings.effort {
+    if settings.effort_clear {
+        params.insert("effort".into(), Value::Null);
+    } else if let Some(effort) = &settings.effort {
         params.insert("effort".into(), Value::String(effort.clone()));
     }
     match &settings.service_tier {

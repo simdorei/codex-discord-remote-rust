@@ -22,6 +22,10 @@ pub enum CommandAction {
         effort: Option<String>,
         speed: Option<String>,
     },
+    AutoReserve {
+        reference: Option<String>,
+        enabled: bool,
+    },
     Where,
     Context {
         all_threads: bool,
@@ -115,11 +119,21 @@ pub fn plan_slash(invocation: &SlashInvocation) -> Result<CommandAction, Command
         "status" => CommandAction::Status {
             reference: optional_reference(invocation)?,
         },
-        "settings" => CommandAction::Settings {
-            reference: optional_reference(invocation)?,
-            model: optional_string(invocation, "model")?,
-            effort: optional_string(invocation, "effort")?,
-            speed: optional_string(invocation, "speed")?,
+        "settings" => {
+            let reference = optional_reference(invocation)?;
+            let model = optional_string(invocation, "model")?;
+            let effort = optional_string(invocation, "effort")?;
+            let speed = optional_string(invocation, "speed")?;
+            if let Some(enabled) = invocation.boolean("auto_reserve") {
+                if model.is_some() || effort.is_some() || speed.is_some() {
+                    return Err(CommandPlanError::Unsupported(
+                        "settings auto_reserve cannot be mixed with model, effort, or speed".into(),
+                    ));
+                }
+                CommandAction::AutoReserve { reference, enabled }
+            } else {
+                CommandAction::Settings { reference, model, effort, speed }
+            }
         },
         "where" => CommandAction::Where,
         "context" => CommandAction::Context {

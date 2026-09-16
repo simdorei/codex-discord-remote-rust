@@ -148,3 +148,46 @@ fn final_text_supports_current_content_blocks_and_last_agent_fallback() {
         "last"
     );
 }
+
+#[test]
+fn revision14_history_text_distinguishes_empty_and_fallback_from_explicit_final() {
+    use cdr_app_server::outcomes::extract_turn_text;
+    for (items, expected, explicit) in [
+        (json!([]), "", false),
+        (
+            json!([{"type":"agentMessage","text":"legacy"}]),
+            "legacy",
+            false,
+        ),
+        (
+            json!([{"type":"agentMessage","phase":"commentary","text":"progress"}]),
+            "progress",
+            false,
+        ),
+        (
+            json!([{"type":"agentMessage","phase":"final_answer","text":"final"}]),
+            "final",
+            true,
+        ),
+    ] {
+        let result = json!({"thread":{"id":"thread","turns":[{"id":"turn","items":items}]}});
+        let reply = extract_turn_text(&result, "thread", "turn").unwrap();
+        assert_eq!(reply.text, expected);
+        assert_eq!(reply.explicit_final, explicit);
+        assert_eq!(
+            extract_turn_final_text(&result, "thread", "turn").unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn revision14_explicit_final_content_blocks_outrank_later_commentary() {
+    let result = json!({"thread":{"id":"thread","turns":[{"id":"turn","items":[
+        {"type":"agent_message","phase":"final_answer","content":[{"type":"output_text","text":"exact"}]},
+        {"type":"agentMessage","phase":"commentary","text":"later"}
+    ]}]}});
+    let reply = cdr_app_server::outcomes::extract_turn_text(&result, "thread", "turn").unwrap();
+    assert!(reply.explicit_final);
+    assert_eq!(reply.text, "exact");
+}

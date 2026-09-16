@@ -27,7 +27,7 @@ function Read-CdrMaintenanceState([string]$Path) {
         $s.OperatorPath -cne (Join-Path $bundle 'operator.exe') -or
         $s.TaskName -cne ('Codex Maintenance V2 '+$s.Operation) -or
         $s.Fence.RuntimeId -notmatch '^[A-Za-z0-9_-]{1,128}$' -or
-        $s.NotifyChannel -cne '900000000000000001') { throw 'maintenance_ticket_paths_invalid' }
+        $s.NotifyChannel -cne '1543277263418826775') { throw 'maintenance_ticket_paths_invalid' }
     $created = [DateTimeOffset]::Parse($s.CreatedAt)
     $deadline = [DateTimeOffset]::Parse($s.Deadline)
     if ($deadline -le $created -or ($deadline-$created).TotalMinutes -gt 30) {
@@ -108,3 +108,4 @@ function Assert-CdrCertifiedBaseline([string]$Hash) {
             (Get-CdrArtifactHash $path) -cne $proof.sha256) { throw 'T1_evidence_pin_mismatch' }
     }
 }
+

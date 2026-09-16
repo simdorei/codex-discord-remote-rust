@@ -20,6 +20,7 @@ use crate::discord_dispatch::AutocompleteCatalog;
 use crate::pro_runtime::ProPromptRuntime;
 use crate::queue_recovery_transport::stabilize_after_queue_recovery;
 use crate::queue_runner::QueueCoordinator;
+use crate::reserve_auto::ReserveAutoController;
 use crate::restart_readiness::drain::AdmissionGate;
 use crate::runtime_paths::RuntimePaths;
 
@@ -36,6 +37,7 @@ pub(super) async fn build_executor(
     ),
     DiscordRuntimeError,
 > {
+    let reserve_auto = ReserveAutoController::new(Arc::clone(&server), paths.mirror_db.clone());
     let backend = Arc::new(
         AppServerTurnBackend::new(Arc::clone(&server))
             .with_timeouts(
@@ -46,7 +48,8 @@ pub(super) async fn build_executor(
                 paths
                     .root
                     .join("plugins/codex-discord-remote/skills/ask-chatgpt-pro/SKILL.md"),
-            ),
+            )
+            .with_reserve_auto(Arc::clone(&reserve_auto)),
     );
     let queue = Arc::new(QueueCoordinator::new_with_admission_gate(
         paths.mirror_db.clone(),
@@ -102,6 +105,7 @@ pub(super) async fn build_executor(
             Arc::clone(&queue),
         )
         .with_server(server)
+        .with_reserve_auto(reserve_auto)
         .with_app_server_resume_timeout(config.app_server_resume_timeout)
         .with_archive_delete_paths(archive_delete_paths(paths))
         .with_host_commands(config.host_commands)

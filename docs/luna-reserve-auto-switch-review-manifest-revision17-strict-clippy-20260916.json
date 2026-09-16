@@ -1,0 +1,1006 @@
+{
+    "schema_version":  1,
+    "revision":  "17-strict-clippy",
+    "device_id":  "sim-pc-5060",
+    "repository_root":  "C:\\repos\\simdorei\\codex-discord-remote-rust",
+    "created_utc":  "2026-09-16T15:03:16.5317453Z",
+    "request_date_kst":  "2026-09-16",
+    "verdict":  "CODE PASS / STRICT CLIPPY PASS / SELECTED OFFLINE REGRESSION PASS",
+    "independent_reviewer":  false,
+    "production_deployed":  false,
+    "scope":  "Strict-lint remediation and behavior-preserving regression verification; not a release-package manifest",
+    "files":  [
+                  {
+                      "path":  "crates/cdr-runtime/src/completion_worker.rs",
+                      "action":  "update",
+                      "before_sha256":  "97683ba44833d82c926d09839e98802f3285da7046754402ac985dc93c7bdfad",
+                      "sha256":  "478dce6976435531bdaf6c741e9dfdae0c69ad3ce411a16d9d97d80706f7650b"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/completion_worker/goal_inheritance_guard_tests.rs",
+                      "action":  "update",
+                      "before_sha256":  "e19cecc213d92691b8a86c45cd231cceaef85be01b3528bdcbe4f3a39afff032",
+                      "sha256":  "3cdab0fc2a537085197edbdf1fef8977358f82a424646acd69de18537cd8db58"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/completion_worker/goal_inheritance_regression_tests.rs",
+                      "action":  "update",
+                      "before_sha256":  "14851af2a577b24007a453040b9053a9c84a52bd42cc3a323a9fdddd4277e880",
+                      "sha256":  "ddabe5144a0d5f6b167251ac9ba00da9fd6cd1cfe9a1b5378289cc31729015dc"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/completion_worker/goal_mirror_boundary_tests.rs",
+                      "action":  "update",
+                      "before_sha256":  "9b1f3345dec1af4ef31b86720c014a7d44d9ce8bafb79b8adb9f16573923b370",
+                      "sha256":  "ca52f04c37f0b4602146b49f34fbd7a91522758c322415cde0d0b33751668e01"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/completion_worker/recovery.rs",
+                      "action":  "update",
+                      "before_sha256":  "bdf360e03279b3d51b58c90dd140ac4e767bad6eccd3978f3bf19ca399f0fd30",
+                      "sha256":  "337cc454f84b497d58ee74dc1f1f174ca946eb9aa66c03cb423035cabdce6b45"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/completion_worker/reserve_inheritance_tests.rs",
+                      "action":  "update",
+                      "before_sha256":  "866c7155721d529e2e8cda7f2da322729392013604a24927feb209241f502cbf",
+                      "sha256":  "27d2a07221dbbc8227d80bb7dab191006c081732c899aff010f028eb8b9b9942"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/reserve_auto/native_tests/notices.rs",
+                      "action":  "update",
+                      "before_sha256":  "3ed4db6646c72baf00310bca26707f0148601babdebe509c08cfa3c18e728d9f",
+                      "sha256":  "67622452774493862bee433779d2bbaf3220d93af14ec0b10dff04c00ac05030"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/src/reserve_auto/native_tests/restart_notice.rs",
+                      "action":  "update",
+                      "before_sha256":  "85fd71eedbb0f1adbffe37a951aa2b3e60467274021da14920ccd96d9a8bdf9d",
+                      "sha256":  "ada7d228404ef4ef650618d4af5101febfb1162c29f2e711f9097b1dff8ee20b"
+                  },
+                  {
+                      "path":  "crates/cdr-runtime/tests/fixtures/app_server/reserve_auto.rs",
+                      "action":  "update",
+                      "before_sha256":  "e6133ba354255aef77eea8cf5955e2042bd2e66918056dc8c6c17fe3227d45fc",
+                      "sha256":  "5c3246ed4a5632320fe87c6917cd10ccb8501509241aaf0e6eb2baf29fa45a59"
+                  },
+                  {
+                      "path":  "crates/cdr-store/src/reserve_policy.rs",
+                      "action":  "update",
+                      "before_sha256":  "4d04bd8e41bcb30ae931afc10714a4dea11a1ea7333796ac65e1b6a779172e2b",
+                      "sha256":  "3e68ec3d43157848a8235924433bd8288dc09e02f6781bd6c3ea6e8fd7bb46c9"
+                  },
+                  {
+                      "path":  "crates/cdr-store/src/reserve_policy/usage_fence.rs",
+                      "action":  "update",
+                      "before_sha256":  "a3ff079c64fedb49b98a97bd758c201dd6490bfbb4177fdf99e90b3c41f8a2c8",
+                      "sha256":  "c63544e8c462e961be56db42a8393e022d6fd3e77c9eefc707080dd649541cba"
+                  },
+                  {
+                      "path":  "crates/cdr-store/tests/goal_inheritance_contract.rs",
+                      "action":  "update",
+                      "before_sha256":  "b45bfb8b5ceffa07e578c626b0d6ee1cdd9fbb165454de51594950e26e3e7a95",
+                      "sha256":  "efe6f5ae975a09f86e0ada301d279c7fe3fca11af60f52dc4ce17b144acc7b0e"
+                  },
+                  {
+                      "path":  "crates/cdr-store/tests/goal_progress_owned_contract.rs",
+                      "action":  "update",
+                      "before_sha256":  "f33845c16abc6d383a1c64e1aae55df23db303bb29c4251ef86a7169add23d91",
+                      "sha256":  "26d5bb4b912102fdf1035f3a62deccaad557ea33ed78b6fd354dbae72cd6a652"
+                  },
+                  {
+                      "path":  "crates/cdr-store/tests/reserve_schema_lint_contract.rs",
+                      "action":  "create",
+                      "before_sha256":  null,
+                      "sha256":  "8fd88d5c8a73a513663834a384f04aae2d56630311b38cde0537aedc5b8dbafa"
+                  }
+              ],
+    "documents":  [
+                      {
+                          "path":  "docs/luna-reserve-auto-switch-revision17-strict-clippy-plan-20260916.md",
+                          "sha256":  "9cc982d138e014f2bdb1686de92601a48d98b143fbf9479e2e03ea4e5c457967"
+                      },
+                      {
+                          "path":  "docs/luna-reserve-auto-switch-revision17-strict-clippy-review-notes-20260916.md",
+                          "sha256":  "b4bcf9f80c99ca93f55bc24a6c2576828b6cc8a69a65b5a1dc4849a457cf423e"
+                      }
+                  ],
+    "source_inventory":  {
+                             "path":  "target/qa-source/reserve-strict-r17-20260916/source-final.json",
+                             "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d",
+                             "count":  1304
+                         },
+    "baseline_inventory":  {
+                               "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-source.json",
+                               "sha256":  "d31741203dfc6e25382aef0450a84e5d41f88fdf7af0d68a5e43c84ba92b3598",
+                               "count":  1303
+                           },
+    "summary":  {
+                    "path":  "target/qa-source/reserve-strict-r17-20260916/final-verification-summary.json",
+                    "sha256":  "42a93227fa80ae6255b9c919d953a6311e316ea91a3be3af55a6f5b13b95f11c"
+                },
+    "tests":  {
+                  "passed":  818,
+                  "failed":  0,
+                  "ignored":  15
+              },
+    "strict":  [
+                   {
+                       "check":  "package-strict",
+                       "warnings":  0,
+                       "errors":  0
+                   },
+                   {
+                       "check":  "workspace-strict-final",
+                       "warnings":  0,
+                       "errors":  0
+                   }
+               ],
+    "checks":  [
+                   {
+                       "name":  "package-strict",
+                       "exit_code":  0,
+                       "passed":  0,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  26.9105097,
+                       "arguments":  [
+                                         "clippy",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-store",
+                                         "-p",
+                                         "cdr-runtime",
+                                         "--all-targets",
+                                         "--message-format=json",
+                                         "--",
+                                         "-D",
+                                         "warnings"
+                                     ]
+                   },
+                   {
+                       "name":  "workspace-strict-final",
+                       "exit_code":  0,
+                       "passed":  0,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  40.9226142,
+                       "arguments":  [
+                                         "clippy",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "--workspace",
+                                         "--all-targets",
+                                         "--message-format=json",
+                                         "--",
+                                         "-D",
+                                         "warnings"
+                                     ]
+                   },
+                   {
+                       "name":  "fixture-build",
+                       "exit_code":  0,
+                       "passed":  0,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  78.2449559,
+                       "arguments":  [
+                                         "build",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-runtime",
+                                         "--bin",
+                                         "cdr-offline-soak"
+                                     ]
+                   },
+                   {
+                       "name":  "runtime-core",
+                       "exit_code":  0,
+                       "passed":  333,
+                       "failed":  0,
+                       "ignored":  3,
+                       "elapsed_seconds":  115.7233541,
+                       "arguments":  [
+                                         "test",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-runtime",
+                                         "--lib",
+                                         "--",
+                                         "--test-threads=1",
+                                         "--skip",
+                                         "reserve_auto::"
+                                     ]
+                   },
+                   {
+                       "name":  "runtime-reserve",
+                       "exit_code":  0,
+                       "passed":  90,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  43.999219499999995,
+                       "arguments":  [
+                                         "test",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-runtime",
+                                         "--lib",
+                                         "reserve_auto::",
+                                         "--",
+                                         "--test-threads=1"
+                                     ]
+                   },
+                   {
+                       "name":  "store-all",
+                       "exit_code":  0,
+                       "passed":  251,
+                       "failed":  0,
+                       "ignored":  2,
+                       "elapsed_seconds":  61.9373594,
+                       "arguments":  [
+                                         "test",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-store",
+                                         "--",
+                                         "--test-threads=1"
+                                     ]
+                   },
+                   {
+                       "name":  "app-server-all",
+                       "exit_code":  0,
+                       "passed":  124,
+                       "failed":  0,
+                       "ignored":  10,
+                       "elapsed_seconds":  72.2590997,
+                       "arguments":  [
+                                         "test",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-app-server",
+                                         "--",
+                                         "--test-threads=1"
+                                     ]
+                   },
+                   {
+                       "name":  "queue-mirror",
+                       "exit_code":  0,
+                       "passed":  20,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  20.0872518,
+                       "arguments":  [
+                                         "test",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-runtime",
+                                         "--test",
+                                         "queue_backoff_recovery_contract",
+                                         "--test",
+                                         "queue_generation_submission_contract",
+                                         "--test",
+                                         "queue_recovery_contract",
+                                         "--test",
+                                         "queue_recovery_resilience_contract",
+                                         "--test",
+                                         "session_mirror_starting_contract",
+                                         "--",
+                                         "--test-threads=1"
+                                     ]
+                   },
+                   {
+                       "name":  "runtime-check",
+                       "exit_code":  0,
+                       "passed":  0,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  17.186333899999997,
+                       "arguments":  [
+                                         "check",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-runtime"
+                                     ]
+                   },
+                   {
+                       "name":  "runtime-list",
+                       "exit_code":  0,
+                       "passed":  0,
+                       "failed":  0,
+                       "ignored":  0,
+                       "elapsed_seconds":  0.59187709999999993,
+                       "arguments":  [
+                                         "test",
+                                         "--offline",
+                                         "--target-dir",
+                                         "target-revision17-strict",
+                                         "-p",
+                                         "cdr-runtime",
+                                         "--lib",
+                                         "--",
+                                         "--list"
+                                     ]
+                   }
+               ],
+    "source_identity":  [
+                            {
+                                "check":  "package-strict",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "package-strict",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "workspace-strict-final",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "workspace-strict-final",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "fixture-build",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "fixture-build",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-core",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-core",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-reserve",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-reserve",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "store-all",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "store-all",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "app-server-all",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "app-server-all",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "queue-mirror",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "queue-mirror",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-check",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-check",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-list",
+                                "phase":  "before",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            },
+                            {
+                                "check":  "runtime-list",
+                                "phase":  "after",
+                                "source_count":  1304,
+                                "mismatches":  0
+                            }
+                        ],
+    "runtime_inventory_coverage":  {
+                                       "listed":  426,
+                                       "executed_or_existing_ignored":  426,
+                                       "duplicates":  0,
+                                       "missing":  0,
+                                       "partition_counts":  [
+                                                                336,
+                                                                90
+                                                            ],
+                                       "passed":  423,
+                                       "ignored":  3
+                                   },
+    "rustfmt_exit_code":  0,
+    "whitespace_errors":  0,
+    "cargo_toml_unchanged":  true,
+    "cargo_lock_unchanged":  true,
+    "evidence":  [
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/app-server-all.json",
+                         "bytes":  5709,
+                         "sha256":  "be12d0924e189c0dbd92841e96e26352a1d222a476664bc835536de94057e077"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/app-server-all.stderr.log",
+                         "bytes":  2524,
+                         "sha256":  "a49c279c5c47884472ce84d65f0e4358506cabed415da410379f5e2ab7c60f14"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/app-server-all.stdout.log",
+                         "bytes":  14552,
+                         "sha256":  "115bf6b57ee6ea7bbe339c4674cd4e4fd6d72f097f7134c77ae32850fa4dd934"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/app-server-all-running.json",
+                         "bytes":  482,
+                         "sha256":  "4b7b66834e8c48786c54e84de32ef2bbb97a14ff42a7042801974ecbedbef16a"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/app-server-all-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/app-server-all-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.json",
+                         "bytes":  1092,
+                         "sha256":  "c2f175df337fa0e6b8a10c975c209b1272f87f23f967b851669d37b28df67332"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.runner.stderr.log",
+                         "bytes":  215,
+                         "sha256":  "cf11daf7a96a88e58dff221aa71a0f4e6ceb5b1b4fc7b37061e5c2b2bec19278"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.runner.stdout.log",
+                         "bytes":  81,
+                         "sha256":  "a759e0dfa252be28b89838671cb3973170e9b28f5e7063d474661b81edc3316f"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.runner2.stderr.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.runner2.stdout.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.stderr.log",
+                         "bytes":  959,
+                         "sha256":  "0fd5e9d748cd3c26d5edf02cd297b1bbbbc28e1895751af286e329c1d7021685"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm.stdout.log",
+                         "bytes":  214338,
+                         "sha256":  "3dff4114a6ce6dcc1e2503493382b32b5cfafdca218e8514abe1e31567d1d321"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm-running.json",
+                         "bytes":  656,
+                         "sha256":  "f77b579b0512d40b582f432ca1cb5aa1c0f4df45826e698d06f30939841093b4"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm-source-after.json",
+                         "bytes":  228566,
+                         "sha256":  "7267446fffb70cd10137968f3676b163ad2dc0e6192dde3790983fe372fd6b7b"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-confirm-source-before.json",
+                         "bytes":  228566,
+                         "sha256":  "7267446fffb70cd10137968f3676b163ad2dc0e6192dde3790983fe372fd6b7b"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-source.json",
+                         "bytes":  228571,
+                         "sha256":  "d31741203dfc6e25382aef0450a84e5d41f88fdf7af0d68a5e43c84ba92b3598"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-strict.stderr.log",
+                         "bytes":  5888,
+                         "sha256":  "61438cdb6ab9b1c27b707789ab0a1546eafd0ffc0379701e63644303ff94a0f5"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/baseline-strict.stdout.log",
+                         "bytes":  203672,
+                         "sha256":  "2f06aef52f22f49dbb7cdb4e5cbc77ac4743f4de34d028ab91378cb6d9ef6e11"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/candidate-diff.patch",
+                         "bytes":  41122,
+                         "sha256":  "95d3b13f8b26f109b60df377b294d91d254cf95b072ac438a0b515d31e4bd3dd"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/candidate-fixture.rs",
+                         "bytes":  11784,
+                         "sha256":  "35eca4d940bd0e72e80531c10fe85492e232669cd7dd80e45606bd058c285072"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/changed-rust-paths.json",
+                         "bytes":  944,
+                         "sha256":  "b091e88aefad98ae49427097d5ed795e3b09b28852de8791b6553dba56ed7102"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/changed-rust-paths-initial-shape.json",
+                         "bytes":  1257,
+                         "sha256":  "c61e18a20b3570aeabdf935decccdeecba6fd8485c0333895305194551a206af"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/dependency-fetch.json",
+                         "bytes":  685,
+                         "sha256":  "e966b098d8b9eb26a5315770348417ff0cf2ea440a4fd390cc75463da1108adf"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/dependency-fetch.stderr.log",
+                         "bytes":  2977,
+                         "sha256":  "7a9371a56f4a7ad1d975bccb819ec14a6c065f9c3bac2c38553b5d9fc1e0ae1a"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/dependency-fetch.stdout.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/dependency-fetch-running.json",
+                         "bytes":  252,
+                         "sha256":  "2450bae39bcaf9eb13658bd5cb04693c11c1c36a4cb07aeb391d411092ace810"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/dependency-fetch-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/dependency-fetch-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/final-audit.ps1",
+                         "bytes":  7259,
+                         "sha256":  "651966c51af7e2bea9e4e57d0cc16dc50136c60d0d33772836db2e72d09e053f"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/final-audit-initial-parser.ps1",
+                         "bytes":  7228,
+                         "sha256":  "d66af821eaefc6db752bdb0d7030c65ee118366d8f22a835c5ae87c78cbda11a"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/final-verification-summary.json",
+                         "bytes":  22484,
+                         "sha256":  "42a93227fa80ae6255b9c919d953a6311e316ea91a3be3af55a6f5b13b95f11c"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/fixture-build.json",
+                         "bytes":  915,
+                         "sha256":  "3a7ab71e926fa036eb13de847fef0bcc1d432ed22aadbae69bb2314792ca278a"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/fixture-build.stderr.log",
+                         "bytes":  6292,
+                         "sha256":  "6f99e37e7da4adb40f71b67a9a21ed5126ca421528b41e8c391132e9b068f695"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/fixture-build.stdout.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/fixture-build-running.json",
+                         "bytes":  482,
+                         "sha256":  "ba77b81d4c2d9e900a3ce71a998ef6ec024ddf07a3b73d920cd58c1179881574"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/fixture-build-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/fixture-build-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/package-strict.json",
+                         "bytes":  1088,
+                         "sha256":  "6e8abc34cfed2a8ba1bb6212739c2546d685e4b81c4ef398076fc0287366ead0"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/package-strict.stderr.log",
+                         "bytes":  917,
+                         "sha256":  "289037eac7f6d0d4614ada799fb1ef6de5554db661d395ac27cccd496aa64e12"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/package-strict.stdout.log",
+                         "bytes":  460333,
+                         "sha256":  "65a716b2dbc74ac10afe5ef994bd53cf4648beae92ed7cc13dd2542d9994a8a7"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/package-strict-running.json",
+                         "bytes":  654,
+                         "sha256":  "79eb305dd519894a45212a05135a83c5cb9f61beac60d65334ce819cdf52686d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/package-strict-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/package-strict-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/patch-primary.json",
+                         "bytes":  3507,
+                         "sha256":  "a925a55707662fc490abf340407ea0dfd42061fcdbb2995edfefd702c31a884e"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/plan-before-completion.md",
+                         "bytes":  4055,
+                         "sha256":  "69e104bb80258cc7acb3f69a77494f9dc9a5df6feaa4db51fc10f425cc7c753b"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/queue-mirror.json",
+                         "bytes":  2773,
+                         "sha256":  "e0bfe8249ec38659f57a9656c2ec5654b6737f0b422fa94d9498ace8e8a8084e"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/queue-mirror.stderr.log",
+                         "bytes":  898,
+                         "sha256":  "694ca7afdfd99eee5131964f956d0194aad2418c10261c71bca0d4c91c2e70ff"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/queue-mirror.stdout.log",
+                         "bytes":  2153,
+                         "sha256":  "2c0faa8496134a1d2ba91d3e376bbbcc0ba1dcfeca7f786cdba887a4fea8e0ad"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/queue-mirror-running.json",
+                         "bytes":  932,
+                         "sha256":  "560c98d92245e0410dc9ecd0245209b1ee2ba4a14f806f7740fa190abc2cae7b"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/queue-mirror-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/queue-mirror-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/run-check.ps1",
+                         "bytes":  5882,
+                         "sha256":  "67b67343532fd7a8a828f588a4927256f0481b5e7a969277aacb589715341b77"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-check.json",
+                         "bytes":  848,
+                         "sha256":  "a56f23a68eb30f1f404ca7ef1c8d3d8532e2e0e2502242c1407eaa799fe62016"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-check.stderr.log",
+                         "bytes":  1618,
+                         "sha256":  "cd5ecf0612fdef821bb7ef2317839db5cf0eecb331945e79e8f44ef789fe49ae"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-check.stdout.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-check-running.json",
+                         "bytes":  407,
+                         "sha256":  "f9b97159631ae5de7aa8959f50284191af16bc73e75fe3d3877d5e88895d0fc5"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-check-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-check-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-core.json",
+                         "bytes":  1299,
+                         "sha256":  "69430b585b00d485b9a351eb3216eebee4ddbf3c7bce54cc60121f2acc8c1513"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-core.stderr.log",
+                         "bytes":  178,
+                         "sha256":  "d4bca2714f9e18737ef6067c00df71ad288e484aa965c044dcf2f53ec8b344e4"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-core.stdout.log",
+                         "bytes":  39993,
+                         "sha256":  "82dac69c41bdc5bfbbc54835441e9b7df984008ba3d290c52c1f94281fe92acb"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-core-running.json",
+                         "bytes":  582,
+                         "sha256":  "cfc5e1aac68120ee94ebb1bf460eb863207f3ece9c42289f603e24e812c9c3c1"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-core-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-core-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-lib.stderr.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-lib.stdout.log",
+                         "bytes":  40960,
+                         "sha256":  "49ce4a2405c0974bdccb9501e9264e22ffea666d09a497a2625ad913bc791540"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-lib-interrupted.json",
+                         "bytes":  290,
+                         "sha256":  "6cab7479d109c9d9e4082d80af525f2647a0ebca1d3612e32ebd0be77b380641"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-lib-running.json",
+                         "bytes":  508,
+                         "sha256":  "d6da07b548fdf0c86f04486bffce61ce43a4e33989945296981c3e3caa805663"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-lib-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-list.json",
+                         "bytes":  941,
+                         "sha256":  "23b3472c65b65e0587e2cbf39d71b4007f4a05bb4f1fc9d654fdf4a829bbdf46"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-list.stderr.log",
+                         "bytes":  178,
+                         "sha256":  "3fc545b182a450276dabb666bac85961332fc6eebd98225ed5bb033e6a27d536"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-list.stdout.log",
+                         "bytes":  48340,
+                         "sha256":  "778e5204ed693402fab91bc8c4d79781124a0ff75b4efac9231afdb3cc229bc2"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-list-running.json",
+                         "bytes":  499,
+                         "sha256":  "b332b60f3f429f4ffc1cb3bc64fc8cf9ca025afc9557fddd8ed40ccc5cff228c"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-list-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-list-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-reserve.json",
+                         "bytes":  1276,
+                         "sha256":  "2892688a1d743f285eb365dc12e68589a14e2dc0e797c5f402286adfa9bf6eb3"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-reserve.stderr.log",
+                         "bytes":  178,
+                         "sha256":  "d72a90b34bf91be7b6d69b7133c3f291887439c9d9300bc4777ccbe499f44906"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-reserve.stdout.log",
+                         "bytes":  11342,
+                         "sha256":  "b59928f9fb7cec5ae2da6e5a60a526f4bc73dd06d62b96fdb8057c012bd3a51a"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-reserve-running.json",
+                         "bytes":  551,
+                         "sha256":  "5d0f7ab49b78e7f67db50f6af9b152d1be3bc20970b55a6f5fc7cf97e07c9c09"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-reserve-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/runtime-reserve-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/rustfmt-final.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/source-final.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/store-all.json",
+                         "bytes":  20360,
+                         "sha256":  "28e001055cb0d8c04ed15e72e7c1214fc9e21e66cb0ee4c8d89986c6682a85c0"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/store-all.stderr.log",
+                         "bytes":  10175,
+                         "sha256":  "8f5a8eb98c690eaa0edd1048431adcb879dbbeddaeff569a62c61fecc18c1664"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/store-all.stdout.log",
+                         "bytes":  27802,
+                         "sha256":  "419069d5b05849abf9a24f1e374fee8508f7196493f319cea63d9c33551e6af0"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/store-all-running.json",
+                         "bytes":  472,
+                         "sha256":  "b536c0843c65d352bc4463aa835036b6846c83ea468318afb36f30eea47c2784"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/store-all-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/store-all-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict.json",
+                         "bytes":  1007,
+                         "sha256":  "7f91a64e06f6aa089e7bb19a7fc3949a24f99dbd07a1637f95ef3d23d5c15475"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict.stderr.log",
+                         "bytes":  118,
+                         "sha256":  "be1eebb86b6e661a960df91eb607ee6859c66641f50ed46985ce5a56e65eb7a6"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict.stdout.log",
+                         "bytes":  0,
+                         "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-final.json",
+                         "bytes":  1002,
+                         "sha256":  "f3cbdbd6b5429ff37e6b2b8017734ab6ee0a9f10969f294e0c6489a876184963"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-final.stderr.log",
+                         "bytes":  4197,
+                         "sha256":  "4ddea408b02175926925e32dd2e1555e78e7578e53ca58bb746d66ef15f84cae"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-final.stdout.log",
+                         "bytes":  594306,
+                         "sha256":  "fc899d06b43c446eb1b6ae6527ca135c91c4b16e439bb227f1b2501959e322c7"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-final-running.json",
+                         "bytes":  568,
+                         "sha256":  "63a6e3ac874ccabe7f00e5c1e97ad71f426e5dbec087204f2466d15f8e2028ea"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-final-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-final-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-running.json",
+                         "bytes":  563,
+                         "sha256":  "302e9107e681a9ff9c29b11e0eb586504f277b54dfd2f019d1c4444ab9dc0478"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-source-after.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     },
+                     {
+                         "path":  "target/qa-source/reserve-strict-r17-20260916/workspace-strict-source-before.json",
+                         "bytes":  228744,
+                         "sha256":  "0a968f9285547c60ff55b49923563f0503482f5ee32a10a6bcc018f967c16d5d"
+                     }
+                 ],
+    "not_performed":  [
+                          "production stop/restart/deploy",
+                          "production DB/config/secrets/user-conversation access",
+                          "real-user Discord/Codex requests",
+                          "commit/push",
+                          "real-environment smoke"
+                      ],
+    "previous_failures_preserved":  [
+                                        "baseline strict cargo exit 101 before fix",
+                                        "initial baseline timeout without child exit receipt",
+                                        "initial workspace offline missing cached dependency; resolved by cargo fetch --locked then same offline check",
+                                        "runtime full invocation timeout; replaced with exact-inventory disjoint serial runs",
+                                        "QA metadata/parser issues corrected without source or assertion changes"
+                                    ]
+}

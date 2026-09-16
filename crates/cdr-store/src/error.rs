@@ -4,6 +4,8 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("room {channel} protected by {reason}")]
+    CleanupProtected { channel: i64, reason: &'static str },
     #[error(
         "request {0} was cancelled by its original sender; a late result cannot replace the cancellation"
     )]

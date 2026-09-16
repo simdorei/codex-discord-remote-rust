@@ -54,7 +54,12 @@ pub(super) fn eligible_pending_head(jobs: &[StoredQueueJob]) -> Option<&StoredQu
     {
         return None;
     }
-    jobs.iter().find(|job| job.state == QueueJobState::Pending)
+    jobs.iter().find(|job| {
+        job.state == QueueJobState::Pending
+            && !job
+                .last_error
+                .starts_with(cdr_store::reserve_policy::HOLD_PREFIX)
+    })
 }
 
 pub(super) fn pending_job_is_due(job: &StoredQueueJob, now: f64) -> bool {
@@ -65,12 +70,17 @@ pub(super) fn replay_existing(job: StoredQueueJob) -> Submission {
     let quarantined = job.state == QueueJobState::Quarantined;
     let fork_fenced = job.last_error.starts_with(UNRESOLVED_FORK_ERROR_PREFIX);
     let starting_candidates_held = job.last_error.starts_with(STARTING_CANDIDATE_HOLD_PREFIX);
+    let auto_reserve_held = job
+        .last_error
+        .starts_with(cdr_store::reserve_policy::HOLD_PREFIX);
     let warning = if quarantined {
         Some(BackendFailure::quarantined(job.last_error))
     } else if fork_fenced {
         Some(BackendFailure::fork_fenced(job.last_error))
     } else if starting_candidates_held {
         Some(BackendFailure::starting_candidates_held(job.last_error))
+    } else if auto_reserve_held {
+        Some(BackendFailure::auto_reserve_held(job.last_error))
     } else {
         (!job.last_error.is_empty()).then(|| {
             BackendFailure::persisted(job.last_error, job.state == QueueJobState::Starting)
@@ -135,10 +145,18 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         if cdr_store::dead_generation::target_is_held(&self.db_path, target_thread_id)? {
             return Ok(None);
         }
-        let jobs = list_filtered(&self.db_path, Some(target_thread_id), Some(generation))?;
+        // A cold/old-generation Starting or Running job still owns this target.
+        // Filtering it out before eligibility would let a current-generation
+        // kick or completion start another request past the unresolved attempt.
+        let jobs = list_filtered(&self.db_path, Some(target_thread_id), None)?;
         let Some(job) = eligible_pending_head(&jobs).cloned() else {
             return Ok(None);
         };
+        // Only authoritative recovery may adopt an old Pending generation.
+        // Do not bypass that head in order to start a newer queued request.
+        if job.app_server_generation != generation {
+            return Ok(None);
+        }
         if !pending_job_is_due(&job, unix_now()?) {
             return Ok(None);
         }
@@ -151,6 +169,10 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         {
             return Ok(None);
         }
+        self.backend
+            .prepare_turn(target_thread_id)
+            .await
+            .map_err(QueueRunnerError::Backend)?;
         let baseline = self
             .preflight_baseline(target_thread_id, generation, &job, recovered_turns)
             .await?;
@@ -161,10 +183,20 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         let turn_id = match self.backend.start_turn(target_thread_id, &job.prompt).await {
             Ok(turn_id) => turn_id,
             Err(error) => {
+                let failure_message =
+                    if error.kind == crate::queue_runner::BackendFailureKind::UsageLimit {
+                        format!(
+                            "{}{}",
+                            cdr_store::reserve_policy::HOLD_PREFIX,
+                            error.message
+                        )
+                    } else {
+                        error.message.clone()
+                    };
                 let recorded = record_start_failure_if_claimed(
                     &self.db_path,
                     &claimed,
-                    &error.message,
+                    &failure_message,
                     error.ambiguous,
                 )?;
                 if recorded.is_none() {
@@ -172,6 +204,12 @@ impl<B: TurnBackend> QueueCoordinator<B> {
                         job_id: job.job_id,
                         observed_turn_id: None,
                     });
+                }
+                if error.kind == crate::queue_runner::BackendFailureKind::UsageLimit {
+                    // The notice and hold were committed atomically even when no
+                    // foreground caller exists for this previously queued job.
+                    self.notify_delivery_ready();
+                    let _ = self.backend.note_usage_limit(target_thread_id).await;
                 }
                 return Err(error.into());
             }

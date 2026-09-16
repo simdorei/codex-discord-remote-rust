@@ -6,6 +6,7 @@ pub(crate) mod approval_app_fixture;
 pub(crate) mod approval_http;
 #[path = "../tests/support/approval_owner.rs"]
 pub(crate) mod approval_owner;
+pub(crate) mod cleanup_refusal_transport;
 #[path = "completion_worker/goal_mirror_http.rs"]
 pub(crate) mod http_gate;
 #[path = "../tests/support/mapped_slash.rs"]

@@ -13,18 +13,19 @@ use crate::action_executor::{ActionContext, ActionError, ActionExecutor};
 use crate::command_plan::{CommandPlanError, plan_slash};
 use crate::component_worker::{ComponentWorkerError, handle_component_work};
 use crate::discord_dispatch::InboundInteractionWork;
-use crate::discord_dispatch::delivery_identity::{
-    COMPONENT_ERROR_DOMAIN, INTERACTION_ERROR_DOMAIN, INTERACTION_FOLLOWUP_DOMAIN,
-    component_claim_identity, component_delivery_key,
-};
+use crate::discord_dispatch::delivery_identity::INTERACTION_FOLLOWUP_DOMAIN;
 use crate::queue_runner::TurnBackend;
 
 mod action_delivery;
 #[cfg(test)]
 mod busy_ingress_tests;
+mod cleanup_refusal;
+#[cfg(test)]
+mod cleanup_refusal_tests;
 mod custody;
 mod delivery;
 pub mod error_disposition;
+mod error_report;
 mod new_reply;
 
 #[cfg(test)]
@@ -34,11 +35,12 @@ mod connected_tests;
 mod error_receipt_tests;
 
 use custody::ExecutionCustody;
-use delivery::deliver_interaction_text_idempotent;
-use error_disposition::{InteractionErrorDisposition, interaction_error_disposition};
+use error_report::report_interaction_error;
 
 #[derive(Debug, Error)]
 pub enum InteractionWorkerError {
+    #[error(transparent)]
+    KnownOutcomeNotification(#[from] crate::cleanup_refusal::NotificationFailure),
     #[error(transparent)]
     PromptDelivery(#[from] crate::server_prompt_delivery::PromptDeliveryError),
     #[error(transparent)]
@@ -91,7 +93,22 @@ async fn process_interaction_work<B: TurnBackend>(
                     },
                     &work.custody_ingress_id,
                 )
-                .await?;
+                .await;
+            let result = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    let Some(refusal) = crate::cleanup_refusal::from_action_error(&error) else {
+                        return Err(error.into());
+                    };
+                    return cleanup_refusal::deliver(
+                        work,
+                        custody,
+                        &DiscordHttp::new(http, work.application_id),
+                        &refusal,
+                    )
+                    .await;
+                }
+            };
             custody.record_result(&serde_json::json!({
                 "kind": "slash",
                 "action_completed": true,
@@ -170,17 +187,12 @@ pub async fn run_interaction_worker<B: TurnBackend>(
                 .await;
         match result {
             Ok(waits_for_final) => {
-                if let Err(error) = custody.finish_success(&serde_json::json!({
+                if let Err(error) = custody.finish_notification(&serde_json::json!({
                     "kind": "interaction",
                     "action_completed": true,
                     "waits_for_final": waits_for_final,
                 })) {
-                    report_interaction_error(
-                        &work,
-                        InteractionWorkerError::Custody(error),
-                        Arc::clone(&http),
-                    )
-                    .await;
+                    report_interaction_error(&work, error, Arc::clone(&http)).await;
                 } else {
                     executor.notify_delivery_ready();
                 }
@@ -195,56 +207,5 @@ pub async fn run_interaction_worker<B: TurnBackend>(
                 report_interaction_error(&work, error, Arc::clone(&http)).await;
             }
         }
-    }
-}
-
-async fn report_interaction_error(
-    work: &InboundInteractionWork,
-    error: InteractionWorkerError,
-    http: Arc<Client>,
-) {
-    match interaction_error_disposition(&error) {
-        InteractionErrorDisposition::IgnoreDuplicate => return,
-        InteractionErrorDisposition::LogOnly => {
-            eprintln!("component_confirmation_recovery_error: {error}");
-            return;
-        }
-        InteractionErrorDisposition::Report => {}
-    }
-    let error_text = format!("ERROR: {error}");
-    if let RoutedWork::Component(component) = &work.work {
-        let claim_identity = component_claim_identity(work.source_message_id, component);
-        let logical_key = component_delivery_key(
-            work.interaction_id,
-            work.source_message_id,
-            component,
-            claim_identity.as_deref(),
-        );
-        let delivery = crate::completion_worker::send_recorded_message_with_components(
-            &work.custody_database,
-            &http,
-            work.channel_id,
-            &crate::completion_worker::IdempotentChunk {
-                domain: COMPONENT_ERROR_DOMAIN,
-                logical_key,
-                chunk_index: 0,
-                content: error_text,
-            },
-            &[],
-        )
-        .await;
-        if let Err(delivery_error) = delivery {
-            eprintln!(
-                "ERROR: {error}; additionally failed to report to Discord: {delivery_error:?}"
-            );
-        }
-        return;
-    }
-    let api = DiscordHttp::new(http, work.application_id);
-    let delivery =
-        deliver_interaction_text_idempotent(&api, work, &error_text, INTERACTION_ERROR_DOMAIN)
-            .await;
-    if let Err(delivery_error) = delivery {
-        eprintln!("ERROR: {error}; additionally failed to report to Discord: {delivery_error:?}");
     }
 }

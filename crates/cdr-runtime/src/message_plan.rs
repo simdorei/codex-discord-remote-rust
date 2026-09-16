@@ -111,6 +111,9 @@ fn prefix_to_command(action: PrefixAction) -> Result<CommandAction, MessagePlanE
             effort,
             speed,
         },
+        PrefixAction::AutoReserve { reference, enabled } => {
+            CommandAction::AutoReserve { reference, enabled }
+        }
         PrefixAction::Doctor | PrefixAction::DiscoverCodex => CommandAction::Doctor,
         PrefixAction::Where => CommandAction::Where,
         PrefixAction::Context {
