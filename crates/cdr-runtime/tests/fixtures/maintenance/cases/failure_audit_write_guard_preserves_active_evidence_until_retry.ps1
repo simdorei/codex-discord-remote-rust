@@ -13,6 +13,6 @@ finally{$guard.Dispose()}
 if(-not (Test-Path $StatePath) -or -not (Test-Path $DisablePath)){throw 'audit failure erased active evidence'}
 if((Read-CdrMaintenanceState $StatePath).FirstCompletionFailure.LastError -cne $originalError){throw 'audit reentry overwrote first error'}
 Invoke-CdrMaintenanceEngine $StatePath $op
-$audit=Get-Content $auditPath -Raw|ConvertFrom-Json
+$audit=Get-Content $auditPath -Raw -Encoding UTF8|ConvertFrom-Json
 if((Test-Path $StatePath) -or $audit.First.LastError -cne $originalError -or $audit.Latest.FailureNoticePhase -cne 'unknown'){throw 'audit retry lost original/unknown evidence'}
 if($script:posts -ne 1 -or $script:starts -ne 1){throw 'audit retry repeated external work'}

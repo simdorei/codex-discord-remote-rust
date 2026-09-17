@@ -4,9 +4,10 @@ use cdr_store::StoreError;
 use cdr_store::schema::{LATEST_STORE_SCHEMA_VERSION, assert_integrity, open_initialized};
 use rusqlite::Connection;
 
-const OWNED_TABLES: [&str; 30] = [
+const OWNED_TABLES: [&str; 34] = [
     "busy_choices",
     "cdr_archive_fences",
+    "cdr_archived_cleanup_evidence",
     "cdr_async_question_inbox",
     "cdr_async_questions",
     "cdr_cleanup_fences",
@@ -28,6 +29,7 @@ const OWNED_TABLES: [&str; 30] = [
     "codex_busy_control_bindings",
     "codex_prompt_intakes",
     "codex_request_cancellations",
+    "codex_reserve_policy",
     "discord_ingress_journal",
     "discord_ingress_owner_receipts",
     "discord_processed_messages",
@@ -35,9 +37,12 @@ const OWNED_TABLES: [&str; 30] = [
     "mirror_threads",
     "persistent_component_claims",
     "session_mirror_details",
+    "codex_reserve_start_notices",
+    "codex_reserve_transition_notices",
 ];
 
-const OWNED_INDEXES: [&str; 11] = [
+const OWNED_INDEXES: [&str; 14] = [
+    "cdr_archived_cleanup_evidence_ingress",
     "cdr_async_question_inbox_pending",
     "cdr_async_question_pending",
     "cdr_async_question_reply_job",
@@ -45,6 +50,8 @@ const OWNED_INDEXES: [&str; 11] = [
     "codex_new_first_replies_pending",
     "codex_prompt_intakes_message_id",
     "codex_prompt_intakes_target_ready",
+    "codex_reserve_policy_recovery",
+    "codex_reserve_transition_notices_pending",
     "codex_turn_queue_message_id",
     "codex_turn_queue_target_order",
     "discord_ingress_event",

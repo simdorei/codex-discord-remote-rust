@@ -23,6 +23,7 @@ pub mod observed_final_answer;
 pub mod processed;
 pub mod prompt_intake;
 pub mod queue;
+pub mod reserve_policy;
 pub mod restart_readiness;
 pub mod room_cleanup;
 pub mod schema;

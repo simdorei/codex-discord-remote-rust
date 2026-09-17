@@ -114,6 +114,11 @@ fn render_blocking(
         };
         lines.push(format!("{row} | {}", evidence.replace(['\r', '\n'], " ")));
     }
+    lines.push(format!(
+        "목록: {}/{}개 표시 · 범위: 설정된 로컬 Codex DB의 {} 대화 (다른 PC/CODEX_HOME은 포함하지 않음)\n실행 상태 관측은 실행 권한 확인이 아닙니다. 조회 실패/notLoaded여도 목록에서 제외하지 않습니다.",
+        threads.len().min(count(limit)), threads.len(),
+        if archived { "아카이브된" } else { "활성·미아카이브" },
+    ));
     lines.join("\n")
 }
 
@@ -158,3 +163,7 @@ fn clipped(value: &str, limit: usize) -> String {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "list_visibility_tests.rs"]
+mod visibility_tests;

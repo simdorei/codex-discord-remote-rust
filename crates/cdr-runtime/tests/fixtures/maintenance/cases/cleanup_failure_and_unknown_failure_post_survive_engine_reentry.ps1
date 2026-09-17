@@ -11,7 +11,7 @@ Invoke-CdrMaintenanceEngine $StatePath $op
 if((Test-Path $StatePath) -or (Test-Path $DisablePath)){throw 'owned cleanup did not finish'}
 $auditPath=Join-Path $s.Bundle 'completion-failure.json'
 if(-not (Test-Path $auditPath)){throw 'R2: completion cleanup erased its failure evidence'}
-$audit=Get-Content $auditPath -Raw|ConvertFrom-Json
+$audit=Get-Content $auditPath -Raw -Encoding UTF8|ConvertFrom-Json
 if($audit.Operation -cne $op -or $audit.First.LastError -cne $originalError -or
    $audit.Latest.FailureNoticePhase -cne 'unknown' -or -not $audit.Latest.FailureNoticeError){throw 'first failure/unknown POST evidence lost'}
 if($script:posts -ne 1 -or $script:starts -ne 1){throw 'cleanup reentry replayed POST or launch'}

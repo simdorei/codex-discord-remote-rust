@@ -27,7 +27,7 @@ pub use dead_generation::{
     DeadServerRequest,
 };
 pub use diagnostics::DiagnosticSnapshot;
-pub use error::{AppServerError, RpcErrorPayload};
+pub use error::{AppServerError, RpcErrorPayload, is_usage_limit_error};
 pub use input_replies::{
     InputResponse, build_input_response, resolve_input_answers, split_input_values,
 };

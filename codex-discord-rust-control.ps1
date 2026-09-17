@@ -100,6 +100,10 @@ function Write-CdrRestartCompletion {
         RuntimeId=$Fence.RuntimeId; ProcessIdentity=$Fence.ProcessIdentity
         Nonce=$Fence.Nonce; ReplacementIdentity=$identity
     }
+    if ($script:CdrTrayStartedIdentity -and $script:CdrTrayStartedIdentity -ceq $identity) {
+        $receipt.TrayBootstrapIdentity = $identity
+        $receipt.TrayBootstrapRoot = $RepoRoot
+    }
     Write-AtomicRestartMarker -Path (Join-Path $RepoRoot '.codex_discord_rust.restart.completed') `
         -Text ($receipt | ConvertTo-Json -Compress)
 }

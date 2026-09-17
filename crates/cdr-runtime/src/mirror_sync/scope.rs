@@ -15,7 +15,7 @@ impl MirrorSynchronizer {
             Some(limit) => {
                 store.load_recent_threads(u32::try_from(limit.clamp(1, 100)).expect("bounded"))?
             }
-            None => store.load_user_root_threads(0)?,
+            None => store.load_mirror_root_threads(0)?,
         };
         // Keep active bot-owned forks that are already mapped, even though their source is app-server.
         if limit.is_none() {

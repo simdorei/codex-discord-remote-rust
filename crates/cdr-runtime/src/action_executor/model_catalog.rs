@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use super::ActionError;
+pub(crate) mod reserve;
 
 fn rows(catalog: &Value) -> impl Iterator<Item = &Value> {
     catalog
@@ -21,7 +22,11 @@ fn name(row: &Value) -> Option<&str> {
 }
 
 pub(super) fn canonical_model(catalog: &Value, requested: &str) -> Result<String, ActionError> {
-    let requested = requested.trim();
+    let requested = if reserve::requested(requested) {
+        reserve::MODEL
+    } else {
+        requested.trim()
+    };
     let matches = rows(catalog)
         .filter(|row| {
             name(row).is_some_and(|model| model.eq_ignore_ascii_case(requested))

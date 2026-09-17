@@ -19,7 +19,7 @@ function Send-CdrMaintenanceMessage($State, [string]$Content, [string]$Nonce, [i
         }
     }
     if (-not $token) { throw 'maintenance_notification_token_missing' }
-    if ($State.NotifyChannel -cne '900000000000000001') { throw 'maintenance_notification_channel_not_approved' }
+    if ($State.NotifyChannel -cne '1543277263418826775') { throw 'maintenance_notification_channel_not_approved' }
     $body = @{content=$Content; nonce=$Nonce; enforce_nonce=$true;
         allowed_mentions=@{parse=@()}} | ConvertTo-Json -Depth 4 -Compress
     try {

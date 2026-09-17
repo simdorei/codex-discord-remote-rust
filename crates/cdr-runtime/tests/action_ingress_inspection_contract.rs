@@ -15,6 +15,8 @@ use action_target::{FakeBackend, executor};
 
 #[path = "support/ingress_display_preservation.rs"]
 mod preservation_contract;
+#[path = "support/ingress_refusal_inspection.rs"]
+mod refusal_contract;
 
 #[test]
 fn runners_request_id_routes_to_exact_read_only_inspection() {

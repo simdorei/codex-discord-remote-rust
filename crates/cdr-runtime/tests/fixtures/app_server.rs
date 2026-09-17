@@ -18,6 +18,8 @@ mod display;
 mod goal;
 #[path = "app_server/idle_release.rs"]
 mod idle_release;
+#[path = "app_server/reserve_auto.rs"]
+mod reserve_auto;
 #[path = "app_server/resume.rs"]
 mod resume;
 #[path = "app_server/settings.rs"]
@@ -39,6 +41,7 @@ pub fn run() -> Result {
         Some("idle-release") => idle_release::run(),
         Some("resume") => resume::run(),
         Some("settings") => settings::run(),
+        Some("reserve-auto") => reserve_auto::run(),
         Some("usage") => usage::run(),
         _ => Err("unknown native app-server fixture scenario".into()),
     }

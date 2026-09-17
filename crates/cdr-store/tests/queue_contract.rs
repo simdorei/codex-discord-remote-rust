@@ -164,6 +164,29 @@ fn q3b_target_generation_adoption_does_not_touch_unavailable_siblings() {
 }
 
 #[test]
+fn q3c_generation_adoption_preserves_attempt_execution_owner() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("queue.sqlite");
+    enqueue(&path, customized_job("pending", 31, "thread-a", 1, 1.0)).unwrap();
+    enqueue(&path, customized_job("starting", 32, "thread-a", 1, 2.0)).unwrap();
+    enqueue(&path, customized_job("running", 33, "thread-a", 1, 3.0)).unwrap();
+    begin_attempt(&path, "starting", &[], 1).unwrap();
+    begin_attempt(&path, "running", &[], 1).unwrap();
+    mark_running(&path, "running", "turn-running", 1).unwrap();
+
+    let adoption = adopt_target_generation(&path, "thread-a", 7).unwrap();
+
+    assert_eq!(adoption.adopted_count, 1);
+    let jobs = list(&path).unwrap();
+    assert_eq!(jobs[0].app_server_generation, 7);
+    assert_eq!(jobs[0].execution_generation, None);
+    assert_eq!(jobs[1].app_server_generation, 1);
+    assert_eq!(jobs[1].execution_generation, Some(1));
+    assert_eq!(jobs[2].app_server_generation, 1);
+    assert_eq!(jobs[2].execution_generation, Some(1));
+}
+
+#[test]
 fn q4_start_failures_distinguish_safe_retry_from_ambiguous_delivery() {
     let temp = tempfile::tempdir().expect("create temporary directory");
     let path = temp.path().join("queue.sqlite");

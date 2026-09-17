@@ -111,7 +111,7 @@ fn thread_snapshot(goal: bool, latest: &str, active: bool) -> serde_json::Value 
     json!({"thread":{"id":"thread-b","turns":turns}})
 }
 
-fn emit_question(turn_id: &str) -> Result {
+pub(super) fn emit_question(turn_id: &str) -> Result {
     emit(
         &json!({"method":"item/completed","params":{"threadId":"thread-b","turnId":turn_id,"item":{
             "id":"question-call","type":"agentMessage","phase":"final_answer","delivery":"async","text":"어느 프로젝트인가요?",

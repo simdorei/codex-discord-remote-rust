@@ -125,8 +125,9 @@ async fn active_state_is_reconciled_from_read_without_requiring_resume() {
 
         let after = list(&db).unwrap();
         if starting {
-            assert_eq!(after[0].state, QueueJobState::Pending);
-            assert!(after[0].last_error.contains("before a turn appeared"));
+            assert_eq!(after[0].state, QueueJobState::Starting);
+            assert_eq!(after[0].attempt_count, before.attempt_count);
+            assert!(after[0].last_error.contains("does not authorize retry"));
         } else {
             assert_eq!(after, vec![before]);
         }
@@ -136,7 +137,7 @@ async fn active_state_is_reconciled_from_read_without_requiring_resume() {
 }
 
 #[tokio::test]
-async fn read_only_starting_requeue_honors_durable_pending_backoff() {
+async fn read_only_starting_unknown_is_observed_again_without_retrying_dispatch() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("queue.sqlite");
     enqueue_job(&db, "active", "thread-a", 20, 1.0);
@@ -151,17 +152,32 @@ async fn read_only_starting_requeue_honors_durable_pending_backoff() {
     let queue = coordinator(&db, &backend);
 
     let first = queue.recover().await.unwrap();
-    assert_eq!(first.requeued, 1);
+    assert_eq!(first.requeued, 0);
+    assert_eq!(first.unresolved, 1);
+    assert_eq!(first.started, 0);
     assert!(first.unavailable_targets.is_empty());
     let calls_after_first = backend.snapshot().await;
+    let jobs_after_first = list(&db).unwrap();
 
-    let immediate_retry = queue.recover().await.unwrap();
-    let calls_after_retry = backend.snapshot().await;
+    let next_observation = queue.recover().await.unwrap();
+    let calls_after_observation = backend.snapshot().await;
 
-    assert!(immediate_retry.unavailable_targets.is_empty());
-    assert_eq!(calls_after_retry.reads, calls_after_first.reads);
-    assert_eq!(calls_after_retry.resumes, calls_after_first.resumes);
+    assert_eq!(next_observation.requeued, 0);
+    assert_eq!(next_observation.started, 0);
+    assert_eq!(next_observation.unresolved, 1);
+    assert!(next_observation.unavailable_targets.is_empty());
+    assert_eq!(
+        calls_after_observation.reads.len(),
+        calls_after_first.reads.len() + 1
+    );
+    assert!(calls_after_observation.resumes.is_empty());
+    assert!(calls_after_observation.starts.is_empty());
     let after = list(&db).unwrap();
-    assert_eq!(after[0].state, QueueJobState::Pending);
-    assert_ne!(after, vec![before]);
+    assert_eq!(after[0].state, QueueJobState::Starting);
+    assert_eq!(after[0].attempt_count, before.attempt_count);
+    assert!(after[0].turn_id.is_none());
+    assert_eq!(
+        after, jobs_after_first,
+        "repeat observation must preserve the original unknown evidence"
+    );
 }

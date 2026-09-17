@@ -47,6 +47,11 @@ fn hold_in(
 ) -> Result<()> {
     let record = get_in(connection, key)?
         .ok_or_else(|| StoreError::Integrity(format!("missing ingress hold: {key}")))?;
+    // A closed archived mirror retains exact non-dispatch evidence, not a
+    // fictional confirmation. Do not stage a new POST into that closed room.
+    if crate::room_cleanup::archived_rejections::preserves(connection, key)? {
+        return Ok(());
+    }
     // A permanent ownership receipt survives removal of its transient queue row.
     // Its established queue/intake machinery owns recovery, not this journal.
     if record.owner_id.is_some() {
@@ -54,6 +59,24 @@ fn hold_in(
             "UPDATE codex_new_first_replies SET ack_recovery_allowed=1
             WHERE ingress_id=? AND confirmation_delivered=0",
             [key],
+        )?;
+        return Ok(());
+    }
+    if let Some(refusal) = super::CleanupRefusal::from_outcome(record.outcome.as_ref()) {
+        // The action's refusal is known; only its notification can be uncertain.
+        // Never send a different-key Saved POST or fabricate delivery evidence.
+        let detail = if record.hold_reason.starts_with("Mirror sync stopped:") {
+            record.hold_reason
+        } else {
+            format!(
+                "{} Recovery boundary: {}",
+                refusal.pending_summary(),
+                reason.chars().take(150).collect::<String>()
+            )
+        };
+        connection.execute(
+            "UPDATE discord_ingress_journal SET state='held',hold_reason=?,updated_at=? WHERE ingress_id=?",
+            params![detail, now, key],
         )?;
         return Ok(());
     }

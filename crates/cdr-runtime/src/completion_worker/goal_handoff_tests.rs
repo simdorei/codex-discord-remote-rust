@@ -91,6 +91,7 @@ async fn held_progress_still_hands_off(blocked: bool) {
         error_message: String::new(),
         interrupt_origin: None,
         duration_ms: None,
+        usage_limit: false,
     };
     let result = worker
         .finish(

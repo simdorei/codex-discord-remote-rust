@@ -1,10 +1,10 @@
 use super::{CompletionWorker, CompletionWorkerError};
+use cdr_app_server::outcomes::completion_journal_payload;
 use cdr_app_server::{
     ResidentNotificationEvent,
     outcomes::{extract_completed_final_answer, parse_turn_completion},
 };
 use cdr_store::{observed_completion, observed_final_answer};
-use serde_json::json;
 
 impl CompletionWorker {
     pub(super) fn observe_terminal(
@@ -42,17 +42,14 @@ impl CompletionWorker {
         }
         let completion = parse_turn_completion(&notification.params, false)?;
         // Store only completion metadata, not prompt, tools or conversation items.
-        let payload = json!({"threadId":completion.thread_id,"turn":{
-            "id":completion.turn_id,"status":notification.params["turn"]["status"],
-            "error":{"message":completion.error_message},"durationMs":completion.duration_ms
-        }})
-        .to_string();
-        if observed_completion::record(
+        let payload = completion_journal_payload(&completion).to_string();
+        if observed_completion::record_for_resident(
             self.queue.db_path(),
             &completion.thread_id,
             &completion.turn_id,
             generation,
             &payload,
+            self.server.instance_id(),
         )? {
             eprintln!(
                 "completion_observed thread_id={} turn_id={} generation={generation}",

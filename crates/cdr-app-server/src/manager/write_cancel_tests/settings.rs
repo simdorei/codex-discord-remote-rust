@@ -19,6 +19,7 @@ async fn settings_watermark_excludes_matching_notification_before_writer_admissi
                     &ThreadSettingsUpdate {
                         model: Some("model-b".into()),
                         effort: None,
+                        effort_clear: false,
                         service_tier: ServiceTierUpdate::Unchanged,
                     },
                     1,

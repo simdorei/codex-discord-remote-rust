@@ -28,6 +28,8 @@ pub enum BackendFailureKind {
     Quarantined,
     ForkFenced,
     StartingCandidatesHeld,
+    UsageLimit,
+    AutoReserveHeld,
 }
 
 impl BackendFailure {
@@ -86,12 +88,36 @@ impl BackendFailure {
     }
 
     #[must_use]
+    pub fn usage_limit(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            ambiguous: false,
+            kind: BackendFailureKind::UsageLimit,
+        }
+    }
+
+    #[must_use]
+    pub fn auto_reserve_held(message: impl Into<String>) -> Self {
+        Self {
+            message: format!(
+                "{}{}",
+                cdr_store::reserve_policy::HOLD_PREFIX,
+                message.into()
+            ),
+            ambiguous: false,
+            kind: BackendFailureKind::AutoReserveHeld,
+        }
+    }
+
+    #[must_use]
     pub fn persisted(message: impl Into<String>, ambiguous: bool) -> Self {
         let message = message.into();
         let kind = if message.starts_with(UNRESOLVED_FORK_ERROR_PREFIX) {
             BackendFailureKind::ForkFenced
         } else if message.starts_with(STARTING_CANDIDATE_HOLD_PREFIX) {
             BackendFailureKind::StartingCandidatesHeld
+        } else if message.starts_with(cdr_store::reserve_policy::HOLD_PREFIX) {
+            BackendFailureKind::AutoReserveHeld
         } else if !ambiguous && is_active_writer_message(&message) {
             BackendFailureKind::ActiveWriter
         } else {
@@ -142,6 +168,14 @@ pub trait TurnBackend: Send + Sync + 'static {
         thread_id: &'a str,
         prompt: &'a str,
     ) -> BoxBackendFuture<'a, String>;
+
+    fn prepare_turn<'a>(&'a self, _thread_id: &'a str) -> BoxBackendFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn note_usage_limit<'a>(&'a self, _thread_id: &'a str) -> BoxBackendFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

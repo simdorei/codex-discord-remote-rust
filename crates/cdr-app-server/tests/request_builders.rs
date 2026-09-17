@@ -105,6 +105,7 @@ fn settings_preserve_unchanged_set_and_explicit_standard_tier() {
         &ThreadSettingsUpdate {
             model: Some("gpt-5.6".into()),
             effort: Some("high".into()),
+            effort_clear: false,
             service_tier: ServiceTierUpdate::Clear,
         },
     );

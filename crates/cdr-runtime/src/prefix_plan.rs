@@ -49,6 +49,10 @@ pub enum PrefixAction {
         effort: Option<String>,
         speed: Option<String>,
     },
+    AutoReserve {
+        reference: Option<String>,
+        enabled: bool,
+    },
     SettingsOptions {
         reference: Option<String>,
         field: Option<String>,

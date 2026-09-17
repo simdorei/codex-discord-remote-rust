@@ -21,21 +21,161 @@ impl CompletionWorker {
         }) else {
             return Ok(());
         };
-        let Some(turn_id) = job.turn_id else {
-            return Ok(());
+        self.finish_waiting_goal_owned(generation, &job).await
+    }
+
+    pub(super) async fn finish_waiting_goal_owned(
+        &self,
+        generation: u64,
+        expected: &StoredQueueJob,
+    ) -> Result<(), CompletionWorkerError> {
+        let completion = self.waiting_goal_completion(generation, expected).await?;
+        self.finish_with_owner(
+            generation,
+            expected.completion_evidence_generation(),
+            &completion,
+            Some(expected),
+        )
+        .await
+    }
+
+    /// A completed Goal does not identify an unobserved successor. History is
+    /// reconciliation evidence, never permission to choose the newest turn.
+    pub(super) async fn waiting_goal_completion(
+        &self,
+        generation: u64,
+        expected: &StoredQueueJob,
+    ) -> Result<cdr_app_server::outcomes::TurnCompletion, CompletionWorkerError> {
+        let held = |reason: &str| {
+            CompletionWorkerError::Held(format!(
+                "Goal completion held for {}: {reason}; original progress owner retained",
+                expected.target_thread_id,
+            ))
         };
+        if !expected.goal_waiting || expected.state != QueueJobState::Running {
+            return Err(held("not the exact waiting owner"));
+        }
+        let turn = expected
+            .turn_id
+            .as_deref()
+            .ok_or_else(|| held("missing prior turn"))?;
         let result = self
             .server
             .execute(
-                full_history_request(thread_id, self.history_read_timeout),
+                full_history_request(&expected.target_thread_id, self.history_read_timeout),
                 Some(generation),
             )
             .await?;
-        let states = parse_thread_turn_states(&result, thread_id)?;
-        if let Some(completion) = states.get(&turn_id) {
-            let evidence_generation = job.app_server_generation;
-            self.finish(generation, evidence_generation, completion)
-                .await?;
+        let states = parse_thread_turn_states(&result, &expected.target_thread_id)?;
+        if result["thread"]["turns"].as_array().map(Vec::len) != Some(states.len()) {
+            return Err(held("duplicate history turn identity"));
+        }
+        let completion = states
+            .get(turn)
+            .ok_or_else(|| held("prior turn absent from history"))?;
+        if completion.status == TurnStatus::InProgress {
+            return Err(held("prior turn is not terminal"));
+        }
+        for (id, state) in &states {
+            if id == turn || expected.baseline_turn_ids.contains(id) {
+                continue;
+            }
+            // Completed predecessor turns have durable bot completion markers.
+            // An unfamiliar successor, active OR already completed, must first
+            // acquire exact ownership through a validated start observation.
+            if state.status == TurnStatus::InProgress
+                || !cdr_store::mirror::has_event(
+                    self.queue.db_path(),
+                    &cdr_store::mirror::turn_origin_marker(&expected.target_thread_id, id),
+                    &expected.target_thread_id,
+                )?
+            {
+                return Err(held("unattached turn requires an exact start observation"));
+            }
+        }
+        let owners: Vec<_> = list(self.queue.db_path())?
+            .into_iter()
+            .filter(|job| {
+                job.target_thread_id == expected.target_thread_id
+                    && job.state == QueueJobState::Running
+            })
+            .collect();
+        if generation != self.server.generation()
+            || owners.as_slice() != [expected.clone()]
+            || cdr_store::dead_generation::target_is_held(
+                self.queue.db_path(),
+                &expected.target_thread_id,
+            )?
+        {
+            return Err(held(
+                "resident or waiting ownership changed during history read",
+            ));
+        }
+        Ok(completion.clone())
+    }
+
+    /// A thread-level terminal Goal status cannot identify this turn as the last.
+    /// Reconcile even after attachment cleared `goal_waiting`. History only blocks
+    /// Final / permits progress handoff; it never selects the successor's owner.
+    pub(super) fn goal_history_has_unattached_turn(
+        &self,
+        result: &serde_json::Value,
+        expected: &StoredQueueJob,
+        completion: &cdr_app_server::outcomes::TurnCompletion,
+    ) -> Result<bool, CompletionWorkerError> {
+        let states = parse_thread_turn_states(result, &expected.target_thread_id)?;
+        if result["thread"]["turns"].as_array().map(Vec::len) != Some(states.len()) {
+            return Err(CompletionWorkerError::Held(
+                "duplicate history turn identity".into(),
+            ));
+        }
+        if states
+            .get(&completion.turn_id)
+            .is_some_and(|turn| turn.status != completion.status)
+        {
+            return Err(CompletionWorkerError::Held(
+                "owned terminal status changed in history".into(),
+            ));
+        }
+        for (id, state) in &states {
+            if id == &completion.turn_id || expected.baseline_turn_ids.contains(id) {
+                continue;
+            }
+            if state.status == TurnStatus::InProgress
+                || !cdr_store::mirror::has_event(
+                    self.queue.db_path(),
+                    &cdr_store::mirror::turn_origin_marker(&expected.target_thread_id, id),
+                    &expected.target_thread_id,
+                )?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub(super) fn require_completion_owner(
+        &self,
+        generation: u64,
+        expected: &StoredQueueJob,
+    ) -> Result<(), CompletionWorkerError> {
+        let owners: Vec<_> = list(self.queue.db_path())?
+            .into_iter()
+            .filter(|job| {
+                job.target_thread_id == expected.target_thread_id
+                    && job.state == QueueJobState::Running
+            })
+            .collect();
+        if generation != self.server.generation()
+            || owners.as_slice() != [expected.clone()]
+            || cdr_store::dead_generation::target_is_held(
+                self.queue.db_path(),
+                &expected.target_thread_id,
+            )?
+        {
+            return Err(CompletionWorkerError::Held(
+                "resident or completion ownership changed during history read".into(),
+            ));
         }
         Ok(())
     }
@@ -102,12 +242,10 @@ impl CompletionWorker {
         job: StoredQueueJob,
     ) -> Result<(), CompletionWorkerError> {
         if job.goal_waiting {
-            return self
-                .recover_goal_waiting(generation, &job.target_thread_id)
-                .await;
+            return self.recover_goal_waiting(generation, &job).await;
         }
         let Some(turn_id) = job.turn_id.as_deref() else {
-            self.attach_active(&job.target_thread_id).await?;
+            self.attach_active(&job).await?;
             return Ok(());
         };
         let result = self
@@ -121,8 +259,13 @@ impl CompletionWorker {
         if let Some(completion) = states.get(turn_id)
             && completion.status != TurnStatus::InProgress
         {
-            self.finish(generation, job.app_server_generation, completion)
-                .await?;
+            self.finish_with_owner(
+                generation,
+                job.completion_evidence_generation(),
+                completion,
+                Some(&job),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -130,22 +273,28 @@ impl CompletionWorker {
     async fn recover_goal_waiting(
         &self,
         generation: u64,
-        thread_id: &str,
+        job: &StoredQueueJob,
     ) -> Result<(), CompletionWorkerError> {
-        if self.attach_active(thread_id).await? {
+        let thread_id = &job.target_thread_id;
+        if self.attach_active(job).await? {
             return Ok(());
         }
         if self.goal_status(generation, thread_id).await? != Some(ThreadGoalStatus::Active) {
-            self.finish_waiting_goal(generation, thread_id).await?;
+            self.finish_waiting_goal_owned(generation, job).await?;
         }
         Ok(())
     }
 
-    async fn attach_active(&self, thread_id: &str) -> Result<bool, CompletionWorkerError> {
+    async fn attach_active(&self, job: &StoredQueueJob) -> Result<bool, CompletionWorkerError> {
+        let thread_id = &job.target_thread_id;
+        let observation_generation = self.server.generation();
         let Some(active) = self.server.active_turn_id(thread_id).await? else {
             return Ok(false);
         };
-        Ok(self.queue.goal_turn_started(thread_id, &active).await?)
+        Ok(self
+            .queue
+            .goal_turn_started_observed(thread_id, &active, observation_generation, Some(job))
+            .await?)
     }
 }
 

@@ -6,12 +6,15 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 mod dispatch;
+mod guard;
+pub use guard::validate_dispatch_guards;
 mod inbox;
 mod observe;
 mod retention;
 mod schema;
 pub use dispatch::{
-    Claim, DispatchMode, begin_dispatch, confirm_dispatch, record_error, reject_definite,
+    Claim, DispatchMode, begin_dispatch, begin_dispatch_prepared, confirm_dispatch, record_error,
+    reject_definite, reject_usage_limit,
 };
 pub use inbox::{reconcile_observations, record_observation};
 pub use observe::{NewQuestion, observe};
@@ -150,7 +153,7 @@ pub fn bind_receipt(path: &Path, id: &str, interactive: bool) -> Result<()> {
 pub(crate) fn validate_mapping(db: &Connection, q: &Question) -> Result<()> {
     let matches: bool = db.query_row("SELECT COUNT(*)=1 AND MIN(codex_thread_id)=?2 FROM mirror_threads WHERE discord_thread_id=?1",
         params![q.channel_id,q.thread_id], |r|r.get(0))?;
-    let fenced: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE channel_id=?1) OR EXISTS(SELECT 1 FROM codex_dead_generation_holds WHERE target_thread_id=?2)",params![q.channel_id,q.thread_id],|r|r.get(0))?;
+    let fenced: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE channel_id=?1) OR EXISTS(SELECT 1 FROM codex_dead_generation_holds WHERE target_thread_id=?2) OR EXISTS(SELECT 1 FROM codex_archive_fences WHERE target_thread_id=?2)",params![q.channel_id,q.thread_id],|r|r.get(0))?;
     if !matches || fenced {
         return Err(invalid(
             "question mapping changed or target is fenced; no answer sent",

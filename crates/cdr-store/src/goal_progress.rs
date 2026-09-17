@@ -46,9 +46,51 @@ pub fn stage(
     generation: i64,
     content: &str,
 ) -> Result<Option<PendingProgress>> {
+    stage_inner(path, job_id, turn, generation, content, None)
+}
+
+pub fn stage_owned(
+    path: &Path,
+    expected: &crate::queue::StoredQueueJob,
+    content: &str,
+) -> Result<Option<PendingProgress>> {
+    let turn = expected
+        .turn_id
+        .as_deref()
+        .ok_or_else(|| StoreError::InvalidQueueState("goal progress owner has no turn".into()))?;
+    stage_inner(
+        path,
+        &expected.job_id,
+        turn,
+        expected.app_server_generation,
+        content,
+        Some(expected),
+    )
+}
+
+fn stage_inner(
+    path: &Path,
+    job_id: &str,
+    turn: &str,
+    generation: i64,
+    content: &str,
+    expected_owner: Option<&crate::queue::StoredQueueJob>,
+) -> Result<Option<PendingProgress>> {
     let mut c = open_initialized(path)?;
     let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let job = crate::queue::select_job(&tx, job_id)?;
+    if let Some(expected) = expected_owner {
+        let owners: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM codex_turn_queue WHERE target_thread_id=? AND state='running'",
+            [&expected.target_thread_id],
+            |row| row.get(0),
+        )?;
+        if expected != &job || owners != 1 {
+            return Err(StoreError::InvalidQueueState(
+                "goal progress ownership changed".into(),
+            ));
+        }
+    }
     crate::dead_generation::ensure_target_available(&tx, &job.target_thread_id)?;
     if job.state != crate::queue::QueueJobState::Running
         || job.turn_id.as_deref() != Some(turn)

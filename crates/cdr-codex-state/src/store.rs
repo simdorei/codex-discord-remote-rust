@@ -49,6 +49,16 @@ impl CodexThreadStore {
         )
     }
 
+    /// Local interactive roots are visible regardless of the current writer.
+    /// Keep the legacy VS Code reader distinct; internal/subagent roots stay out.
+    pub fn load_mirror_root_threads(&self, limit: u32) -> Result<Vec<ThreadInfo>, CodexStateError> {
+        self.query_threads(
+            "WHERE archived = 0 AND source IN ('vscode','cli','app-server','appServer') AND COALESCE(thread_source, '') IN ('', 'user') AND title != '' ORDER BY updated_at DESC, id",
+            limit,
+            false,
+        )
+    }
+
     pub fn load_archived_threads(&self, limit: u32) -> Result<Vec<ThreadInfo>, CodexStateError> {
         self.query_threads(
             "WHERE archived = 1 ORDER BY archived_at DESC, updated_at DESC, id",

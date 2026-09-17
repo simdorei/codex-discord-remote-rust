@@ -69,6 +69,9 @@ impl IdleReleaseJournal for Journal {
         .transpose()
     }
     fn check_mutation(&self, thread: &str) -> Result<(), AppServerError> {
+        // This hook is also invoked under the actual writer's target permit.
+        // A claimed async answer cannot use stale policy/job/mapping evidence.
+        cdr_store::async_question::validate_dispatch_guards(&self.0, thread).map_err(error)?;
         if let Some(i) = store::get(&self.0, thread).map_err(error)?
             && !matches!(i.state.as_str(), "Candidate" | "Settled")
         {

@@ -56,6 +56,14 @@ pub fn reserve(path: &Path, scope: &BTreeSet<String>, own: Option<&str>) -> Resu
     Ok(operation)
 }
 
+pub fn target_is_fenced(path: &Path, target_thread_id: &str) -> Result<bool> {
+    Ok(crate::schema::open_initialized(path)?.query_row(
+        "SELECT EXISTS(SELECT 1 FROM codex_archive_fences WHERE target_thread_id=?1)",
+        [target_thread_id],
+        |row| row.get(0),
+    )?)
+}
+
 /// Only after every scope member's persisted archived state was verified.
 /// The target fence and all held requests remain; no implicit unarchive/replay.
 pub fn verified(path: &Path, operation: &str) -> Result<()> {

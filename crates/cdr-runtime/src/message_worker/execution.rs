@@ -57,7 +57,7 @@ pub(super) async fn execute_plan<B: TurnBackend>(
     channel_id: u64,
     user_id: u64,
     plan: MessagePlan,
-) -> Result<(), MessageWorkerError> {
+) -> Result<bool, MessageWorkerError> {
     let key = format!("message:{}", message.id);
     let api = DiscordHttp::new(Arc::clone(&context.http), context.application_id);
     match plan {
@@ -98,7 +98,14 @@ pub(super) async fn execute_plan<B: TurnBackend>(
                     },
                     &key,
                 )
-                .await?;
+                .await;
+            let result = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    return super::cleanup_refusal::deliver(message, context, &api, &key, error)
+                        .await;
+                }
+            };
             cdr_store::ingress::record_result(
                 context.executor.mirror_db(),
                 &key,
@@ -118,7 +125,7 @@ pub(super) async fn execute_plan<B: TurnBackend>(
                     prompts,
                 )
                 .await?;
-                return Ok(());
+                return Ok(false);
             }
             let components = render_action_ui(result.ui.as_ref())?;
             if components.is_empty() {
@@ -146,5 +153,5 @@ pub(super) async fn execute_plan<B: TurnBackend>(
             }
         }
     }
-    Ok(())
+    Ok(false)
 }

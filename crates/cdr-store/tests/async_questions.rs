@@ -213,3 +213,6 @@ fn early_successor_question_waits_for_exact_reply_acceptance() {
     let q = aq::get(&db, &successor).unwrap();
     assert!(aq::owner_confirmed(&db, &q).unwrap());
 }
+
+#[path = "support/integrated_async_store.rs"]
+mod integrated;

@@ -27,7 +27,7 @@ function Read-CdrMaintenanceState([string]$Path) {
         $s.OperatorPath -cne (Join-Path $bundle 'operator.exe') -or
         $s.TaskName -cne ('Codex Maintenance V2 '+$s.Operation) -or
         $s.Fence.RuntimeId -notmatch '^[A-Za-z0-9_-]{1,128}$' -or
-        $s.NotifyChannel -cne '900000000000000001') { throw 'maintenance_ticket_paths_invalid' }
+        $s.NotifyChannel -cne '1543277263418826775') { throw 'maintenance_ticket_paths_invalid' }
     $created = [DateTimeOffset]::Parse($s.CreatedAt)
     $deadline = [DateTimeOffset]::Parse($s.Deadline)
     if ($deadline -le $created -or ($deadline-$created).TotalMinutes -gt 30) {
@@ -43,7 +43,8 @@ function Get-CdrMaintenanceProgramPaths {
         'scripts/CdrMaintenanceCommand.ps1','scripts/CdrMaintenanceDiagnostics.ps1','scripts/CdrMaintenanceActions.ps1','scripts/CdrMaintenanceLaunch.ps1','scripts/CdrMaintenanceNotification.ps1',
         'scripts/CdrMaintenanceSchedule.ps1','scripts/CdrMaintenanceBackup.ps1','scripts/CdrMaintenanceFailure.ps1',
         'scripts/CdrMaintenanceCompletion.ps1','scripts/CdrMaintenanceNotificationResult.ps1','scripts/CdrMaintenanceNoticeJournal.ps1',
-        'scripts/CdrMaintenanceCompletionAudit.ps1')
+        'scripts/CdrMaintenanceCompletionAudit.ps1',
+        'codex-discord-tray.ps1','codex-discord-tray-runtime.ps1','codex-discord-tray-restart-runtime.ps1')
 }
 
 function Assert-CdrMaintenanceShutdownPolicy([string]$Policy) {

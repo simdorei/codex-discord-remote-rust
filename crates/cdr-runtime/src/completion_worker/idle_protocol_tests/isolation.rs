@@ -75,7 +75,7 @@ async fn ir7_timeout_a_keeps_b_execution_approval_final_and_http_healthy() {
     cdr_store::queue::mark_running(db, "B-job", "T2", 1).unwrap();
     let delivery = worker
         .queue
-        .stage_turn_completion("B", "T2", "Final B")
+        .stage_turn_completion_on_generation("B", "T2", "Final B", 1)
         .await
         .unwrap()
         .unwrap();

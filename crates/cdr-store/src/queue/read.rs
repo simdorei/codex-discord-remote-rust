@@ -7,8 +7,8 @@ use crate::schema::open_initialized;
 use crate::{Result, StoreError};
 
 pub(crate) const COLUMNS: &str = "job_id, target_thread_id, channel_id, owner_user_id, \
-    discord_message_id, app_server_generation, prompt, queued, ack_sent, state, \
-    attempt_count, turn_id, baseline_turn_ids, last_error, created_at, updated_at, goal_waiting";
+    discord_message_id, app_server_generation, execution_generation, prompt, queued, ack_sent, state, \
+    attempt_count, turn_id, baseline_turn_ids, last_error, created_at, updated_at, goal_waiting, turn_observation_generation";
 
 struct RawQueueJob {
     job_id: String,
@@ -17,6 +17,7 @@ struct RawQueueJob {
     owner_user_id: Option<i64>,
     discord_message_id: Option<i64>,
     app_server_generation: i64,
+    execution_generation: Option<i64>,
     prompt: String,
     queued: i64,
     ack_sent: i64,
@@ -28,6 +29,7 @@ struct RawQueueJob {
     created_at: f64,
     updated_at: f64,
     goal_waiting: i64,
+    turn_observation_generation: Option<i64>,
 }
 
 impl RawQueueJob {
@@ -39,17 +41,19 @@ impl RawQueueJob {
             owner_user_id: row.get(3)?,
             discord_message_id: row.get(4)?,
             app_server_generation: row.get(5)?,
-            prompt: row.get(6)?,
-            queued: row.get(7)?,
-            ack_sent: row.get(8)?,
-            state: row.get(9)?,
-            attempt_count: row.get(10)?,
-            turn_id: row.get(11)?,
-            baseline_turn_ids: row.get(12)?,
-            last_error: row.get(13)?,
-            created_at: row.get(14)?,
-            updated_at: row.get(15)?,
-            goal_waiting: row.get(16)?,
+            execution_generation: row.get(6)?,
+            prompt: row.get(7)?,
+            queued: row.get(8)?,
+            ack_sent: row.get(9)?,
+            state: row.get(10)?,
+            attempt_count: row.get(11)?,
+            turn_id: row.get(12)?,
+            baseline_turn_ids: row.get(13)?,
+            last_error: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
+            goal_waiting: row.get(17)?,
+            turn_observation_generation: row.get(18)?,
         })
     }
 
@@ -87,6 +91,8 @@ impl RawQueueJob {
             owner_user_id: self.owner_user_id,
             discord_message_id: self.discord_message_id,
             app_server_generation: self.app_server_generation,
+            execution_generation: self.execution_generation,
+            turn_observation_generation: self.turn_observation_generation,
             prompt: self.prompt,
             queued: self.queued != 0,
             ack_sent: self.ack_sent != 0,

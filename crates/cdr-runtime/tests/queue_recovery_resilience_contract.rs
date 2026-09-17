@@ -126,11 +126,16 @@ async fn read_failure_is_nonfatal_and_later_targets_are_still_reconciled() {
     assert_eq!(jobs[0].state, QueueJobState::Running);
     assert_eq!(jobs[0].app_server_generation, 1);
     assert_eq!(jobs[1].turn_id.as_deref(), Some("turn-b"));
-    assert_eq!(jobs[1].app_server_generation, 7);
+    assert_eq!(jobs[1].state, QueueJobState::Running);
+    assert_eq!(jobs[1].app_server_generation, 2);
+    assert_eq!(jobs[1].execution_generation, Some(2));
+    assert_eq!(jobs[1].attempt_count, 1);
+    assert_eq!(jobs[0].execution_generation, Some(1));
+    assert!(backend.starts.lock().await.is_empty());
 }
 
 #[tokio::test]
-async fn starting_target_requeues_from_read_while_a_later_target_can_start() {
+async fn starting_target_stays_unknown_while_a_later_target_can_start() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("mirror.sqlite");
     enqueue(&db, job("job-a", "thread-a", 1, 1.0)).unwrap();
@@ -147,18 +152,22 @@ async fn starting_target_requeues_from_read_while_a_later_target_can_start() {
 
     let report = coordinator.recover().await.unwrap();
 
-    assert_eq!(report.requeued, 1);
+    assert_eq!(report.requeued, 0);
+    assert_eq!(report.unresolved, 1);
     assert_eq!(report.started, 1);
     assert!(report.unavailable_targets.is_empty());
     let jobs = list(&db).unwrap();
-    assert_eq!(jobs[0].state, QueueJobState::Pending);
-    assert_eq!(jobs[0].app_server_generation, 7);
+    assert_eq!(jobs[0].state, QueueJobState::Starting);
+    assert_eq!(jobs[0].app_server_generation, 1);
+    assert_eq!(jobs[0].attempt_count, 1);
+    assert!(jobs[0].last_error.contains("does not authorize retry"));
     assert_eq!(jobs[1].state, QueueJobState::Running);
     assert_eq!(jobs[1].app_server_generation, 7);
     assert_eq!(
         *backend.starts.lock().await,
         vec![("thread-b".into(), "job-b".into())]
     );
+    assert_eq!(*backend.resumes.lock().await, vec!["thread-b"]);
     assert_eq!(*backend.reads.lock().await, vec!["thread-a", "thread-b"]);
 }
 

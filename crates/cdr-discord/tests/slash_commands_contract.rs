@@ -12,6 +12,7 @@ const SETTINGS: &[ExpectedOption] = &[
     ("model", CommandOptionType::String, false, true),
     ("effort", CommandOptionType::String, false, true),
     ("speed", CommandOptionType::String, false, false),
+    ("auto_reserve", CommandOptionType::Boolean, false, false),
 ];
 const CONTEXT: &[ExpectedOption] = &[
     ("all_threads", CommandOptionType::Boolean, false, false),

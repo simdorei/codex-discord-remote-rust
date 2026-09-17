@@ -84,3 +84,17 @@ impl<B: TurnBackend> ActionExecutor<B> {
         )))
     }
 }
+
+impl<B: TurnBackend> ActionExecutor<B> {
+    /// Caller already owns `control_lock(target)`. No second lock or queue job.
+    pub(crate) async fn prepare_async_reply_locked(
+        &self,
+        target: &str,
+    ) -> Result<(), crate::queue_runner::BackendFailure> {
+        self.queue.backend.prepare_turn(target).await
+    }
+
+    pub(crate) async fn note_async_usage_limit_locked(&self, target: &str) {
+        let _ = self.queue.backend.note_usage_limit(target).await;
+    }
+}

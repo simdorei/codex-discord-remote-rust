@@ -19,6 +19,16 @@ pub(crate) async fn start() -> HttpGate {
 }
 
 pub(crate) async fn start_for_channels(channels: Vec<u64>) -> HttpGate {
+    start_for_routes(channels, false).await
+}
+
+// Other integration targets reuse this fixture without the slash-only helper.
+#[allow(dead_code)]
+pub(crate) async fn start_for_slash_refusal() -> HttpGate {
+    start_for_routes(vec![42], true).await
+}
+
+async fn start_for_routes(channels: Vec<u64>, allow_patch: bool) -> HttpGate {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
     let (entered, receiver) = oneshot::channel();
@@ -59,10 +69,21 @@ pub(crate) async fn start_for_channels(channels: Vec<u64>) -> HttpGate {
                 .iter()
                 .find(|id| {
                     raw.starts_with(format!("POST /api/v10/channels/{id}/messages ").as_bytes())
+                        || (allow_patch
+                            && raw.starts_with(
+                                b"PATCH /api/v10/webhooks/2/fixture/messages/@original ",
+                            ))
                 })
                 .copied()
                 .expect("unexpected HTTP route");
             posts.push(serde_json::from_slice(&raw[body_start..]).unwrap());
+            if allow_patch {
+                posts.last_mut().unwrap()["test_method"] = json!(if raw.starts_with(b"PATCH ") {
+                    "PATCH"
+                } else {
+                    "POST"
+                });
+            }
             if channels.len() > 1 {
                 posts.last_mut().unwrap()["test_channel"] = json!(channel);
             }

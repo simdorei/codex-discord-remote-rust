@@ -47,7 +47,7 @@ async fn fixture(temp: &tempfile::TempDir) -> CompletionWorker {
     }
     worker
         .queue
-        .stage_turn_completion("thread", "T1", "Final A")
+        .stage_turn_completion_on_generation("thread", "T1", "Final A", 1)
         .await
         .unwrap();
     worker

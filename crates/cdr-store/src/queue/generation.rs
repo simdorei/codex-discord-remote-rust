@@ -12,7 +12,7 @@ pub fn adopt_generation(path: &Path, generation: i64) -> Result<QueueGenerationA
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let adopted_count = transaction.execute(
         "UPDATE codex_turn_queue SET app_server_generation = ? \
-         WHERE app_server_generation != ? AND NOT EXISTS \
+         WHERE state = 'pending' AND app_server_generation != ? AND NOT EXISTS \
          (SELECT 1 FROM codex_dead_generation_holds hold \
           WHERE hold.target_thread_id = codex_turn_queue.target_thread_id)",
         [generation, generation],
@@ -34,7 +34,7 @@ pub fn adopt_target_generation(
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let adopted_count = transaction.execute(
         "UPDATE codex_turn_queue SET app_server_generation = ? \
-         WHERE target_thread_id = ? AND app_server_generation != ? AND NOT EXISTS \
+         WHERE target_thread_id = ? AND state = 'pending' AND app_server_generation != ? AND NOT EXISTS \
          (SELECT 1 FROM codex_dead_generation_holds hold \
           WHERE hold.target_thread_id = codex_turn_queue.target_thread_id)",
         params![generation, target_thread_id, generation],

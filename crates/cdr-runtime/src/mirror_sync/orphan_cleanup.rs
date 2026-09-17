@@ -19,9 +19,7 @@ impl MirrorSynchronizer {
             if let Some(reason) =
                 cdr_store::room_cleanup::pending_reason(&self.mirror_db, id, target.as_deref())?
             {
-                return Err(MirrorSyncError::Invalid(format!(
-                    "room {channel} is protected by {reason}; cleanup was not performed"
-                )));
+                return Err(MirrorSyncError::CleanupProtected { channel, reason });
             }
         }
         Ok(())

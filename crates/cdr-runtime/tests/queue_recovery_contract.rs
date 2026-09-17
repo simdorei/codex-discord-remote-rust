@@ -6,7 +6,9 @@ use cdr_app_server::outcomes::TurnStatus;
 use cdr_runtime::queue_runner::{
     BackendFailure, BoxBackendFuture, QueueCoordinator, TurnBackend, TurnRecord,
 };
-use cdr_store::queue::{NewQueueJob, QueueJobState, begin_attempt, enqueue, list, mark_running};
+use cdr_store::queue::{
+    NewQueueJob, QueueJobState, begin_attempt, enqueue, list, mark_running, record_start_failure,
+};
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
@@ -160,47 +162,65 @@ async fn old_ambiguous_start_adopts_the_single_new_turn_without_resending() {
     let jobs = list(&db).unwrap();
     assert_eq!(jobs[0].state, QueueJobState::Running);
     assert_eq!(jobs[0].turn_id.as_deref(), Some("recovered"));
-    assert_eq!(jobs[0].app_server_generation, 7);
+    // Recover the exact turn, not a new execution owner (revision 10 contract).
+    assert_eq!(jobs[0].app_server_generation, 1);
+    assert_eq!(jobs[0].execution_generation, Some(1));
+    assert_eq!(jobs[0].attempt_count, 1);
+    assert_eq!(jobs[0].baseline_turn_ids, vec!["old".to_owned()]);
+    assert_eq!(report.adopted, 0);
     assert!(backend.starts.lock().await.is_empty());
 }
 
 #[tokio::test]
-async fn old_generation_without_a_new_turn_requeues_with_durable_backoff() {
+async fn old_generation_without_a_new_turn_stays_unknown_after_lease_and_backoff() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("mirror.sqlite");
-    enqueue(&db, job("job-a", 2, 1, "retry after restart")).unwrap();
+    enqueue(&db, job("job-a", 2, 1, "do not replay after restart")).unwrap();
     begin_attempt(&db, "job-a", &[], 1).unwrap();
-    expire_starting(&db, "job-a");
     let backend = Arc::new(RecoveryBackend::default());
     let coordinator = QueueCoordinator::new(db.clone(), Arc::clone(&backend));
 
-    let report = coordinator.recover().await.unwrap();
-
-    assert_eq!(report.requeued, 1);
-    assert_eq!(report.started, 0);
+    for _ in 0..3 {
+        expire_starting(&db, "job-a");
+        let report = coordinator.recover().await.unwrap();
+        assert_eq!(report.requeued, 0);
+        assert_eq!(report.started, 0);
+        assert_eq!(report.unresolved, 1);
+        let job = &list(&db).unwrap()[0];
+        assert_eq!(job.state, QueueJobState::Starting);
+        assert_eq!(job.attempt_count, 1);
+        assert_eq!(job.app_server_generation, 1);
+        assert!(job.turn_id.is_none());
+        assert!(job.last_error.contains("does not authorize retry"));
+    }
     assert!(backend.starts.lock().await.is_empty());
-    let job = &list(&db).unwrap()[0];
-    assert_eq!(job.state, QueueJobState::Pending);
-    assert_eq!(job.attempt_count, 1);
-    assert!(!job.last_error.is_empty());
+    assert!(backend.resumes.lock().await.is_empty());
 }
 
 #[tokio::test]
-async fn reused_generation_requeues_with_backoff_after_authoritative_empty_read() {
+async fn reused_generation_empty_read_preserves_the_original_ambiguous_error() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("mirror.sqlite");
-    enqueue(&db, job("job-a", 3, 7, "resume after restart")).unwrap();
+    enqueue(&db, job("job-a", 3, 7, "preserve unknown after restart")).unwrap();
     begin_attempt(&db, "job-a", &[], 7).unwrap();
-    expire_starting(&db, "job-a");
+    record_start_failure(&db, "job-a", 7, "original response was lost", true).unwrap();
     let backend = Arc::new(RecoveryBackend::default());
     let coordinator = QueueCoordinator::new(db.clone(), Arc::clone(&backend));
 
-    let report = coordinator.recover().await.unwrap();
-
-    assert_eq!(report.requeued, 1);
-    assert_eq!(report.started, 0);
-    assert_eq!(list(&db).unwrap()[0].state, QueueJobState::Pending);
+    for _ in 0..3 {
+        expire_starting(&db, "job-a");
+        let report = coordinator.recover().await.unwrap();
+        assert_eq!(report.requeued, 0);
+        assert_eq!(report.started, 0);
+        assert_eq!(report.unresolved, 1);
+        let job = &list(&db).unwrap()[0];
+        assert_eq!(job.state, QueueJobState::Starting);
+        assert_eq!(job.attempt_count, 1);
+        assert_eq!(job.app_server_generation, 7);
+        assert_eq!(job.last_error, "original response was lost");
+    }
     assert!(backend.starts.lock().await.is_empty());
+    assert!(backend.resumes.lock().await.is_empty());
 }
 
 fn expire_starting(db: &std::path::Path, job_id: &str) {
@@ -238,5 +258,70 @@ async fn completed_running_job_is_preserved_for_durable_final_delivery() {
     assert_eq!(jobs.len(), 2);
     assert_eq!(jobs[0].job_id, "done");
     assert_eq!(jobs[0].state, QueueJobState::Running);
+    assert!(backend.starts.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn recorded_definite_start_failure_remains_retryable_after_cold_recovery() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("mirror.sqlite");
+    enqueue(&db, job("definite", 5, 1, "confirmed safe retry")).unwrap();
+    begin_attempt(&db, "definite", &[], 1).unwrap();
+    record_start_failure(&db, "definite", 1, "request definitely not sent", false).unwrap();
+    expire_starting(&db, "definite");
+    let backend = Arc::new(RecoveryBackend::default());
+    let coordinator = QueueCoordinator::new(db.clone(), Arc::clone(&backend));
+
+    let report = coordinator.recover().await.unwrap();
+
+    assert_eq!(report.requeued, 0);
+    assert_eq!(report.started, 1);
+    assert_eq!(*backend.starts.lock().await, vec!["confirmed safe retry"]);
+    let job = &list(&db).unwrap()[0];
+    assert_eq!(job.state, QueueJobState::Running);
+    assert_eq!(job.attempt_count, 2);
+    assert_eq!(job.app_server_generation, 7);
+}
+
+#[tokio::test]
+async fn failed_unknown_recovery_write_preserves_starting_and_never_authorizes_retry() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("mirror.sqlite");
+    enqueue(&db, job("unknown", 6, 1, "do not replay")).unwrap();
+    begin_attempt(&db, "unknown", &[], 1).unwrap();
+    expire_starting(&db, "unknown");
+    let connection = Connection::open(&db).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_recovery_record BEFORE UPDATE OF last_error ON codex_turn_queue \
+         BEGIN SELECT RAISE(ABORT,'injected recovery record failure'); END;",
+        )
+        .unwrap();
+    let backend = Arc::new(RecoveryBackend::default());
+    let coordinator = QueueCoordinator::new(db.clone(), Arc::clone(&backend));
+
+    assert!(coordinator.recover().await.is_err());
+    let job = &list(&db).unwrap()[0];
+    assert_eq!(job.state, QueueJobState::Starting);
+    assert_eq!(job.attempt_count, 1);
+    assert_eq!(job.app_server_generation, 1);
+    assert_eq!(job.updated_at.to_bits(), 0.0_f64.to_bits());
+    assert!(job.last_error.is_empty());
+    assert!(backend.starts.lock().await.is_empty());
+    assert!(backend.resumes.lock().await.is_empty());
+    connection
+        .execute_batch("DROP TRIGGER reject_recovery_record;")
+        .unwrap();
+    for _ in 0..3 {
+        expire_starting(&db, "unknown");
+        let report = coordinator.recover().await.unwrap();
+        assert_eq!(report.requeued, 0);
+        assert_eq!(report.started, 0);
+        assert_eq!(report.unresolved, 1);
+    }
+    let job = &list(&db).unwrap()[0];
+    assert_eq!(job.state, QueueJobState::Starting);
+    assert_eq!(job.attempt_count, 1);
+    assert!(job.last_error.contains("does not authorize retry"));
     assert!(backend.starts.lock().await.is_empty());
 }

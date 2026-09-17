@@ -56,6 +56,11 @@ pub(crate) async fn report_processing_error(
     error: MessageWorkerError,
 ) {
     eprintln!("on_message_error: {error}");
+    if matches!(error, MessageWorkerError::KnownOutcomeNotification(_)) {
+        // The original refusal is already durable. A second-key ERROR would
+        // create a duplicate or conceal an uncertain delivery from this attempt.
+        return;
+    }
     let report = send_reply_once(
         db,
         api,

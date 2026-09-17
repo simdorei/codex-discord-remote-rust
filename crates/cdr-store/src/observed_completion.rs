@@ -10,6 +10,12 @@ pub(crate) fn migrate_schema(connection: &Connection) -> Result<()> {
         payload TEXT NOT NULL, last_error TEXT NOT NULL DEFAULT '',
         PRIMARY KEY(thread_id, turn_id));",
     )?;
+    if !has_resident_owner(connection)? {
+        connection.execute(
+            "ALTER TABLE codex_observed_completions ADD COLUMN resident_owner TEXT",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -18,11 +24,15 @@ pub(crate) fn schema_current(connection: &Connection) -> Result<bool> {
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table'
         AND name='codex_observed_completions')",
         [],
-        |row| row.get(0),
-    )?)
+        |row| row.get::<_, bool>(0),
+    )? && has_resident_owner(connection)?)
 }
 
-/// Never claim an app-owned turn or a terminal event from an old generation.
+fn has_resident_owner(connection: &Connection) -> Result<bool> {
+    Ok(connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('codex_observed_completions') WHERE name='resident_owner')", [], |row| row.get(0))?)
+}
+
+/// Record only the exact owned turn and its bound observation generation.
 pub fn record(
     path: &Path,
     thread: &str,
@@ -34,7 +44,7 @@ pub fn record(
         "INSERT OR IGNORE INTO codex_observed_completions
         (thread_id,turn_id,generation,payload)
         SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM codex_turn_queue
-        WHERE target_thread_id=? AND turn_id=? AND app_server_generation=? AND state='running')",
+        WHERE target_thread_id=? AND turn_id=? AND COALESCE(turn_observation_generation,app_server_generation)=? AND state='running')",
         params![thread, turn, generation, payload, thread, turn, generation],
     )? == 1)
 }
@@ -82,6 +92,48 @@ pub fn record_error(path: &Path, thread: &str, turn: &str, error: &str) -> Resul
         params![bounded, thread, turn],
     )?;
     Ok(())
+}
+
+/// Called only for a notification delivered by this exact resident. Recovery
+/// reads never call it, so equal numeric generations across restarts are not proof.
+pub fn record_for_resident(
+    path: &Path,
+    thread: &str,
+    turn: &str,
+    generation: i64,
+    payload: &str,
+    resident: &str,
+) -> Result<bool> {
+    if resident.is_empty() {
+        return Err(crate::StoreError::Integrity(
+            "empty completion resident".into(),
+        ));
+    }
+    let inserted = record(path, thread, turn, generation, payload)?;
+    open_initialized(path)?.execute(
+        "UPDATE codex_observed_completions SET resident_owner=?1
+        WHERE thread_id=?2 AND turn_id=?3 AND generation=?4 AND payload=?5
+        AND resident_owner IS NULL
+        AND EXISTS(SELECT 1 FROM codex_turn_queue WHERE target_thread_id=?2 AND turn_id=?3
+          AND COALESCE(turn_observation_generation,app_server_generation)=?4 AND state='running')",
+        params![resident, thread, turn, generation, payload],
+    )?;
+    Ok(inserted)
+}
+
+pub fn has_resident_evidence(
+    path: &Path,
+    thread: &str,
+    turn: &str,
+    generation: i64,
+    resident: &str,
+) -> Result<bool> {
+    Ok(open_initialized(path)?.query_row(
+        "SELECT EXISTS(SELECT 1 FROM codex_observed_completions
+         WHERE thread_id=?1 AND turn_id=?2 AND generation=?3 AND resident_owner=?4)",
+        params![thread, turn, generation, resident],
+        |row| row.get(0),
+    )?)
 }
 
 #[cfg(test)]

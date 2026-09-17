@@ -158,3 +158,14 @@ pub fn settle_exited_owner(path: &Path, owner: &str, generation: i64) -> Result<
     )?;
     Ok(())
 }
+
+/// Caller owns an IMMEDIATE cleanup transaction. Cancelling an unsent candidate
+/// and publishing the cleanup fence commit together; stale workers fail their CAS.
+pub(crate) fn before_cleanup(db: &Connection, thread: &str) -> Result<()> {
+    if let Some(intent) = select(db, thread)?
+        && intent.state == "Candidate"
+    {
+        update(db, &intent, "Settled", "CancelledBeforeSend")?;
+    }
+    Ok(())
+}

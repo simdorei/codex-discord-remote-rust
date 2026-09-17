@@ -2,10 +2,11 @@ use super::ActionError;
 use cdr_app_server::requests::{ServiceTierUpdate, ThreadSettingsUpdate};
 use serde_json::Value;
 
-pub(super) struct Settings {
-    pub model: String,
-    pub effort: Option<String>,
-    pub tier: Option<String>,
+pub(crate) struct Settings {
+    pub(crate) model: String,
+    pub(crate) effort: Option<String>,
+    pub(crate) effort_present: bool,
+    pub(crate) tier: Option<String>,
 }
 impl Settings {
     pub fn parse(value: &Value) -> Result<Self, ActionError> {
@@ -16,11 +17,12 @@ impl Settings {
             .ok_or_else(|| invalid("model missing"))?;
         Ok(Self {
             model: model.into(),
+            effort_present: value.get("effort").is_some(),
             effort: nullable(value, "effort")?,
             tier: nullable(value, "serviceTier")?,
         })
     }
-    pub fn from_resume(value: &Value) -> Result<Self, ActionError> {
+    pub(crate) fn from_resume(value: &Value) -> Result<Self, ActionError> {
         let mut settings = value
             .as_object()
             .cloned()
@@ -28,16 +30,21 @@ impl Settings {
         if let Some(effort) = settings.remove("reasoningEffort") {
             settings.insert("effort".into(), effort);
         } else {
+            // A notification-shaped field is not a complete resume snapshot.
             settings.remove("effort");
         }
         Self::parse(&Value::Object(settings))
     }
     pub fn matches(&self, update: &ThreadSettingsUpdate) -> bool {
         update.model.as_ref().is_none_or(|v| v == &self.model)
-            && update
-                .effort
-                .as_ref()
-                .is_none_or(|v| Some(v) == self.effort.as_ref())
+            && if update.effort_clear {
+                self.effort.is_none()
+            } else {
+                update
+                    .effort
+                    .as_ref()
+                    .is_none_or(|v| Some(v) == self.effort.as_ref())
+            }
             && match &update.service_tier {
                 ServiceTierUpdate::Unchanged => true,
                 ServiceTierUpdate::Clear => self.tier.is_none(),
@@ -46,7 +53,7 @@ impl Settings {
     }
     pub fn display(&self, thread: &str, label: &str) -> String {
         let speed = match self.tier.as_deref() {
-            None => "standard",
+            None | Some("default") => "standard",
             Some("priority") => "fast",
             Some(other) => other,
         };
@@ -88,5 +95,32 @@ mod tests {
         }
         let value = json!({"model":"model-a","reasoningEffort":null,"serviceTier":null});
         assert!(Settings::from_resume(&value).is_ok());
+    }
+    #[test]
+    fn explicit_standard_preserves_exact_verification_and_readable_display() {
+        let update = ThreadSettingsUpdate {
+            model: Some("gpt-reserve".into()),
+            effort: Some("xhigh".into()),
+            effort_clear: false,
+            service_tier: ServiceTierUpdate::Set("default".into()),
+        };
+        let observed = json!({"model":"gpt-reserve","effort":"xhigh","serviceTier":"default"});
+        let settings = Settings::parse(&observed).unwrap();
+        assert!(settings.matches(&update));
+        assert!(
+            settings
+                .display("thread", "verified")
+                .contains("속도: standard")
+        );
+        for (field, different) in [
+            ("model", json!("gpt-5.6-luna")),
+            ("effort", json!("high")),
+            ("serviceTier", json!("priority")),
+            ("serviceTier", Value::Null),
+        ] {
+            let mut value = observed.clone();
+            value[field] = different;
+            assert!(!Settings::parse(&value).unwrap().matches(&update));
+        }
     }
 }

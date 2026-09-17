@@ -57,9 +57,43 @@ pub fn stage_queue_completion_with_release(
     now: f64,
     owner: Option<(&str, i64)>,
 ) -> Result<StoredDelivery> {
+    stage_completion_inner(path, job_id, content, now, owner, None)
+}
+
+/// Owner-checked completion for observers which may have awaited external work.
+/// Validation and all outbox/job/journal/candidate changes share one transaction.
+pub fn stage_owned_queue_completion_with_release(
+    path: &Path,
+    expected: &crate::queue::StoredQueueJob,
+    content: &str,
+    now: f64,
+    owner: Option<(&str, i64)>,
+) -> Result<StoredDelivery> {
+    stage_completion_inner(path, &expected.job_id, content, now, owner, Some(expected))
+}
+
+fn stage_completion_inner(
+    path: &Path,
+    job_id: &str,
+    content: &str,
+    now: f64,
+    owner: Option<(&str, i64)>,
+    expected: Option<&crate::queue::StoredQueueJob>,
+) -> Result<StoredDelivery> {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let job = select_job(&transaction, job_id)?;
+    if let Some(expected) = expected {
+        let count: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM codex_turn_queue WHERE target_thread_id=?1 AND turn_id=?2 AND state='running'",
+            params![expected.target_thread_id, expected.turn_id], |r| r.get(0),
+        )?;
+        if &job != expected || job.state != crate::queue::QueueJobState::Running || count != 1 {
+            return Err(StoreError::InvalidQueueState(
+                "completion ownership changed before commit".into(),
+            ));
+        }
+    }
     crate::dead_generation::ensure_target_available(&transaction, &job.target_thread_id)?;
     crate::mirror::record_job_origin(&transaction, &job)?;
     let turn_id = job

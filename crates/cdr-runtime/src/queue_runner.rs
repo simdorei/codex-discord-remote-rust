@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, Weak};
 use cdr_store::queue::{QueueJobState, list_filtered};
 use tokio::sync::Mutex as AsyncMutex;
 
+use crate::reserve_auto::ReserveAutoController;
 use crate::restart_readiness::drain::AdmissionGate;
 use unavailable_log::UnavailableTargetLogState;
 
@@ -92,6 +93,44 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             busy: active || queued,
             allow_steer: active,
         })
+    }
+
+    pub async fn kick_target(&self, target_thread_id: &str) -> Result<(), QueueRunnerError> {
+        let lock = self.target_lock(target_thread_id)?;
+        let _guard = lock.lock().await;
+        let generation = generation_i64(self.backend.generation())?;
+        let _ = self.start_next_locked(target_thread_id, generation).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn recover_reserve_target(
+        &self,
+        controller: &ReserveAutoController,
+        target_thread_id: &str,
+    ) -> Result<(), QueueRunnerError> {
+        let background = self.enter_background_recovery()?;
+        if background.as_ref().is_some_and(|(_, draining)| *draining) {
+            return Ok(());
+        }
+        let _permit = background.map(|(permit, _)| permit);
+        let lock = self.target_lock(target_thread_id)?;
+        let _guard = lock.lock().await;
+        if self
+            .admission
+            .as_ref()
+            .is_some_and(AdmissionGate::is_sealed)
+            || cdr_store::dead_generation::target_is_held(&self.db_path, target_thread_id)?
+            || cdr_store::archive_fence::target_is_fenced(&self.db_path, target_thread_id)?
+            || list_filtered(&self.db_path, Some(target_thread_id), None)?
+                .iter()
+                .any(|job| matches!(job.state, QueueJobState::Starting | QueueJobState::Running))
+        {
+            return Ok(());
+        }
+        controller.recover_target(target_thread_id).await?;
+        let generation = generation_i64(self.backend.generation())?;
+        let _ = self.start_next_locked(target_thread_id, generation).await?;
+        Ok(())
     }
 
     pub async fn control_binding(

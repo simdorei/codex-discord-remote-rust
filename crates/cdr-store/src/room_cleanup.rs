@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::path::Path;
 pub mod archive;
 mod archive_schema;
+pub mod archived_rejections;
 mod pending;
 mod schema;
 pub(crate) use schema::{migrate_schema, schema_current};
@@ -11,7 +12,19 @@ pub(crate) use schema::{migrate_schema, schema_current};
 pub fn begin(path: &Path, channel: i64, target: Option<&str>, now: f64) -> Result<String> {
     let mut connection = crate::schema::open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let fenced: bool = transaction.query_row(
+    let token = begin_in(&transaction, channel, target, now, &[])?;
+    transaction.commit()?;
+    Ok(token)
+}
+
+fn begin_in(
+    connection: &Connection,
+    channel: i64,
+    target: Option<&str>,
+    now: f64,
+    excluded: &[String],
+) -> Result<String> {
+    let fenced: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE channel_id=?)",
         [channel],
         |r| r.get(0),
@@ -21,7 +34,7 @@ pub fn begin(path: &Path, channel: i64, target: Option<&str>, now: f64) -> Resul
             "room {channel} cleanup outcome is fenced; manual reconciliation required"
         )));
     }
-    let mapped = transaction.prepare("SELECT codex_thread_id FROM mirror_threads WHERE discord_thread_id=? OR discord_channel_id=?")?
+    let mapped = connection.prepare("SELECT codex_thread_id FROM mirror_threads WHERE discord_thread_id=? OR discord_channel_id=?")?
         .query_map([channel,channel],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     let matches = match (target, mapped.as_slice()) {
         (Some(expected), [actual]) => expected == actual,
@@ -33,14 +46,16 @@ pub fn begin(path: &Path, channel: i64, target: Option<&str>, now: f64) -> Resul
             "cleanup mapping identity changed or invalid".into(),
         ));
     }
-    if let Some(reason) = pending::reason(&transaction, channel, target)? {
-        return Err(StoreError::Integrity(format!(
-            "room {channel} protected by {reason}"
-        )));
+    if let Some(thread) = target {
+        crate::idle_release::before_cleanup(connection, thread)?;
+    }
+    if let Some(reason) =
+        pending::reason_with_exclusions(connection, channel, target, None, false, excluded)?
+    {
+        return Err(StoreError::CleanupProtected { channel, reason });
     }
     let token = uuid::Uuid::new_v4().to_string();
-    transaction.execute("INSERT INTO cdr_cleanup_fences (channel_id,target_thread_id,token,phase,created_at) VALUES (?,?,?,'deleting',?)",params![channel,target,token,now])?;
-    transaction.commit()?;
+    connection.execute("INSERT INTO cdr_cleanup_fences (channel_id,target_thread_id,token,phase,created_at) VALUES (?,?,?,'deleting',?)",params![channel,target,token,now])?;
     Ok(token)
 }
 

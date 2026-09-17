@@ -75,6 +75,7 @@ async fn mutate(
                 &ThreadSettingsUpdate {
                     model: Some("test".into()),
                     effort: None,
+                    effort_clear: false,
                     service_tier: ServiceTierUpdate::Unchanged,
                 },
                 1,

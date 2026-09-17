@@ -8,7 +8,7 @@ async fn ir1_final_commit_keeps_exact_candidate_after_outbox_delivery() {
     goal_handoff_tests::setup_running(&worker);
     let delivery = worker
         .queue
-        .stage_turn_completion("thread", "T1", "Final exact")
+        .stage_turn_completion_on_generation("thread", "T1", "Final exact", 1)
         .await
         .unwrap()
         .unwrap();

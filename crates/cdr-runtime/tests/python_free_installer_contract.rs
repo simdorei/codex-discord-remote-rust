@@ -2,7 +2,8 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+#[path = "support/powershell_utf8.rs"]
+mod powershell;
 
 fn copy_tree(source: &Path, target: &Path) {
     fs::create_dir_all(target).unwrap();
@@ -32,13 +33,13 @@ fn install_dry_run_never_prepares_python_or_changes_files() {
     .unwrap();
     // No legacy manifest or dependency file is present in a native fresh install.
     copy_tree(&source.join("scripts"), &root.path().join("scripts"));
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(root.path().join("install.ps1"))
-        .args(["-DryRun", "-SkipEnvFile", "-SkipCodexPlugin"])
-        .env("PYTHON_EXE", root.path().join("no-python.exe"))
-        .output()
-        .unwrap();
+    let output = powershell::command(
+        "& $env:CDR_TEST_SCRIPT -DryRun -SkipEnvFile -SkipCodexPlugin; exit $LASTEXITCODE",
+    )
+    .env("CDR_TEST_SCRIPT", root.path().join("install.ps1"))
+    .env("PYTHON_EXE", root.path().join("no-python.exe"))
+    .output()
+    .unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -68,13 +69,12 @@ fn setup_wrapper_dry_run_uses_rust_without_scheduling_or_saving_secrets() {
     ] {
         fs::copy(source.join(name), root.path().join(name)).unwrap();
     }
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(root.path().join("setup-discord-bot.ps1"))
-        .args(["-RepoRoot"])
-        .arg(root.path())
-        .args(["-DryRun", "-BotId", "42", "-BinaryPath"])
-        .arg(env!("CARGO_BIN_EXE_cdr-runtime"))
+    let output = powershell::command(
+        "& $env:CDR_TEST_SCRIPT -RepoRoot $env:CDR_TEST_ROOT -DryRun -BotId 42 -BinaryPath $env:CDR_TEST_BINARY; exit $LASTEXITCODE",
+    )
+        .env("CDR_TEST_SCRIPT", root.path().join("setup-discord-bot.ps1"))
+        .env("CDR_TEST_ROOT", root.path())
+        .env("CDR_TEST_BINARY", env!("CARGO_BIN_EXE_cdr-runtime"))
         .env("PYTHON_EXE", root.path().join("no-python.exe"))
         .output()
         .unwrap();
@@ -102,11 +102,11 @@ fn setup_without_repo_root_uses_script_location_not_callers_directory() {
     ] {
         fs::copy(source.join(name), root.path().join(name)).unwrap();
     }
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(root.path().join("setup-discord-bot.ps1"))
-        .args(["-DryRun", "-BotId", "42", "-BinaryPath"])
-        .arg(env!("CARGO_BIN_EXE_cdr-runtime"))
+    let output = powershell::command(
+        "& $env:CDR_TEST_SCRIPT -DryRun -BotId 42 -BinaryPath $env:CDR_TEST_BINARY; exit $LASTEXITCODE",
+    )
+        .env("CDR_TEST_SCRIPT", root.path().join("setup-discord-bot.ps1"))
+        .env("CDR_TEST_BINARY", env!("CARGO_BIN_EXE_cdr-runtime"))
         .current_dir(caller.path())
         .env("PYTHON_EXE", root.path().join("no-python.exe"))
         .output()

@@ -29,6 +29,8 @@ mod history_request;
 mod idle_release;
 mod observation;
 mod receipt;
+mod start_failure;
+pub(crate) use start_failure::{deliver_reserve_transition_notices, deliver_start_failures};
 mod recovery;
 mod terminal_fence;
 mod typing;
@@ -55,6 +57,8 @@ mod new_attachment_tests;
 mod new_first_reply_recovery_tests;
 #[cfg(test)]
 mod new_first_reply_tests;
+#[cfg(test)]
+mod reserve_inheritance_tests;
 
 pub use delivery::completion_message;
 use delivery::i64_channel;
@@ -115,6 +119,20 @@ struct CompletionWorker {
 }
 
 impl CompletionWorker {
+    fn release_generation(
+        &self,
+        completion: &TurnCompletion,
+        generation: i64,
+    ) -> Result<Option<i64>, CompletionWorkerError> {
+        let confirmed = cdr_store::observed_completion::has_resident_evidence(
+            self.queue.db_path(),
+            &completion.thread_id,
+            &completion.turn_id,
+            generation,
+            self.server.instance_id(),
+        )?;
+        Ok(confirmed.then_some(generation))
+    }
     async fn deliver_questions(&self) -> Result<(), CompletionWorkerError> {
         crate::async_question_ui::deliver_pending(
             self.queue.db_path(),
@@ -126,6 +144,9 @@ impl CompletionWorker {
     }
 
     async fn handle(&self, event: ResidentNotificationEvent) -> Result<(), CompletionWorkerError> {
+        // The observer may precede Goal attachment; FIFO processing can now
+        // record the exact owned event. INSERT OR IGNORE preserves first evidence.
+        self.observe_terminal(&event)?;
         let ResidentNotificationEvent::Notification {
             generation,
             notification,
@@ -164,7 +185,10 @@ impl CompletionWorker {
                         &thread,
                         &turn,
                     )?;
-                    let _ = self.queue.goal_turn_started(&thread, &turn).await?;
+                    let _ = self
+                        .queue
+                        .goal_turn_started_observed(&thread, &turn, generation, None)
+                        .await?;
                     // The observer may already have journalled this successor's
                     // questions while goal-progress delivery delayed the handoff.
                     self.deliver_questions().await?;
@@ -196,16 +220,38 @@ impl CompletionWorker {
         evidence_generation: i64,
         completion: &TurnCompletion,
     ) -> Result<(), CompletionWorkerError> {
-        if self
-            .running_channel(&completion.thread_id, &completion.turn_id)?
-            .is_none()
-        {
+        self.finish_with_owner(server_generation, evidence_generation, completion, None)
+            .await
+    }
+
+    async fn finish_with_owner(
+        &self,
+        server_generation: u64,
+        evidence_generation: i64,
+        completion: &TurnCompletion,
+        expected_owner: Option<&cdr_store::queue::StoredQueueJob>,
+    ) -> Result<(), CompletionWorkerError> {
+        let Some(owner) = list(self.queue.db_path())?.into_iter().find(|job| {
+            job.state == QueueJobState::Running
+                && job.target_thread_id == completion.thread_id
+                && job.turn_id.as_deref() == Some(completion.turn_id.as_str())
+        }) else {
+            if expected_owner.is_some() {
+                return Err(CompletionWorkerError::Held(
+                    "captured completion owner no longer exists".into(),
+                ));
+            }
             cdr_store::observed_completion::finish(
                 self.queue.db_path(),
                 &completion.thread_id,
                 &completion.turn_id,
             )?;
             return Ok(());
+        };
+        if expected_owner.is_some_and(|expected| expected != &owner) {
+            return Err(CompletionWorkerError::Held(
+                "captured completion ownership changed".into(),
+            ));
         }
         self.commentary
             .lock()
@@ -217,45 +263,81 @@ impl CompletionWorker {
         } else {
             None
         };
-        let exact = if completion.status == TurnStatus::Completed {
-            match self
-                .exact_text(server_generation, evidence_generation, completion)
-                .await
-            {
-                Ok(text) => text,
-                Err(CompletionWorkerError::Outcome(TurnOutcomeError::TurnNotFound)) => {
-                    return self
-                        .finish_without_exact_reply(completion, goal, evidence_generation)
-                        .await;
-                }
-                Err(error) => return Err(error),
+        // This gate is shared by periodic recovery, Goal updates, and duplicate
+        // terminal notifications; none may turn prior progress into a false Final.
+        if owner.goal_waiting && goal != Some(ThreadGoalStatus::Active) {
+            let confirmed = self
+                .waiting_goal_completion(server_generation, &owner)
+                .await?;
+            if confirmed.status != completion.status {
+                return Err(CompletionWorkerError::Held(
+                    "waiting terminal status changed".into(),
+                ));
             }
+        }
+        let reply = if completion.status == TurnStatus::Completed {
+            self.exact_text(
+                server_generation,
+                evidence_generation,
+                completion,
+                &owner,
+                (goal.is_some() || owner.goal_waiting) && goal != Some(ThreadGoalStatus::Active),
+            )
+            .await?
         } else {
-            String::new()
+            context::ExactReply {
+                text: Some(String::new()),
+                needs_goal_handoff: false,
+            }
         };
-        if goal == Some(ThreadGoalStatus::Active) {
+        let continues = goal == Some(ThreadGoalStatus::Active) || reply.needs_goal_handoff;
+        let Some(exact) = reply.text else {
+            return self
+                .finish_without_exact_reply(
+                    completion,
+                    if continues {
+                        Some(ThreadGoalStatus::Active)
+                    } else {
+                        goal
+                    },
+                    &owner,
+                    evidence_generation,
+                )
+                .await;
+        };
+        // A known successor makes this exact turn progress even when Goal/get
+        // already reports complete. Retain J until FIFO validates its next start.
+        if continues {
             let text = if exact.is_empty() {
                 String::new()
             } else {
                 format!("[Goal progress]\n{exact}")
             };
-            if let Some(pending) = self
-                .queue
-                .stage_goal_progress(&completion.thread_id, &completion.turn_id, &text)
-                .await?
-            {
+            if let Some(pending) = self.queue.stage_owned_goal_progress(&owner, &text).await? {
                 self.deliver_goal_progress(&pending).await?;
             }
             return Ok(());
         }
-        let text = completion_message(completion, &exact, goal);
+        self.finish_owned_terminal(&owner, completion, &exact, goal, evidence_generation)
+            .await
+    }
+
+    async fn finish_owned_terminal(
+        &self,
+        owner: &cdr_store::queue::StoredQueueJob,
+        completion: &TurnCompletion,
+        exact: &str,
+        goal: Option<ThreadGoalStatus>,
+        evidence_generation: i64,
+    ) -> Result<(), CompletionWorkerError> {
+        let text = completion_message(completion, exact, goal);
         if let Some(delivery) = self
             .queue
-            .stage_turn_completion_on_generation(
-                &completion.thread_id,
-                &completion.turn_id,
+            .stage_owned_turn_completion_observed(
+                owner,
                 &text,
-                evidence_generation,
+                completion.usage_limit,
+                self.release_generation(completion, evidence_generation)?,
             )
             .await?
         {
@@ -278,27 +360,24 @@ impl CompletionWorker {
         &self,
         completion: &TurnCompletion,
         goal: Option<ThreadGoalStatus>,
+        owner: &cdr_store::queue::StoredQueueJob,
         evidence_generation: i64,
     ) -> Result<(), CompletionWorkerError> {
         let text = "ERROR: Codex turn completed, but its exact final reply could not be recovered: \
 thread/read did not contain the requested turn and no matching final-answer event was stored.";
         if goal == Some(ThreadGoalStatus::Active) {
-            if let Some(pending) = self
-                .queue
-                .stage_goal_progress(&completion.thread_id, &completion.turn_id, text)
-                .await?
-            {
+            if let Some(pending) = self.queue.stage_owned_goal_progress(owner, text).await? {
                 self.deliver_goal_progress(&pending).await?;
             }
             return Ok(());
         }
         if let Some(delivery) = self
             .queue
-            .stage_turn_completion_on_generation(
-                &completion.thread_id,
-                &completion.turn_id,
+            .stage_owned_turn_completion_observed(
+                owner,
                 text,
-                evidence_generation,
+                completion.usage_limit,
+                self.release_generation(completion, evidence_generation)?,
             )
             .await?
         {

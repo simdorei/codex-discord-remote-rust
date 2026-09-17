@@ -3,6 +3,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use twilight_model::channel::ChannelType;
 
+mod archived_rejections;
 mod channels;
 mod cleanup;
 mod delete_guard;
@@ -65,6 +66,10 @@ pub trait MirrorTransport: Send + Sync {
 
 #[derive(Debug, Error)]
 pub enum MirrorSyncError {
+    #[error(
+        "mirror sync stopped: room {channel} is protected by {reason}; no deletion was dispatched for this room; earlier sync changes may have completed"
+    )]
+    CleanupProtected { channel: u64, reason: &'static str },
     #[error("Discord rejected room deletion without deleting the room: {0}")]
     DeleteRejected(String),
     #[error(transparent)]

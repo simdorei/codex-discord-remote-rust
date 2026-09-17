@@ -19,9 +19,19 @@ pub(crate) fn migrate_schema(db: &Connection) -> Result<()> {
         created_at REAL NOT NULL, updated_at REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS cdr_async_question_pending ON cdr_async_questions(runtime_id,state);
         CREATE UNIQUE INDEX IF NOT EXISTS cdr_async_question_reply_job ON cdr_async_questions(reply_job_id) WHERE reply_job_id IS NOT NULL;")?;
+    if !has_preparation(db)? {
+        db.execute(
+            "ALTER TABLE cdr_async_questions ADD COLUMN preparation_json TEXT",
+            [],
+        )?;
+    }
     Ok(())
 }
 
 pub(crate) fn schema_current(db: &Connection) -> Result<bool> {
-    Ok(db.query_row("SELECT COUNT(*)=2 FROM sqlite_schema WHERE type='table' AND name IN ('cdr_async_questions','cdr_async_question_inbox')", [], |r|r.get(0))?)
+    Ok(db.query_row("SELECT COUNT(*)=2 FROM sqlite_schema WHERE type='table' AND name IN ('cdr_async_questions','cdr_async_question_inbox')", [], |r|r.get::<_,bool>(0))? && has_preparation(db)?)
+}
+
+fn has_preparation(db: &Connection) -> Result<bool> {
+    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('cdr_async_questions') WHERE name='preparation_json')", [], |r|r.get(0))?)
 }

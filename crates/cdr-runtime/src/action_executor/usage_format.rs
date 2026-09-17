@@ -28,6 +28,31 @@ pub(super) fn format_usage(days: u32, rates: &Value, usage: &Value, today: Naive
             scalar(&credits["unlimited"])
         ));
     }
+    lines.push(format!(
+        "ordinary included usage allowed: {}",
+        scalar(&rates["ordinaryUsageAllowed"])
+    ));
+    match super::model_catalog::reserve::snapshot(rates) {
+        Ok(reserve) => {
+            lines.push("\nLuna Reserve (별도 한도 · 현재 대화의 사용 모드가 아님)".into());
+            lines.push(format!(
+                "request model: {} / normal model: {}",
+                scalar(&reserve["limitName"]),
+                scalar(&reserve["normalModelSlug"])
+            ));
+            lines.push(window("reserve primary", &reserve["primary"]));
+            lines.push(window("reserve secondary", &reserve["secondary"]));
+            lines.push(format!(
+                "reserve limit state: {}",
+                scalar(&reserve["rateLimitReachedType"])
+            ));
+            lines.push(
+                "선택: !settings --model reserve · 설정 성공과 실제 실행 성공은 별도 확인".into(),
+            );
+        }
+        Err(_) => lines
+            .push("Luna Reserve: quota unavailable or ambiguous (미확인은 잔량 0이 아님)".into()),
+    }
     lines.push(String::from("\nDaily token usage"));
     let mut rows = Vec::new();
     let mut invalid = false;
@@ -158,5 +183,22 @@ mod tests {
         );
         assert!(text.contains("usage data unavailable"), "{text}");
         assert!(!text.contains("total_tokens: 0"), "{text}");
+        assert!(text.contains("Luna Reserve: quota unavailable"));
+        assert!(!text.contains("reserve primary: used=0%"));
+    }
+
+    #[test]
+    fn luna_reserve_usage_is_separate_and_never_infers_ordinary_recovery() {
+        let rates = json!({"ordinaryUsageAllowed":null,"rateLimits":{"primary":{"usedPercent":100}},"rateLimitsByLimitId":{"base_model_inference":{"limitName":"gpt-reserve","normalModelSlug":"gpt-5.6-luna","primary":{"usedPercent":1,"windowDurationMins":10080}}}});
+        let text = format_usage(
+            1,
+            &rates,
+            &json!({}),
+            NaiveDate::from_ymd_opt(2026, 9, 15).unwrap(),
+        );
+        assert!(text.contains("primary: used=100%"));
+        assert!(text.contains("reserve primary: used=1%"));
+        assert!(text.contains("request model: gpt-reserve / normal model: gpt-5.6-luna"));
+        assert!(text.contains("ordinary included usage allowed: unavailable"));
     }
 }

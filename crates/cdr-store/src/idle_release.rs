@@ -4,8 +4,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 
 mod write;
-pub(crate) use write::before_enqueue;
 pub(crate) use write::stage_candidate;
+pub(crate) use write::{before_cleanup, before_enqueue};
 pub use write::{before_mutation, settle_exited_owner, transition};
 
 pub const MAX_UNRESOLVED: i64 = 128;
@@ -98,7 +98,12 @@ fn bot_idle_on(db: &Connection, thread: &str) -> Result<bool> {
         NOT EXISTS(SELECT 1 FROM codex_turn_queue WHERE target_thread_id=?1)
         AND NOT EXISTS(SELECT 1 FROM cdr_async_questions WHERE thread_id=?1
             AND state NOT IN ('submitted','rejected'))
-        AND NOT EXISTS(SELECT 1 FROM cdr_async_question_inbox WHERE thread_id=?1)",
+        AND NOT EXISTS(SELECT 1 FROM cdr_async_question_inbox WHERE thread_id=?1)
+        AND NOT EXISTS(SELECT 1 FROM codex_reserve_policy WHERE thread_id=?1
+            AND (state NOT IN ('ordinary','reserve') OR usage_failure_state='pending'))
+        AND NOT EXISTS(SELECT 1 FROM codex_dead_generation_holds WHERE target_thread_id=?1)
+        AND NOT EXISTS(SELECT 1 FROM codex_archive_fences WHERE target_thread_id=?1)
+        AND NOT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE target_thread_id=?1)",
         [thread],
         |r| r.get(0),
     )?)

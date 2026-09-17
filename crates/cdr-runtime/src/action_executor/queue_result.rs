@@ -53,6 +53,16 @@ pub(super) fn submission_result(
                 ui: None,
             };
         }
+        if warning.kind == BackendFailureKind::AutoReserveHeld {
+            return ActionResult {
+                text: format!(
+                    "Codex request was not replayed{source}\nthread_id: {thread_id}\njob_id: {}\nstatus: automatic Reserve transition is held\nreason: {}\nsafety: no request replay was attempted",
+                    submission.job_id, warning.message
+                ),
+                waits_for_final: false,
+                ui: None,
+            };
+        }
         let (header, warning_kind) = if warning.ambiguous {
             (
                 "Accepted Codex request; immediate start outcome is unknown and recovery will reconcile it",

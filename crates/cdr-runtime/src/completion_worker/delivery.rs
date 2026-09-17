@@ -14,6 +14,9 @@ const NO_VISIBLE_REPLY: &str = "Completed (no visible reply)";
 
 impl CompletionWorker {
     pub(super) async fn deliver_pending(&self) -> Result<(), CompletionWorkerError> {
+        let starts = super::deliver_start_failures(self.queue.db_path(), &self.http).await;
+        let transitions =
+            super::deliver_reserve_transition_notices(self.queue.db_path(), &self.http).await;
         let commentary = self.deliver_pending_commentary().await;
         let finals = attempt_all(list_pending(self.queue.db_path())?, |pending| async move {
             let delivery_id = pending.delivery_id.clone();
@@ -26,7 +29,7 @@ impl CompletionWorker {
             result
         })
         .await;
-        commentary.and(finals)
+        starts.and(transitions).and(commentary).and(finals)
     }
 
     pub(super) async fn deliver_one(
@@ -237,6 +240,7 @@ mod tests {
             error_message: String::new(),
             interrupt_origin: None,
             duration_ms: None,
+            usage_limit: false,
         };
         assert_eq!(completion_message(&completion, "답변", None), "Final\n답변");
     }

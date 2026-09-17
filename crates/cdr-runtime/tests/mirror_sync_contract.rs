@@ -19,6 +19,8 @@ mod cleanup_races;
 mod exact_cleanup;
 #[path = "support/mirror_missing_cleanup.rs"]
 mod missing_cleanup;
+#[path = "support/mirror_owned_cleanup.rs"]
+mod owned_cleanup;
 
 #[derive(Default)]
 struct RemoteState {
@@ -339,3 +341,6 @@ async fn missing_stored_thread_is_recreated_and_remapped() {
     assert_eq!(mapping.0, 20);
     assert_ne!(mapping.1, 30);
 }
+
+#[path = "support/mirror_archive_rejection.rs"]
+mod archive_rejection;

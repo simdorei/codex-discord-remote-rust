@@ -33,6 +33,23 @@ impl MessageFixture {
         http: Arc<twilight_http::Client>,
         server: Arc<ResidentAppServer>,
     ) -> Self {
+        Self::configured_server(temp, http, server, false)
+    }
+
+    pub fn with_reserve_server(
+        temp: &tempfile::TempDir,
+        http: Arc<twilight_http::Client>,
+        server: Arc<ResidentAppServer>,
+    ) -> Self {
+        Self::configured_server(temp, http, server, true)
+    }
+
+    fn configured_server(
+        temp: &tempfile::TempDir,
+        http: Arc<twilight_http::Client>,
+        server: Arc<ResidentAppServer>,
+        reserve: bool,
+    ) -> Self {
         let state = temp.path().join("state.sqlite");
         rusqlite::Connection::open(&state)
             .unwrap()
@@ -41,10 +58,15 @@ impl MessageFixture {
         let db = temp.path().join("mirror.sqlite");
         cdr_store::mapping::upsert_thread(&db, "thread-b", "project", "title", 100, 42, 1.0)
             .unwrap();
-        let queue = Arc::new(QueueCoordinator::new(
-            db.clone(),
-            Arc::new(AppServerTurnBackend::new(server.clone())),
-        ));
+        let mut backend = AppServerTurnBackend::new(server.clone());
+        if reserve {
+            crate::idle_release::install(&server, &db).unwrap();
+            backend = backend.with_reserve_auto(crate::reserve_auto::ReserveAutoController::new(
+                server.clone(),
+                db.clone(),
+            ));
+        }
+        let queue = Arc::new(QueueCoordinator::new(db.clone(), Arc::new(backend)));
         let executor = ActionExecutor::new(
             state,
             db,

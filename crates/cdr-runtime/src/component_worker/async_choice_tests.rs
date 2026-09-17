@@ -203,7 +203,12 @@ async fn async_choice_completed_start_rechecks_successor_at_actual_send_boundary
             &f.server,
         )
         .await;
-        assert_eq!(result.is_ok(), !stale);
+        assert_eq!(
+            result.is_ok(),
+            !stale,
+            "{:?}",
+            result.as_ref().err().map(ToString::to_string)
+        );
         let q = aq::get(f.executor.mirror_db(), &id).unwrap();
         assert_eq!(q.state, if stale { "rejected" } else { "submitted" });
         let jobs = queue::list(f.executor.mirror_db()).unwrap();
@@ -300,3 +305,6 @@ async fn async_choice_lost_start_response_survives_real_queue_recovery_without_a
         Some("thread/resume" | "thread/fork" | "thread/read")
     )));
 }
+
+#[path = "async_integration_tests.rs"]
+mod integrated;

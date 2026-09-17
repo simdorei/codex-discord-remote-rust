@@ -30,7 +30,7 @@ impl MirrorSynchronizer {
             .map(|thread| (thread.id.clone(), thread))
             .collect::<BTreeMap<_, _>>();
         let mut expected = store
-            .load_user_root_threads(0)?
+            .load_mirror_root_threads(0)?
             .into_iter()
             .map(|thread| thread.id)
             .collect::<BTreeSet<_>>();
@@ -59,7 +59,7 @@ impl MirrorSynchronizer {
         let guild = self.inspection_guild(origin).await?;
         let mut details = missing
             .iter()
-            .map(|id| format!("missing_mapping | {id}"))
+            .map(|id| missing_mapping(id, &active))
             .collect::<Vec<_>>();
         details.extend(project_issues);
         let missing_rollouts = expected
@@ -101,7 +101,7 @@ impl MirrorSynchronizer {
             details.truncate(limit as usize);
         }
         Ok(format!(
-            "Discord mirror {} (read-only)\nstatus: {status}\nexpected_threads: {}\ntargets: {}\nmissing_mapping: {}\nduplicate_rooms: {duplicates}\nstale_mappings: {}\nmissing_rollouts: {}\nremote_errors: {remote_errors}\n{project_summary}\ndetails: {}/{} (limit affects display only)\n{}",
+            "Discord mirror {} (read-only)\nscope: configured local Codex DB; interactive user roots + mapped active threads; writer ownership not verified\nstatus: {status}\nexpected_threads: {}\ntargets: {}\nmissing_mapping: {}\nduplicate_rooms: {duplicates}\nstale_mappings: {}\nmissing_rollouts: {}\nremote_errors: {remote_errors}\n{project_summary}\ndetails: {}/{} (limit affects display only)\n{}",
             if list { "list" } else { "check" },
             expected.len(),
             mappings.len(),
@@ -196,5 +196,26 @@ impl MirrorSynchronizer {
                 Ok(()) => "ok".into(),
             },
         }
+    }
+}
+
+fn missing_mapping(id: &str, active: &BTreeMap<String, cdr_codex_state::ThreadInfo>) -> String {
+    match active.get(id) {
+        Some(thread) => format!(
+            "missing_mapping | {id} | title={} | cwd={}",
+            thread.title.replace(['\r', '\n'], " "),
+            thread.cwd.replace(['\r', '\n'], " "),
+        ),
+        None => format!("missing_mapping | {id} | source changed during inventory; recheck"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_new_root_between_inventory_reads_is_reported_without_panicking() {
+        let text = super::missing_mapping("newly-created", &std::collections::BTreeMap::new());
+        assert!(text.contains("missing_mapping | newly-created"));
+        assert!(text.contains("source changed during inventory; recheck"));
     }
 }

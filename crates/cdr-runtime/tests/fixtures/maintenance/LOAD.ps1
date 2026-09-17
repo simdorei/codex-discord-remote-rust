@@ -15,7 +15,7 @@ $state=[pscustomobject]@{
  Fence=[pscustomobject]@{RuntimeId='runtime1';ProcessIdentity='42|99';Nonce=$op}
  BaselineHash=('A'*64);CandidateHash=('B'*64);OperatorHash=('C'*64);EnvHash=('D'*64)
  CandidatePath=(Join-Path $bundle 'candidate.exe');OperatorPath=(Join-Path $bundle 'operator.exe')
- TaskName=('Codex Maintenance V2 '+$op);NotifyChannel='900000000000000001';DiscordReceipt='';Heartbeats=@()
+ TaskName=('Codex Maintenance V2 '+$op);NotifyChannel='1543277263418826775';DiscordReceipt='';Heartbeats=@()
  ActiveCommand=$null;PreStopBackup=$null;PostStopBackup=$null;FailureObservation=$null
 }
 Write-NewCdrMarker $StatePath ($state|ConvertTo-Json -Depth 10)
@@ -53,3 +53,7 @@ function Complete-CdrMaintenance {Effect 'complete'}
 function Publish-CdrMaintenanceFailure {}
 function Stop-VerifiedRuntime {throw 'FORCE KILL FORBIDDEN'}
 function Invoke-CdrDeploymentRecovery {throw 'LEGACY RECOVERY FORBIDDEN'}
+
+# Match the production ticket policy without permitting real network delivery.
+function Invoke-RestMethod { throw 'NETWORK_FORBIDDEN_IN_OFFLINE_FIXTURE' }
+function Invoke-WebRequest { throw 'NETWORK_FORBIDDEN_IN_OFFLINE_FIXTURE' }

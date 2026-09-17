@@ -5,7 +5,30 @@ use cdr_app_server::{
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-pub(super) async fn wait(
+pub(crate) async fn apply_or_confirm(
+    server: &ResidentAppServer,
+    thread: &str,
+    generation: u64,
+    current: Settings,
+    update: &ThreadSettingsUpdate,
+) -> Result<(Settings, bool), ActionError> {
+    // The caller supplies this invocation's complete, exact-thread resume
+    // response under its control lock, never cached/local settings. It checks
+    // generation and route before this call and again before recording success.
+    if current.matches(update) {
+        return Ok((current, true));
+    }
+    // A real change still needs a post-dispatch observation; neither its ACK
+    // nor a pre-dispatch match is sufficient. Do not add a retry on timeout.
+    let notifications = server.subscribe_notifications();
+    let before = server
+        .update_settings_with_watermark(thread, update, generation)
+        .await?;
+    let applied = wait(server, thread, generation, before, update, notifications).await?;
+    Ok((applied, false))
+}
+
+async fn wait(
     server: &ResidentAppServer,
     thread: &str,
     generation: u64,
