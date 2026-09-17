@@ -58,7 +58,12 @@ impl<B: TurnBackend> ActionExecutor<B> {
             ));
         }
         match action {
-            CommandAction::Settings { reference, model, effort, speed } => {
+            CommandAction::Settings {
+                reference,
+                model,
+                effort,
+                speed,
+            } => {
                 self.settings(
                     context.channel_id,
                     reference.as_deref(),
@@ -66,7 +71,8 @@ impl<B: TurnBackend> ActionExecutor<B> {
                     effort.as_deref(),
                     speed.as_deref(),
                     Some(&binding),
-                ).await
+                )
+                .await
             }
             CommandAction::AutoReserve { enabled, .. } => {
                 self.auto_reserve_setting(
@@ -74,7 +80,8 @@ impl<B: TurnBackend> ActionExecutor<B> {
                     Some(binding.target.as_str()),
                     enabled,
                     Some(&binding),
-                ).await
+                )
+                .await
             }
             _ => unreachable!(),
         }

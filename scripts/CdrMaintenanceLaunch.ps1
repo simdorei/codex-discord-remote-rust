@@ -46,6 +46,11 @@ function Invoke-CdrMaintenanceLaunch($State, [string]$StatePath) {
     $journal = Read-CdrLaunchJournal $journalPath
     if ($journal.Phase -ne 'child') { throw 'maintenance_launch_outcome_unknown' }
     if (-not (Get-CdrRecordedChild $journal)) { throw 'maintenance_recorded_child_dead' }
+    # Included in the existing phase save/receipt; no UI I/O or extra state write.
+    # A reentry does not invent this intent for an old or uncertain launch.
+    if ($script:CdrTrayStartedIdentity -and $script:CdrTrayStartedIdentity -ceq $journal.ChildIdentity) {
+        $State | Add-Member NoteProperty TrayBootstrapIdentity $journal.ChildIdentity -Force
+    }
 }
 
 function Get-CdrMaintenanceChild($State, [switch]$RequireFresh) {

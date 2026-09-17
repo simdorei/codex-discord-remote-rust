@@ -18,15 +18,15 @@ fn only_structured_usage_evidence_is_typed() {
             }}
         }),
         false,
-    ).unwrap();
+    )
+    .unwrap();
     assert!(completion.usage_limit);
 }
 
 #[test]
 fn auto_reserve_prefix_is_a_manual_mutation_and_never_a_settings_query() {
-    let action = cdr_runtime::prefix_plan::plan_prefix(
-        "settings thread-1 --auto-reserve on",
-    ).unwrap();
+    let action =
+        cdr_runtime::prefix_plan::plan_prefix("settings thread-1 --auto-reserve on").unwrap();
     assert_eq!(
         action,
         cdr_runtime::prefix_plan::PrefixAction::AutoReserve {
@@ -34,12 +34,11 @@ fn auto_reserve_prefix_is_a_manual_mutation_and_never_a_settings_query() {
             enabled: true,
         }
     );
-    assert!(cdr_runtime::prefix_plan::plan_prefix(
-        "settings --auto-reserve on --model gpt-5.6-luna",
-    ).is_err());
-    assert!(cdr_runtime::prefix_plan::plan_prefix(
-        "settings --auto-reserve maybe",
-    ).is_err());
+    assert!(
+        cdr_runtime::prefix_plan::plan_prefix("settings --auto-reserve on --model gpt-5.6-luna",)
+            .is_err()
+    );
+    assert!(cdr_runtime::prefix_plan::plan_prefix("settings --auto-reserve maybe",).is_err());
 }
 
 #[test]
@@ -49,7 +48,10 @@ fn usage_start_failure_is_persisted_as_a_hold_not_a_retry() {
     let failure = BackendFailure::usage_limit("typed server rejection");
     assert_eq!(failure.kind, BackendFailureKind::UsageLimit);
     let held = BackendFailure::persisted(
-        format!("{}typed server rejection", cdr_store::reserve_policy::HOLD_PREFIX),
+        format!(
+            "{}typed server rejection",
+            cdr_store::reserve_policy::HOLD_PREFIX
+        ),
         false,
     );
     assert_eq!(held.kind, BackendFailureKind::AutoReserveHeld);

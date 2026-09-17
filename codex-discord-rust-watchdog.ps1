@@ -303,6 +303,7 @@ function Restore-RestartRequest {
 function Start-RustRuntime {
     param([switch]$ResumeRemoteMcp, [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::MaxValue)
     $script:RustRestartStartedProcess = $null
+    $script:CdrTrayStartedIdentity = ''
     if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
         throw "Rust runtime binary was not found: $BinaryPath"
     }
@@ -339,6 +340,8 @@ function Start-RustRuntime {
             $verified = Get-VerifiedRuntimeProcess
             if ($null -ne $verified -and [int]$verified.Id -eq $process.Id) {
                 Write-RustWatchdogLog "started identity=$(Get-RustProcessIdentity -Process $verified)"
+                # Memory only: UI work must not spend the maintenance launch budget.
+                $script:CdrTrayStartedIdentity = Get-RustProcessIdentity -Process $verified
                 return
             }
             Start-Sleep -Milliseconds 250
@@ -354,6 +357,9 @@ if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
 }
 
 # CONTROL_ENTRY: tests execute this boundary with fixture process providers.
+$script:CdrTrayStartedIdentity = ''
+$script:CdrTrayPollAllowed = $false
+$script:CdrTrayObservedIdentity = ''
 $controlGuard = Enter-CdrControl -Root $RepoRoot -MaintenanceV2:([bool]$MaintenanceStatePath)
 try {
 if ($MaintenanceStatePath) {
@@ -530,6 +536,7 @@ if ($unhealthy) {
         throw "Unhealthy Rust runtime remained alive: identity=$runningIdentity"
     }
     Start-RustRuntime
+    $script:CdrTrayPollAllowed = $true
     exit 0
 }
 
@@ -539,7 +546,23 @@ if ($null -eq $running) {
 } elseif ($LogHealthy) {
     Write-RustWatchdogLog "healthy identity=$runningIdentity bootstrap=$($health.Bootstrap)"
 }
+$script:CdrTrayObservedIdentity = $runningIdentity
+$script:CdrTrayPollAllowed = $true
 exit 0
 } finally {
     $controlGuard.Dispose()
+    # Only an ordinary successful watchdog reaches this UI branch. Dedicated
+    # maintenance/recovery/check/prepare/completion and their reentry never do.
+    if ($script:CdrTrayPollAllowed) {
+        try {
+            . (Join-Path $RepoRoot 'codex-discord-tray-runtime.ps1')
+            $tray=Invoke-CdrTrayAfterWatchdog -Root $RepoRoot `
+                -StartedIdentity $script:CdrTrayStartedIdentity -ObservedIdentity $script:CdrTrayObservedIdentity
+            if ($tray.State -notin @('no_request','already_attempted')) {
+                Write-RustWatchdogLog "tray_bootstrap state=$($tray.State) pid=$($tray.Pid)"
+            }
+        } catch {
+            try { Write-RustWatchdogLog "tray_bootstrap_unknown type=$($_.Exception.GetType().FullName)" } catch { }
+        }
+    }
 }

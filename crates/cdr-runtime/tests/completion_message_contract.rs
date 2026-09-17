@@ -9,8 +9,8 @@ fn completion(status: TurnStatus, error: &str) -> TurnCompletion {
         status,
         error_message: error.into(),
         interrupt_origin: None,
-            duration_ms: None,
-            usage_limit: false,
+        duration_ms: None,
+        usage_limit: false,
     }
 }
 

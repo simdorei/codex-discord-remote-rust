@@ -41,15 +41,21 @@ impl SettingsTargetResolver {
         channel: u64,
     ) -> Result<Option<SettingsBinding>, ActionError> {
         match action {
-            CommandAction::Settings { reference, model, effort, speed } => {
+            CommandAction::Settings {
+                reference,
+                model,
+                effort,
+                speed,
+            } => {
                 if model.is_none() && effort.is_none() && speed.is_none() {
                     return Ok(None);
                 }
-                self.bind_reference(action, reference.as_deref(), channel, "settings").map(Some)
+                self.bind_reference(action, reference.as_deref(), channel, "settings")
+                    .map(Some)
             }
-            CommandAction::AutoReserve { reference, .. } => {
-                self.bind_reference(action, reference.as_deref(), channel, "settings").map(Some)
-            }
+            CommandAction::AutoReserve { reference, .. } => self
+                .bind_reference(action, reference.as_deref(), channel, "settings")
+                .map(Some),
             _ => Ok(None),
         }
     }

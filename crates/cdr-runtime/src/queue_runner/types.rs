@@ -89,13 +89,21 @@ impl BackendFailure {
 
     #[must_use]
     pub fn usage_limit(message: impl Into<String>) -> Self {
-        Self { message: message.into(), ambiguous: false, kind: BackendFailureKind::UsageLimit }
+        Self {
+            message: message.into(),
+            ambiguous: false,
+            kind: BackendFailureKind::UsageLimit,
+        }
     }
 
     #[must_use]
     pub fn auto_reserve_held(message: impl Into<String>) -> Self {
         Self {
-            message: format!("{}{}", cdr_store::reserve_policy::HOLD_PREFIX, message.into()),
+            message: format!(
+                "{}{}",
+                cdr_store::reserve_policy::HOLD_PREFIX,
+                message.into()
+            ),
             ambiguous: false,
             kind: BackendFailureKind::AutoReserveHeld,
         }

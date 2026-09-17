@@ -70,7 +70,13 @@ pub fn seed(root: &Path) -> PathBuf {
         .parent()
         .unwrap()
         .join(format!("cdr-pro-helper{suffix}"));
-    fs::copy(helper, directory.join("cdr-pro-helper.exe")).unwrap();
+    assert!(
+        helper.is_file(),
+        "missing QA helper at {}; build cdr-pro-helper from this checkout with the same --target-dir/profile as cdr-runtime before running installer tests",
+        helper.display()
+    );
+    fs::copy(&helper, directory.join("cdr-pro-helper.exe"))
+        .unwrap_or_else(|error| panic!("could not copy QA helper {}: {error}", helper.display()));
     // POSIX wrapper path has no extension, including when exercised through Git Bash.
     fs::copy(
         directory.join("cdr-pro-helper.exe"),

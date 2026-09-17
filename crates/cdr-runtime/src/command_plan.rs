@@ -132,9 +132,14 @@ pub fn plan_slash(invocation: &SlashInvocation) -> Result<CommandAction, Command
                 }
                 CommandAction::AutoReserve { reference, enabled }
             } else {
-                CommandAction::Settings { reference, model, effort, speed }
+                CommandAction::Settings {
+                    reference,
+                    model,
+                    effort,
+                    speed,
+                }
             }
-        },
+        }
         "where" => CommandAction::Where,
         "context" => CommandAction::Context {
             all_threads: invocation.boolean("all_threads").unwrap_or(false),

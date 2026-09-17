@@ -40,8 +40,8 @@ use shutdown_deadline::{
 use typed_ingress::{InteractionResources, TypedIngressContext, TypedIngressWorkers};
 use worker_supervision::{WorkerSet, exit_channel};
 use workers::{
-    prepare_remote_worker, spawn_unit_worker, start_remote_worker, start_session_mirror_worker,
-    start_reserve_auto_worker,
+    prepare_remote_worker, spawn_unit_worker, start_remote_worker, start_reserve_auto_worker,
+    start_session_mirror_worker,
 };
 
 const INTERACTION_QUEUE_CAPACITY: usize = 64;
