@@ -93,8 +93,13 @@ async fn displayed_collision_aliases_round_trip_through_prefix_slash_and_action(
             .execute(inputs::prefix("!list"), 99, 20)
             .await
             .unwrap();
-        for row in list.text.lines() {
-            let columns = row.split('|').map(str::trim).collect::<Vec<_>>();
+        let rows = displayed_rows(&list.text);
+        assert_eq!(
+            rows.len(),
+            2,
+            "both collision candidates must remain visible"
+        );
+        for columns in rows {
             let (alias, id) = (columns[1], columns[2]);
             let selected = executor
                 .execute(inputs::prefix(&format!("!use {alias}")), 99, 20)
@@ -216,7 +221,7 @@ async fn exact_and_mirrored_old_ids_are_not_limited_by_recent_list_size() {
         .await
         .unwrap();
     assert!(listed.text.contains("beta:1"), "{}", listed.text);
-    assert_eq!(listed.text.lines().count(), 1);
+    assert_eq!(displayed_rows(&listed.text).len(), 1);
     let selected = executor
         .execute(
             CommandAction::Use {
@@ -233,4 +238,34 @@ async fn exact_and_mirrored_old_ids_are_not_limited_by_recent_list_size() {
         .await
         .unwrap();
     assert!(unmapped.text.contains("unmapped; using global selected"));
+}
+
+// Footer lines carry visibility/authority qualifications, never thread aliases.
+// Require both footer lines and every numbered data row rather than silently
+// filtering malformed output or weakening exact-reference round-trip checks.
+fn displayed_rows(text: &str) -> Vec<Vec<&str>> {
+    let lines: Vec<_> = text.lines().collect();
+    assert!(lines.len() >= 2, "missing list footer: {text}");
+    let (rows, footer) = lines.split_at(lines.len() - 2);
+    assert!(
+        footer[0].starts_with("목록: "),
+        "missing scope footer: {text}"
+    );
+    assert!(
+        footer[1].starts_with("실행 상태 관측은 실행 권한 확인이 아닙니다."),
+        "missing authority qualification: {text}"
+    );
+    rows.iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let columns: Vec<_> = row.split('|').map(str::trim).collect();
+            assert!(columns.len() >= 4, "malformed list data row: {row}");
+            assert_eq!(
+                columns[0].trim_start_matches('*').parse::<usize>().unwrap(),
+                index + 1
+            );
+            assert!(!columns[1].is_empty() && !columns[2].is_empty());
+            columns
+        })
+        .collect()
 }
