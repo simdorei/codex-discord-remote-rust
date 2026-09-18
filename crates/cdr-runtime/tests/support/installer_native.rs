@@ -44,6 +44,22 @@ pub fn seed(root: &Path) -> PathBuf {
         )
         .unwrap();
     }
+    // Establish the test host's byte encoding without changing the product script.
+    // Reuse its complete parameter block so explicit/omitted arguments keep their meaning.
+    let installer = fs::read_to_string(root.join("install.ps1")).unwrap();
+    let (parameters, _) = installer
+        .split_once("\n$ErrorActionPreference = 'Stop'")
+        .expect("installer parameter block must precede its error policy");
+    fs::write(
+        root.join("installer-test-host.ps1"),
+        format!(
+            "{parameters}\n$ErrorActionPreference = 'Stop'\n\
+             [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\n\
+             $OutputEncoding=[Console]::OutputEncoding\n\
+             & (Join-Path $PSScriptRoot 'install.ps1') @PSBoundParameters\n"
+        ),
+    )
+    .unwrap();
     fs::write(root.join(".env"), "KEEP=한글\nCODEX_EXE=\n").unwrap();
     fs::create_dir_all(root.join(".agents/plugins")).unwrap();
     fs::copy(
@@ -145,7 +161,7 @@ pub fn command(root: &Path, windows: bool, codex: Option<&Path>, skip_env: bool)
     let mut command = if windows {
         let mut c = Command::new("powershell.exe");
         c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(root.join("install.ps1"))
+            .arg(root.join("installer-test-host.ps1"))
             .args(["-SkipBuild", "-BinaryPath"])
             .arg(&binary);
         if skip_env {
