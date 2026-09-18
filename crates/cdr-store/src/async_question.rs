@@ -1,6 +1,6 @@
 //! Immutable async-question occurrences; dispatch claims never expire into retries.
 use crate::{Result, StoreError, schema::open_initialized};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -9,7 +9,9 @@ mod dispatch;
 mod guard;
 pub use guard::validate_dispatch_guards;
 mod inbox;
+pub(crate) use inbox::reconcile_job_in;
 mod observe;
+mod ownership;
 mod retention;
 mod schema;
 pub use dispatch::{
@@ -90,8 +92,9 @@ pub fn pending(path: &Path, runtime: &str) -> Result<Vec<Question>> {
 }
 
 pub fn owner_confirmed(path: &Path, q: &Question) -> Result<bool> {
-    let db = open_initialized(path)?;
-    let confirmed: bool = db.query_row(
+    let mut db = open_initialized(path)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let confirmed: bool = tx.query_row(
         "SELECT owner_confirmed FROM cdr_async_questions WHERE id=?",
         [&q.id],
         |r| r.get(0),
@@ -99,14 +102,17 @@ pub fn owner_confirmed(path: &Path, q: &Question) -> Result<bool> {
     if confirmed {
         return Ok(true);
     }
-    let confirmed: bool=db.query_row("SELECT EXISTS(SELECT 1 FROM codex_turn_queue WHERE job_id=?1 AND target_thread_id=?2 AND turn_id=?3 AND state='running' AND app_server_generation=?4) OR EXISTS(SELECT 1 FROM codex_delivery_outbox WHERE job_id=?1 AND target_thread_id=?2 AND turn_id=?3)",
-        params![q.origin_job_id,q.thread_id,q.turn_id,q.generation], |r|r.get(0))?;
+    // A generationless Final outbox is not proof of a current question owner.
+    // Completion preserves verified questions before removing the exact job.
+    let current = read(&tx, &q.id)?;
+    let confirmed = ownership::running_owned_in(&tx, &current)?;
     if confirmed {
-        db.execute(
+        tx.execute(
             "UPDATE cdr_async_questions SET owner_confirmed=1 WHERE id=?",
             [&q.id],
         )?;
     }
+    tx.commit()?;
     Ok(confirmed)
 }
 

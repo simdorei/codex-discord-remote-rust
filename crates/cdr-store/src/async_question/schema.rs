@@ -1,6 +1,12 @@
 use crate::Result;
 use rusqlite::Connection;
 
+const CANDIDATE_COLUMNS: [&str; 3] = [
+    "candidate_generation",
+    "candidate_execution_generation",
+    "candidate_attempt_count",
+];
+
 pub(crate) fn migrate_schema(db: &Connection) -> Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS cdr_async_question_inbox (
         id TEXT PRIMARY KEY, runtime_id TEXT NOT NULL, generation INTEGER NOT NULL,
@@ -9,6 +15,17 @@ pub(crate) fn migrate_schema(db: &Connection) -> Result<()> {
         candidate_owner_id INTEGER NOT NULL, body TEXT NOT NULL,
         state TEXT NOT NULL DEFAULT 'waiting', created_at REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS cdr_async_question_inbox_pending ON cdr_async_question_inbox(runtime_id,generation,state);")?;
+    for column in CANDIDATE_COLUMNS {
+        let present: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('cdr_async_question_inbox') WHERE name=?)", [column], |r| r.get(0))?;
+        if !present {
+            // NULL is retained for legacy candidates: migration fabricates no
+            // cross-generation execution or observation authority.
+            db.execute(
+                &format!("ALTER TABLE cdr_async_question_inbox ADD COLUMN {column} INTEGER"),
+                [],
+            )?;
+        }
+    }
     db.execute_batch("CREATE TABLE IF NOT EXISTS cdr_async_questions (
         id TEXT PRIMARY KEY, runtime_id TEXT NOT NULL, generation INTEGER NOT NULL,
         thread_id TEXT NOT NULL, turn_id TEXT NOT NULL, item_id TEXT NOT NULL,
@@ -29,7 +46,9 @@ pub(crate) fn migrate_schema(db: &Connection) -> Result<()> {
 }
 
 pub(crate) fn schema_current(db: &Connection) -> Result<bool> {
-    Ok(db.query_row("SELECT COUNT(*)=2 FROM sqlite_schema WHERE type='table' AND name IN ('cdr_async_questions','cdr_async_question_inbox')", [], |r|r.get::<_,bool>(0))? && has_preparation(db)?)
+    Ok(db.query_row("SELECT COUNT(*)=2 FROM sqlite_schema WHERE type='table' AND name IN ('cdr_async_questions','cdr_async_question_inbox')", [], |r|r.get::<_,bool>(0))?
+        && has_preparation(db)?
+        && db.query_row("SELECT COUNT(*)=3 FROM pragma_table_info('cdr_async_question_inbox') WHERE name IN ('candidate_generation','candidate_execution_generation','candidate_attempt_count')", [], |r|r.get::<_,bool>(0))?)
 }
 
 fn has_preparation(db: &Connection) -> Result<bool> {

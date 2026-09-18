@@ -20,7 +20,14 @@ pub fn observe(path: &Path, n: &NewQuestion<'_>) -> Result<String> {
 
 pub(super) fn encode(n: &NewQuestion<'_>) -> Result<String> {
     let body = serde_json::to_string(n.body)?;
-    if body.len() > 32_768 || n.runtime_id.is_empty() || !n.now.is_finite() {
+    if body.len() > 32_768
+        || n.runtime_id.is_empty()
+        || !n.now.is_finite()
+        || n.generation < 0
+        || n.thread_id.trim().is_empty()
+        || n.turn_id.trim().is_empty()
+        || n.item_id.trim().is_empty()
+    {
         return Err(invalid("invalid or oversized async question"));
     }
     Ok(body)

@@ -20,7 +20,6 @@ fn identity(db: &Connection, q: &Question) -> Result<Value> {
     if job.target_thread_id != q.thread_id
         || job.channel_id != q.channel_id
         || job.owner_user_id != Some(q.owner_user_id)
-        || job.app_server_generation != q.generation
     {
         return Err(invalid("async reply exact job ownership changed"));
     }
@@ -30,13 +29,16 @@ fn identity(db: &Connection, q: &Question) -> Result<Value> {
             [&q.thread_id],
             |r| r.get(0),
         )?;
-        if count != 1 || job.state != crate::queue::QueueJobState::Quarantined {
+        if count != 1
+            || job.state != crate::queue::QueueJobState::Quarantined
+            || job.app_server_generation != q.generation
+        {
             return Err(invalid(
                 "async reply reservation changed or successor appeared",
             ));
         }
-    } else if job.state != crate::queue::QueueJobState::Running
-        || job.turn_id.as_deref() != Some(&q.turn_id)
+    } else if !super::ownership::running_matches(&job, q)
+        || !super::ownership::running_owned_in(db, q)?
     {
         return Err(invalid("async steer original turn changed"));
     }

@@ -100,6 +100,9 @@ fn stage_completion_inner(
         .turn_id
         .as_deref()
         .ok_or_else(|| StoreError::QueueJobHasNoTurn(job_id.into()))?;
+    // The exact running job still exists in this transaction. Preserve question
+    // ownership now; neither a deleted job nor a generationless outbox can do so.
+    crate::async_question::reconcile_job_in(&transaction, &job.job_id)?;
     transaction.execute(
         "INSERT OR IGNORE INTO codex_delivery_outbox (delivery_id, job_id, \
          target_thread_id, turn_id, channel_id, content, created_at, updated_at) \

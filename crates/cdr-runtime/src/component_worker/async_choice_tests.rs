@@ -308,3 +308,6 @@ async fn async_choice_lost_start_response_survives_real_queue_recovery_without_a
 
 #[path = "async_integration_tests.rs"]
 mod integrated;
+
+#[path = "async_inherited_tests.rs"]
+mod inherited;

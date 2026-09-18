@@ -112,12 +112,7 @@ fn begin_dispatch_inner(
             .iter()
             .filter(|j| j.state != QueueJobState::Pending)
             .collect();
-        if active.len() != 1
-            || active[0].job_id != q.origin_job_id
-            || active[0].state != QueueJobState::Running
-            || active[0].turn_id.as_deref() != Some(&q.turn_id)
-            || active[0].app_server_generation != q.generation
-        {
+        if active.len() != 1 || !super::ownership::running_matches(active[0], &q) {
             return Err(invalid(
                 "the question's exact original running job is no longer owned",
             ));
