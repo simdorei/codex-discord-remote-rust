@@ -124,7 +124,14 @@ async fn t1_terminal_reuses_external_cwd_and_environment_with_safe_receipt() {
 
     assert_eq!(first.exit_code, Some(0));
     assert_eq!(first.cwd_scope, TerminalCwdScope::ExternalAbsolute);
-    assert_eq!(first.cwd, external.path().display().to_string());
+    // The engine canonicalizes cwd; Windows TEMP may use an 8.3 alias such
+    // as RUNNER~1 for the same directory returned with its long name.
+    assert_eq!(
+        std::path::Path::new(&first.cwd)
+            .canonicalize()
+            .expect("returned cwd exists"),
+        external.path().canonicalize().expect("external cwd exists")
+    );
     assert!(first.stdout.contains("persisted"));
     assert!(first.stdout.contains("api_key=[REDACTED]"));
     assert_eq!(second.cwd, first.cwd);
