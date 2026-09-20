@@ -29,6 +29,12 @@ function Write-CdrFixtureStage([string]$Stage) {
     [IO.File]::AppendAllText($path,([DateTimeOffset]::UtcNow.ToString('o')+' '+$Stage+[Environment]::NewLine))
 }
 Write-CdrFixtureStage 'fixture_start'
+if ($env:CDR_CASE -ceq 'real_snapshot_receipts.ps1') {
+    # Avoid slow implicit module discovery in the isolated snapshot environment.
+    Import-Module ([IO.Path]::Combine($PSHOME,'Modules\Microsoft.PowerShell.Management\Microsoft.PowerShell.Management.psd1')) -ErrorAction Stop
+    Import-Module ([IO.Path]::Combine($PSHOME,'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop
+    Write-CdrFixtureStage 'fixture_modules_loaded'
+}
 . ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $env:CDR_FIXTURE_DIR 'LOAD.ps1'),[Text.Encoding]::UTF8)))
 Write-CdrFixtureStage 'fixture_loaded'
 . ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $env:CDR_FIXTURE_DIR ('cases/'+$env:CDR_CASE)),[Text.Encoding]::UTF8))) -Variant $env:CDR_VARIANT
