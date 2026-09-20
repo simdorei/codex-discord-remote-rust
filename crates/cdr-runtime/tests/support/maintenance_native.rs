@@ -1,4 +1,6 @@
 use std::{
+    fs::File,
+    io::Read,
     path::Path,
     process::{Command, Stdio},
     thread,
@@ -21,7 +23,14 @@ pub fn run_fixture_with(
     configure(&mut command);
     let mut child=command.args(["-NoProfile","-Command",r"
 $ErrorActionPreference='Stop'
+function Write-CdrFixtureStage([string]$Stage) {
+    if ($env:CDR_CASE -cne 'real_snapshot_receipts.ps1') { return }
+    $path=[IO.Path]::Combine($env:V2_ROOT,'maintenance-fixture-stages.txt')
+    [IO.File]::AppendAllText($path,([DateTimeOffset]::UtcNow.ToString('o')+' '+$Stage+[Environment]::NewLine))
+}
+Write-CdrFixtureStage 'fixture_start'
 . ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $env:CDR_FIXTURE_DIR 'LOAD.ps1'),[Text.Encoding]::UTF8)))
+Write-CdrFixtureStage 'fixture_loaded'
 . ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $env:CDR_FIXTURE_DIR ('cases/'+$env:CDR_CASE)),[Text.Encoding]::UTF8))) -Variant $env:CDR_VARIANT
 exit 0
 "]).env("V2_ROOT",root).env("V2_SOURCE",repo).env("CDR_FIXTURE_DIR",directory)
@@ -35,7 +44,14 @@ exit 0
         if Instant::now() >= deadline {
             child.kill().unwrap();
             child.wait().unwrap();
-            panic!("maintenance fixture timed out: {case}/{variant}");
+            let mut stages = Vec::new();
+            if let Ok(file) = File::open(root.join("maintenance-fixture-stages.txt")) {
+                let _ = file.take(8192).read_to_end(&mut stages);
+            }
+            panic!(
+                "maintenance fixture timed out: {case}/{variant}\nfixture stages:\n{}",
+                String::from_utf8_lossy(&stages)
+            );
         }
         thread::sleep(Duration::from_millis(25));
     }

@@ -9,19 +9,14 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "support/windows_soak_wrapper.rs"]
+mod wrapper;
+
 const MARKER: &[u8] = b"operator_disabled\n";
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn prepare(root: &Path) -> (PathBuf, PathBuf) {
-    fs::write(root.join(".codex_discord_bot.disabled"), MARKER).unwrap();
-    let target = root.join("fixture-target");
-    let harness = target.join("debug/cdr-offline-soak.exe");
-    fs::create_dir_all(harness.parent().unwrap()).unwrap();
-    fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), &harness).unwrap();
-    (target, harness)
+    let fixture = wrapper::prepare(root);
+    (fixture.target, fixture.debug_harness)
 }
 
 fn sha256(path: &Path) -> String {
@@ -38,7 +33,7 @@ fn command(root: &Path, target: &Path, harness: &Path, expected: Option<&str>) -
             "Bypass",
             "-File",
         ])
-        .arg(repo_root().join("codex-discord-rust-soak.ps1"))
+        .arg(root.join("codex-discord-rust-soak.ps1"))
         .arg("-RepoRoot")
         .arg(root)
         .arg("-OutputDirectory")

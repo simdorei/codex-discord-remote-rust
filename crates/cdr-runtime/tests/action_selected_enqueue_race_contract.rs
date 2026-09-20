@@ -30,6 +30,7 @@ async fn concurrent_action_reprepares_after_another_action_moves_its_selected_ta
     });
     let preprocessor = Arc::new(ConcurrentMovePreprocessor {
         db: db.clone(),
+        first_prepared: Notify::new(),
         second_prepared: Notify::new(),
         seen: Mutex::new(Vec::new()),
     });
@@ -121,6 +122,7 @@ fn action_context(message_id: u64) -> ActionContext {
 
 struct ConcurrentMovePreprocessor {
     db: PathBuf,
+    first_prepared: Notify,
     second_prepared: Notify,
     seen: Mutex<Vec<(String, String)>>,
 }
@@ -128,12 +130,16 @@ struct ConcurrentMovePreprocessor {
 impl PromptPreprocessor for ConcurrentMovePreprocessor {
     fn prepare<'a>(&'a self, prompt: &'a str, thread_id: &'a str) -> BoxPromptFuture<'a> {
         Box::pin(async move {
+            if thread_id == "selected" && prompt == "second" {
+                self.first_prepared.notified().await;
+            }
             self.seen
                 .lock()
                 .unwrap()
                 .push((prompt.into(), thread_id.into()));
             if thread_id == "selected" {
                 if prompt == "first" {
+                    self.first_prepared.notify_one();
                     self.second_prepared.notified().await;
                 } else if prompt == "second" {
                     self.second_prepared.notify_one();

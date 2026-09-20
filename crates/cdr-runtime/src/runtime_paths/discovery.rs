@@ -11,16 +11,18 @@ use super::PathInputs;
 pub enum PathDiscoveryError {
     #[error("could not determine the current user home from USERPROFILE or HOME")]
     UserHomeMissing,
+    #[error("conflicting Windows environment values for {0}")]
+    ConflictingEnvironmentValues(String),
 }
 
 pub fn discover_inputs(
     environment: &BTreeMap<String, String>,
     root: PathBuf,
 ) -> Result<PathInputs, PathDiscoveryError> {
-    let user_home = first_path(environment, &["USERPROFILE", "HOME"])
+    let user_home = first_path(environment, &["USERPROFILE", "HOME"])?
         .ok_or(PathDiscoveryError::UserHomeMissing)?;
     let mut local_roots = Vec::new();
-    if let Some(local) = first_path(environment, &["LOCALAPPDATA"]) {
+    if let Some(local) = first_path(environment, &["LOCALAPPDATA"])? {
         local_roots.push(local.join("OpenAI/Codex/bin"));
     }
     local_roots.push(user_home.join("AppData/Local/OpenAI/Codex/bin"));
@@ -34,8 +36,7 @@ pub fn discover_inputs(
         .iter()
         .flat_map(|root| executables_below(root))
         .collect();
-    let path_candidates = environment
-        .get("PATH")
+    let path_candidates = environment_value(environment, "PATH")?
         .into_iter()
         .flat_map(|raw| env::split_paths(raw))
         .map(|directory| directory.join(executable_name()))
@@ -70,15 +71,41 @@ fn executables_below(root: &Path) -> Vec<PathBuf> {
     output
 }
 
-fn first_path(environment: &BTreeMap<String, String>, names: &[&str]) -> Option<PathBuf> {
-    names.iter().find_map(|name| {
-        environment
-            .get(*name)
-            .map(String::as_str)
+fn environment_value<'a>(
+    environment: &'a BTreeMap<String, String>,
+    name: &str,
+) -> Result<Option<&'a str>, PathDiscoveryError> {
+    if let Some(value) = environment.get(name) {
+        return Ok(Some(value));
+    }
+    if !cfg!(windows) {
+        return Ok(None);
+    }
+    let mut matches = environment
+        .iter()
+        .filter_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()));
+    let value = matches.next();
+    if matches.any(|other| Some(other) != value) {
+        return Err(PathDiscoveryError::ConflictingEnvironmentValues(
+            name.into(),
+        ));
+    }
+    Ok(value)
+}
+
+fn first_path(
+    environment: &BTreeMap<String, String>,
+    names: &[&str],
+) -> Result<Option<PathBuf>, PathDiscoveryError> {
+    for name in names {
+        if let Some(value) = environment_value(environment, name)?
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-    })
+        {
+            return Ok(Some(PathBuf::from(value)));
+        }
+    }
+    Ok(None)
 }
 
 const fn executable_name() -> &'static str {
