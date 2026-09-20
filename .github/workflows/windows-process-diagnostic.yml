@@ -1,0 +1,19 @@
+name: Windows process diagnostic
+
+on:
+  push:
+    branches: ["fix/windows-process-contract-20260920"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-process-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the actual process contracts with streamed diagnostic evidence
+        run: |
+          cargo test --workspace --locked --test process_contract -- --test-threads=2 --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

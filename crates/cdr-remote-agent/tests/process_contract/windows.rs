@@ -4,8 +4,11 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use cdr_remote_agent::commands::{ProcessCompletion, run_bounded_process, safe_environment};
+use cdr_remote_agent::commands::{
+    ProcessCompletion, run_bounded_process, run_bounded_process_cancellable, safe_environment,
+};
 use tempfile::TempDir;
+use tokio::sync::watch;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -14,7 +17,7 @@ mod cancellation;
 #[path = "windows/cleanup.rs"]
 mod cleanup;
 
-use cleanup::PidCleanup;
+use cleanup::{PidCleanup, settle_failure};
 
 #[tokio::test]
 async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
@@ -27,10 +30,16 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
         &script_path,
         format!(
             "@echo off\r\n\
+             echo parent-entry>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
+             echo child-launch-attempt>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
              start \"\" /b \"{}\" --ignored --exact windows::pipe_holding_descendant_fixture --nocapture\r\n\
+             echo child-launch-return-errorlevel:%errorlevel%>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
              powershell.exe -NoProfile -Command \"$d=[DateTime]::UtcNow.AddSeconds(5); while (!(Test-Path -LiteralPath $env:CDR_PROCESS_CONTRACT_PID_PATH)) {{ if ([DateTime]::UtcNow -ge $d) {{ exit 7 }}; Start-Sleep -Milliseconds 10 }}\"\r\n\
              if errorlevel 1 exit /b 7\r\n\
+             echo readiness-file-exists>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
+             if \"%CDR_PROCESS_CONTRACT_DIAG_CASE%\"==\"operation-timeout\" powershell.exe -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 30\"\r\n\
              <nul set /p \"=parent-done\"\r\n\
+             echo parent-about-to-exit>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
              exit /b 0\r\n",
             test_binary.display(),
         ),
@@ -41,10 +50,11 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
         "CDR_PROCESS_CONTRACT_PID_PATH".into(),
         pid_path.to_string_lossy().into_owned(),
     );
+    cleanup.configure_diagnostics(&mut environment);
 
-    let completed = tokio::time::timeout(
-        Duration::from_secs(8),
-        run_bounded_process(
+    let (cancel, cancelled) = watch::channel(false);
+    let mut task = tokio::spawn(async move {
+        run_bounded_process_cancellable(
             &[
                 "cmd.exe".into(),
                 "/D".into(),
@@ -56,12 +66,24 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
             &environment,
             Duration::from_secs(15),
             256,
-        ),
-    )
-    .await;
-    let outcome = completed
-        .expect("normal parent exit must not leave capture waiting on a descendant")
-        .expect("owned process outcome");
+            cancelled,
+        )
+        .await
+    });
+    let completed = tokio::time::timeout(Duration::from_secs(8), &mut task).await;
+    let outcome = match completed {
+        Ok(result) => result.expect("owned task").expect("owned process outcome"),
+        Err(_) => {
+            let snapshot = cleanup.diagnostic();
+            eprintln!("[process-diag] OPERATION FAILURE latched: {snapshot}");
+            let settlement = settle_failure(&mut task, &cancel).await;
+            panic!("normal parent exit exceeded its original deadline; {snapshot}; {settlement}");
+        }
+    };
+    eprintln!(
+        "[process-diag] normal operation returned; {}",
+        cleanup.diagnostic()
+    );
     let descendant_id = cleanup.observe().unwrap_or_else(|| {
         panic!(
             "descendant did not publish its pid; stdout={:?}, stderr={:?}",
@@ -98,6 +120,13 @@ fn pipe_holding_descendant_fixture() {
     let Ok(pid_path) = std::env::var("CDR_PROCESS_CONTRACT_PID_PATH") else {
         return;
     };
+    if let Ok(trace_path) = std::env::var("CDR_PROCESS_CONTRACT_CHILD_TRACE_PATH") {
+        std::fs::write(
+            trace_path,
+            format!("child-entry pid={}", std::process::id()),
+        )
+        .expect("child-entry trace");
+    }
     std::io::stdout()
         .write_all(b"child-open")
         .expect("fixture stdout");

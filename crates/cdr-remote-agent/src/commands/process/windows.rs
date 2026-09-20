@@ -6,7 +6,7 @@ use std::time::Duration;
 use cdr_windows_native::CapturedWindowProcess;
 use tokio::sync::watch;
 
-use super::capture::capture;
+use super::capture::capture_identified;
 use super::{ProcessCompletion, ProcessError, ProcessOutcome, wait_for_cancellation};
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -25,17 +25,31 @@ pub async fn run<S: BuildHasher>(
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect::<HashMap<_, _>>();
+    eprintln!(
+        "[process-diag:{:?}] launch-attempt",
+        std::thread::current().name()
+    );
     let mut process =
-        CapturedWindowProcess::launch(Path::new(executable), arguments, cwd, &environment)?;
+        CapturedWindowProcess::launch(Path::new(executable), arguments, cwd, &environment)
+            .inspect_err(|error| eprintln!("[process-diag] launch-error={error}"))?;
     let process_id = process.process_id();
+    eprintln!("[process-diag:{process_id}] launch-returned");
     let stdout = process
         .take_stdout()
         .ok_or_else(|| ProcessError::Cleanup("captured stdout is unavailable".into()))?;
     let stderr = process
         .take_stderr()
         .ok_or_else(|| ProcessError::Cleanup("captured stderr is unavailable".into()))?;
-    let stdout_reader = tokio::spawn(capture(tokio::fs::File::from_std(stdout), max_stream_bytes));
-    let stderr_reader = tokio::spawn(capture(tokio::fs::File::from_std(stderr), max_stream_bytes));
+    let stdout_reader = tokio::spawn(capture_identified(
+        tokio::fs::File::from_std(stdout),
+        max_stream_bytes,
+        format!("{process_id}:stdout"),
+    ));
+    let stderr_reader = tokio::spawn(capture_identified(
+        tokio::fs::File::from_std(stderr),
+        max_stream_bytes,
+        format!("{process_id}:stderr"),
+    ));
     let timeout = tokio::time::sleep(timeout);
     tokio::pin!(timeout);
     let stop = tokio::select! {
@@ -43,6 +57,7 @@ pub async fn run<S: BuildHasher>(
         () = wait_for_cancellation(&mut cancelled) => ProcessStop::Cancelled,
         () = &mut timeout => ProcessStop::TimedOut,
     };
+    eprintln!("[process-diag:{process_id}] selected-stop={stop:?}");
     close_owned_job(process).await?;
     let (exit_code, completion) = match stop {
         ProcessStop::Exited(exit_code) => (Some(exit_code), ProcessCompletion::Exited),
@@ -68,6 +83,7 @@ pub async fn run<S: BuildHasher>(
     })
 }
 
+#[derive(Debug)]
 enum ProcessStop {
     Exited(i32),
     TimedOut,
@@ -76,7 +92,16 @@ enum ProcessStop {
 
 async fn wait_for_exit(process: &CapturedWindowProcess) -> Result<i32, ProcessError> {
     loop {
-        if let Some(exit_code) = process.try_wait()? {
+        if let Some(exit_code) = process.try_wait().inspect_err(|error| {
+            eprintln!(
+                "[process-diag:{}] try-wait-error={error}",
+                process.process_id()
+            )
+        })? {
+            eprintln!(
+                "[process-diag:{}] actual-root-exit={exit_code}",
+                process.process_id()
+            );
             return Ok(exit_code);
         }
         tokio::time::sleep(PROCESS_POLL_INTERVAL).await;
@@ -84,8 +109,14 @@ async fn wait_for_exit(process: &CapturedWindowProcess) -> Result<i32, ProcessEr
 }
 
 async fn close_owned_job(mut process: CapturedWindowProcess) -> Result<(), ProcessError> {
-    tokio::task::spawn_blocking(move || process.terminate_tree(PROCESS_CLEANUP_TIMEOUT))
-        .await
-        .map_err(|error| ProcessError::Cleanup(format!("cleanup worker failed: {error}")))??;
+    tokio::task::spawn_blocking(move || {
+        let process_id = process.process_id();
+        eprintln!("[process-diag:{process_id}] owned-cleanup-enter");
+        let result = process.terminate_tree(PROCESS_CLEANUP_TIMEOUT);
+        eprintln!("[process-diag:{process_id}] owned-cleanup-return={result:?}");
+        result
+    })
+    .await
+    .map_err(|error| ProcessError::Cleanup(format!("cleanup worker failed: {error}")))??;
     Ok(())
 }
