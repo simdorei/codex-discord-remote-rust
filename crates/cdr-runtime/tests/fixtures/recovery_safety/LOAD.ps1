@@ -1,5 +1,6 @@
 $ErrorActionPreference='Stop'
-$RepoRoot=$env:V2_ROOT; $BinaryPath=Join-Path $RepoRoot 'fixture.exe'
+# Match the real watchdog's normalized root when TEMP contains an 8.3 alias.
+$RepoRoot=[IO.Path]::GetFullPath($env:V2_ROOT); $BinaryPath=Join-Path $RepoRoot 'fixture.exe'
 . (Join-Path $env:V2_SOURCE 'codex-discord-rust-drain.ps1')
 . (Join-Path $env:V2_SOURCE 'codex-discord-rust-control.ps1')
 . (Join-Path $env:V2_SOURCE 'scripts/CdrDeploymentRecovery.ps1')

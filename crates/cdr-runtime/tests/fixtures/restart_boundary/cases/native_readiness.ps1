@@ -13,6 +13,8 @@ function Wait-CodexThreadsQuietForRestart {
 Wait-RustThreadsQuietForRestart
 if(Test-Path (Join-Path $RepoRoot 'python-invoked.txt')){throw 'legacy interpreter invoked'}
 $record=[IO.File]::ReadAllText((Join-Path $RepoRoot 'rust-invoked.txt')).Trim()
-$expected="--restart-readiness --restart-quiet-seconds 17 --restart-wait-timeout-seconds 23 --env $EnvPath"
+# The cmd fixture records raw argv text, including quotes around paths with spaces.
+$expectedEnvPath=if($EnvPath -match '\s'){'"'+$EnvPath+'"'}else{$EnvPath}
+$expected="--restart-readiness --restart-quiet-seconds 17 --restart-wait-timeout-seconds 23 --env $expectedEnvPath"
 if($record.Replace('\\','\') -ne $expected){throw "wrong readiness arguments: $record"}
 if([IO.Path]::GetFullPath([IO.File]::ReadAllText((Join-Path $RepoRoot 'rust-cwd.txt')).Trim()) -ne $RepoRoot){throw 'wrong working directory'}

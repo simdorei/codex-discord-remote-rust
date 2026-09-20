@@ -70,9 +70,13 @@ fn default_root_is_script_folder_from_unrelated_directory() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    let output_root = String::from_utf8(out.stdout).unwrap();
+    let returned_root = Path::new(output_root.trim());
+    assert!(returned_root.is_absolute());
+    // PowerShell expands Windows short-path aliases in its script directory.
     assert_eq!(
-        String::from_utf8(out.stdout).unwrap().trim(),
-        root.path().to_str().unwrap()
+        returned_root.canonicalize().unwrap(),
+        root.path().canonicalize().unwrap()
     );
 }
 #[test]
