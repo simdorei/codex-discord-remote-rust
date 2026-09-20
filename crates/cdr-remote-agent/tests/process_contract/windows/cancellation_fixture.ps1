@@ -7,7 +7,11 @@ try {
     if ($env:CDR_PROCESS_CONTRACT_DIAG_CASE -eq 'early-error') { throw 'intentional diagnostic early error' }
     Trace 'child-launch-attempt'
     $childCode = '[IO.File]::WriteAllText($env:CDR_PROCESS_CONTRACT_CHILD_TRACE_PATH, [string]$PID); Start-Sleep -Seconds 30'
-    $p = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-Command',$childCode -PassThru
+    $startInfo = [Diagnostics.ProcessStartInfo]::new('powershell.exe')
+    $startInfo.Arguments = '-NoProfile -NonInteractive -Command ' + $childCode
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $p = [Diagnostics.Process]::Start($startInfo)
     Trace ('child-launch-return pid=' + $p.Id + ' alive=' + (-not $p.HasExited))
     [Console]::Out.Write($p.Id)
     [Console]::Out.Flush()
@@ -18,7 +22,7 @@ try {
     } elseif ($env:CDR_PROCESS_CONTRACT_DIAG_CASE -eq 'malformed-pid') {
         [IO.File]::WriteAllText($env:CDR_PROCESS_CONTRACT_PID_PATH, 'not-a-pid')
     } else {
-        Set-Content -LiteralPath $env:CDR_PROCESS_CONTRACT_PID_PATH -Value $p.Id -NoNewline
+        [IO.File]::WriteAllText($env:CDR_PROCESS_CONTRACT_PID_PATH, [string]$p.Id)
     }
     Trace 'parent-publication-step-returned'
     Start-Sleep -Seconds 30

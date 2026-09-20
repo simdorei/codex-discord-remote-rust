@@ -34,7 +34,7 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
              echo child-launch-attempt>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
              start \"\" /b \"{}\" --ignored --exact windows::pipe_holding_descendant_fixture --nocapture\r\n\
              echo child-launch-return-errorlevel:%errorlevel%>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
-             powershell.exe -NoProfile -Command \"$d=[DateTime]::UtcNow.AddSeconds(5); while (!(Test-Path -LiteralPath $env:CDR_PROCESS_CONTRACT_PID_PATH)) {{ if ([DateTime]::UtcNow -ge $d) {{ exit 7 }}; Start-Sleep -Milliseconds 10 }}\"\r\n\
+             powershell.exe -NoProfile -Command \"$d=[DateTime]::UtcNow.AddSeconds(5); while (![IO.File]::Exists($env:CDR_PROCESS_CONTRACT_PID_PATH)) {{ if ([DateTime]::UtcNow -ge $d) {{ exit 7 }}; Start-Sleep -Milliseconds 10 }}\"\r\n\
              if errorlevel 1 exit /b 7\r\n\
              echo readiness-file-exists>>\"%CDR_PROCESS_CONTRACT_TRACE_PATH%\"\r\n\
              if \"%CDR_PROCESS_CONTRACT_DIAG_CASE%\"==\"operation-timeout\" powershell.exe -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 30\"\r\n\

@@ -136,7 +136,7 @@ fn pid_exists(process_id: u32, timeout: Duration) -> Result<bool, String> {
     let code = helper_status(
         Command::new("powershell.exe").args([
             "-NoProfile", "-NonInteractive", "-Command",
-            &format!("if (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"),
+            &format!("try {{ $p=[Diagnostics.Process]::GetProcessById({process_id}); if ($p.HasExited) {{ exit 1 }}; exit 0 }} catch [ArgumentException] {{ exit 1 }} catch {{ exit 2 }}"),
         ]),
         timeout,
     )?;
