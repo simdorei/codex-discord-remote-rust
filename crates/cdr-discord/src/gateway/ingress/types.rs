@@ -13,7 +13,27 @@ use twilight_model::gateway::payload::incoming::{InteractionCreate, MessageCreat
 pub const DEFAULT_INTERACTION_CAPACITY: usize = 64;
 pub const DEFAULT_RESERVED_INTERACTION_CAPACITY: usize = 4;
 pub const DEFAULT_MESSAGE_CAPACITY: usize = 1_024;
+pub const EMERGENCY_MESSAGE_CAPACITY: usize = 4;
 pub const DEFAULT_RECEIVE_ERROR_CAPACITY: usize = 16;
+
+/// Routing hint only. Runtime authorization and durable deduplication still apply.
+#[must_use]
+pub fn is_force_restart_message(content: &str) -> bool {
+    let Some(command) = content.trim().strip_prefix('!') else {
+        return false;
+    };
+    let mut words = command.split_whitespace();
+    let name = words.next().unwrap_or_default();
+    let argument = words.next();
+    if words.next().is_some() {
+        return false;
+    }
+    (name.eq_ignore_ascii_case("force_restart") && argument.is_none())
+        || (name.eq_ignore_ascii_case("restart_codex")
+            && argument.is_some_and(|arg| {
+                arg.eq_ignore_ascii_case("force") || arg.eq_ignore_ascii_case("--force")
+            }))
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GatewayIngressConfig {
@@ -209,6 +229,7 @@ pub struct GatewayIngressReceivers {
     pub normal_interactions: mpsc::Receiver<InteractionIngress>,
     pub reserved_interactions: mpsc::Receiver<InteractionIngress>,
     pub messages: mpsc::Receiver<MessageIngress>,
+    pub emergency_messages: mpsc::Receiver<MessageIngress>,
     pub receive_errors: mpsc::Receiver<ReceiveErrorIngress>,
 }
 

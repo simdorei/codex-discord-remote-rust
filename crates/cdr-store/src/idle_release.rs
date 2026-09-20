@@ -101,8 +101,6 @@ fn bot_idle_on(db: &Connection, thread: &str) -> Result<bool> {
             AND NOT (state='expired' AND chosen IS NULL AND dispatch_mode IS NULL
                 AND reply_job_id IS NULL AND accepted_turn_id IS NULL AND preparation_json IS NULL))
         AND NOT EXISTS(SELECT 1 FROM cdr_async_question_inbox WHERE thread_id=?1 AND state!='expired')
-        AND NOT EXISTS(SELECT 1 FROM codex_reserve_policy WHERE thread_id=?1
-            AND (state NOT IN ('ordinary','reserve') OR usage_failure_state='pending'))
         AND NOT EXISTS(SELECT 1 FROM codex_dead_generation_holds WHERE target_thread_id=?1)
         AND NOT EXISTS(SELECT 1 FROM codex_archive_fences WHERE target_thread_id=?1)
         AND NOT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE target_thread_id=?1)",

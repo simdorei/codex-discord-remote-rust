@@ -28,6 +28,7 @@ pub fn promote_prompt_intake_to_queue(
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     storage::ensure_schema(&transaction)?;
+    crate::execution_hold::require_unheld_in(&transaction, &claim.intake.job_id)?;
     let current = storage::by_job(&transaction, &claim.intake.job_id)?
         .ok_or_else(|| claim_lost(&claim.intake.job_id))?;
     crate::dead_generation::ensure_target_available(&transaction, &current.target_thread_id)?;

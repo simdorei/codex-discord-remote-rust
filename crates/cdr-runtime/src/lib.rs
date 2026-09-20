@@ -29,6 +29,8 @@ pub mod final_watch;
 pub mod history_poll;
 mod idle_release;
 pub mod interaction_worker;
+#[cfg(test)]
+mod manual_reserve_tests;
 pub mod message_plan;
 pub mod message_worker;
 pub mod mirror_sync;
@@ -40,7 +42,6 @@ pub mod prompt_intake_worker;
 pub mod prompt_preprocessor;
 mod queue_recovery_transport;
 pub mod queue_runner;
-pub(crate) mod reserve_auto;
 mod resource_report;
 pub mod restart_readiness;
 pub mod runtime_instance;

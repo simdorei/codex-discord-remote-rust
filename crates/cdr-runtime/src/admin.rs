@@ -8,6 +8,7 @@ mod args;
 pub mod attachment;
 pub mod env_file;
 mod first_reply;
+mod manual_reserve;
 pub mod setup;
 mod store;
 pub mod threads;
@@ -24,6 +25,7 @@ pub async fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<String
         "configure-install" => configure_install(&args, &root),
         "discover-codex" => discover_codex(&args, &root),
         "verify-plugin-inventory" => verify_inventory(&args, &root),
+        "retire-automatic-reserve" | "authorize-saved-final" => manual_reserve::run(&args, &root),
         "backup-store" => store::backup(&root),
         "active-queue-count" => store::active_count(&root),
         "inspect-new-first-reply" => first_reply::run(&args, &root),

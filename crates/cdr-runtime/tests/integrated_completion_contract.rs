@@ -12,9 +12,7 @@ use std::{
 
 struct Backend {
     db: PathBuf,
-    mode: u8,
     generation: AtomicU64,
-    notes: AtomicUsize,
     starts: AtomicUsize,
 }
 impl TurnBackend for Backend {
@@ -43,23 +41,8 @@ impl TurnBackend for Backend {
             Err(BackendFailure::definite("unexpected start"))
         })
     }
-    fn note_usage_limit<'a>(&'a self, _target: &'a str) -> BoxBackendFuture<'a, ()> {
-        Box::pin(async move {
-            self.notes.fetch_add(1, Ordering::SeqCst);
-            if self.mode == 1 {
-                rusqlite::Connection::open(&self.db)
-                    .unwrap()
-                    .execute("UPDATE codex_turn_queue SET owner_user_id=77", [])
-                    .unwrap();
-            }
-            if self.mode == 2 {
-                self.generation.store(2, Ordering::SeqCst);
-            }
-            Ok(())
-        })
-    }
 }
-fn fixture(mode: u8) -> (tempfile::TempDir, Arc<Backend>, QueueCoordinator<Backend>) {
+fn fixture() -> (tempfile::TempDir, Arc<Backend>, QueueCoordinator<Backend>) {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("db.sqlite");
     queue::enqueue(
@@ -81,12 +64,9 @@ fn fixture(mode: u8) -> (tempfile::TempDir, Arc<Backend>, QueueCoordinator<Backe
     queue::begin_attempt(&db, "job", &[], 1).unwrap();
     queue::mark_running(&db, "job", "turn", 1).unwrap();
     observed_completion::record(&db, "thread", "turn", 1, "{}").unwrap();
-    reserve_policy::ensure(&db, "thread").unwrap();
     let backend = Arc::new(Backend {
         db: db.clone(),
-        mode,
         generation: AtomicU64::new(1),
-        notes: AtomicUsize::new(0),
         starts: AtomicUsize::new(0),
     });
     let coordinator = QueueCoordinator::new(db, backend.clone());
@@ -94,23 +74,32 @@ fn fixture(mode: u8) -> (tempfile::TempDir, Arc<Backend>, QueueCoordinator<Backe
 }
 
 #[tokio::test]
-async fn owner_changed_during_usage_preparation_cannot_be_finalized() {
-    let (_temp, backend, q) = fixture(1);
+async fn changed_exact_owner_cannot_be_finalized_by_an_older_completion() {
+    let (_temp, backend, q) = fixture();
+    let original = queue::list(&backend.db).unwrap().remove(0);
+    rusqlite::Connection::open(&backend.db)
+        .unwrap()
+        .execute("UPDATE codex_turn_queue SET owner_user_id=77", [])
+        .unwrap();
     let error = q
-        .stage_turn_completion_with_usage_limit("thread", "turn", "Failed", true)
+        .stage_owned_turn_completion(&original, "Failed", true)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("ownership changed"), "{error}");
     assert_eq!(queue::list(&backend.db).unwrap()[0].owner_user_id, Some(77));
     assert!(delivery::list_pending(&backend.db).unwrap().is_empty());
     assert!(observed_completion::contains(&backend.db, "thread", "turn").unwrap());
-    assert!(reserve_policy::usage_failure_unresolved(&backend.db, "thread").unwrap());
+    assert!(
+        reserve_policy::get(&backend.db, "thread")
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(backend.starts.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
 async fn unknown_completion_generation_cannot_create_idle_release_candidate() {
-    let (_temp, backend, q) = fixture(0);
+    let (_temp, backend, q) = fixture();
     q.stage_turn_completion("thread", "turn", "Final")
         .await
         .unwrap();
@@ -122,7 +111,7 @@ async fn unknown_completion_generation_cannot_create_idle_release_candidate() {
 #[tokio::test]
 async fn explicit_current_evidence_can_create_release_but_older_evidence_cannot() {
     for generation in [0, 1] {
-        let (_temp, backend, q) = fixture(0);
+        let (_temp, backend, q) = fixture();
         q.stage_turn_completion_on_generation("thread", "turn", "Final", generation)
             .await
             .unwrap();
@@ -135,16 +124,20 @@ async fn explicit_current_evidence_can_create_release_but_older_evidence_cannot(
 }
 
 #[tokio::test]
-async fn failed_usage_fence_prevents_both_settings_call_and_completion_consumption() {
-    let (_temp, backend, q) = fixture(0);
-    reserve_policy::ensure(&backend.db, "thread").unwrap();
-    rusqlite::Connection::open(&backend.db).unwrap().execute_batch("CREATE TRIGGER refuse_fence BEFORE UPDATE ON codex_reserve_policy BEGIN SELECT RAISE(ABORT,'fence failure'); END;").unwrap();
+async fn terminal_usage_failure_stages_final_without_any_policy_dependency_or_replay() {
+    let (_temp, backend, q) = fixture();
+    rusqlite::Connection::open(&backend.db).unwrap().execute_batch("CREATE TRIGGER refuse_policy_insert BEFORE INSERT ON codex_reserve_policy BEGIN SELECT RAISE(ABORT,'forbidden policy dependency'); END; CREATE TRIGGER refuse_policy_update BEFORE UPDATE ON codex_reserve_policy BEGIN SELECT RAISE(ABORT,'forbidden policy dependency'); END;").unwrap();
+    q.stage_turn_completion_with_usage_limit("thread", "turn", "Failed", true)
+        .await
+        .unwrap()
+        .unwrap();
+    q.recover().await.unwrap();
+    assert_eq!(backend.starts.load(Ordering::SeqCst), 0);
     assert!(
-        q.stage_turn_completion_with_usage_limit("thread", "turn", "Failed", true)
-            .await
-            .is_err()
+        reserve_policy::get(&backend.db, "thread")
+            .unwrap()
+            .is_none()
     );
-    assert_eq!(backend.notes.load(Ordering::SeqCst), 0);
-    assert_eq!(queue::list(&backend.db).unwrap().len(), 1);
-    assert!(delivery::list_pending(&backend.db).unwrap().is_empty());
+    assert!(queue::list(&backend.db).unwrap().is_empty());
+    assert_eq!(delivery::list_pending(&backend.db).unwrap().len(), 1);
 }

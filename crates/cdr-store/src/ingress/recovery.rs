@@ -38,6 +38,23 @@ pub fn recover_prior_runtime(path: &Path, runtime_id: &str, now: f64) -> Result<
     Ok(records.len())
 }
 
+pub(crate) fn retire_unowned_in(connection: &Connection) -> Result<()> {
+    // Retirement runs before any new runtime intake; missing ownership never proves headless work.
+    let now: f64 = connection.query_row("SELECT CAST(unixepoch() AS REAL)", [], |r| r.get(0))?;
+    for record in unfinished_prior(connection, "manual-reserve-retirement-v1")? {
+        if record.owner_id.is_none() {
+            hold_in(
+                connection,
+                &record.ingress_id,
+                "legacy unowned request retained during manual Reserve retirement",
+                matches!(record.state.as_str(), "staged" | "acknowledged"),
+                now,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn hold_in(
     connection: &Connection,
     key: &str,

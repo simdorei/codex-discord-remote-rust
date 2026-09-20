@@ -12,7 +12,6 @@ use serde_json::Value;
 mod fresh_thread;
 
 use crate::queue_runner::{BackendFailure, BoxBackendFuture, TurnBackend, TurnRecord};
-use crate::reserve_auto::ReserveAutoController;
 
 pub struct AppServerTurnBackend {
     server: Arc<ResidentAppServer>,
@@ -20,7 +19,6 @@ pub struct AppServerTurnBackend {
     resume_timeout: Duration,
     history_read_timeout: Duration,
     fresh_threads: fresh_thread::FreshThreads,
-    reserve_auto: Option<Arc<ReserveAutoController>>,
 }
 
 impl AppServerTurnBackend {
@@ -32,7 +30,6 @@ impl AppServerTurnBackend {
             resume_timeout: Duration::from_mins(1),
             history_read_timeout: Duration::from_mins(1),
             fresh_threads: fresh_thread::FreshThreads::new(),
-            reserve_auto: None,
         }
     }
 
@@ -46,12 +43,6 @@ impl AppServerTurnBackend {
     pub const fn with_timeouts(mut self, resume: Duration, history_read: Duration) -> Self {
         self.resume_timeout = resume;
         self.history_read_timeout = history_read;
-        self
-    }
-
-    #[must_use]
-    pub fn with_reserve_auto(mut self, controller: Arc<ReserveAutoController>) -> Self {
-        self.reserve_auto = Some(controller);
         self
     }
 }
@@ -171,24 +162,6 @@ impl TurnBackend for AppServerTurnBackend {
                 .filter(|turn_id| !turn_id.is_empty())
                 .map(str::to_owned)
                 .ok_or_else(|| BackendFailure::ambiguous("turn/start returned no turn id"))
-        })
-    }
-
-    fn prepare_turn<'a>(&'a self, thread_id: &'a str) -> BoxBackendFuture<'a, ()> {
-        Box::pin(async move {
-            if let Some(controller) = &self.reserve_auto {
-                controller.prepare_turn(thread_id).await?;
-            }
-            Ok(())
-        })
-    }
-
-    fn note_usage_limit<'a>(&'a self, thread_id: &'a str) -> BoxBackendFuture<'a, ()> {
-        Box::pin(async move {
-            if let Some(controller) = &self.reserve_auto {
-                controller.note_usage_limit(thread_id).await;
-            }
-            Ok(())
         })
     }
 }

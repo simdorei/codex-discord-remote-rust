@@ -117,6 +117,15 @@ impl MessageCandidate {
         )
     }
 
+    pub(crate) fn is_force_restart(&self) -> bool {
+        matches!(
+            &self.frozen_plan,
+            Ok(MessagePlan::Execute(
+                crate::command_plan::CommandAction::ForceRestartCodex
+            ))
+        )
+    }
+
     pub(super) fn into_admission_parts(self) -> CandidateParts {
         CandidateParts {
             message: self.message,

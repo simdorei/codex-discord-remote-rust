@@ -10,7 +10,6 @@ use super::{QueueCoordinator, QueueRunnerError, TurnBackend, generation_i64};
 
 struct CompletionEvidence<'a> {
     expected_job: Option<&'a cdr_store::queue::StoredQueueJob>,
-    usage_limit: bool,
     observed_generation: Option<i64>,
 }
 
@@ -62,7 +61,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         target: &str,
         turn: &str,
         content: &str,
-        usage_limit: bool,
+        _usage_limit: bool,
     ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
         self.stage_turn_completion_inner(
             target,
@@ -70,7 +69,6 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             content,
             CompletionEvidence {
                 expected_job: None,
-                usage_limit,
                 observed_generation: None,
             },
         )
@@ -90,7 +88,6 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             content,
             CompletionEvidence {
                 expected_job: None,
-                usage_limit: false,
                 observed_generation: Some(generation),
             },
         )
@@ -111,7 +108,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         &self,
         expected: &cdr_store::queue::StoredQueueJob,
         content: &str,
-        usage_limit: bool,
+        _usage_limit: bool,
         observed_generation: Option<i64>,
     ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
         let turn = expected.turn_id.as_deref().ok_or_else(|| {
@@ -123,7 +120,6 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             content,
             CompletionEvidence {
                 expected_job: Some(expected),
-                usage_limit,
                 observed_generation,
             },
         )
@@ -161,15 +157,6 @@ impl<B: TurnBackend> QueueCoordinator<B> {
                 "completion ownership changed during observation".into(),
             )
             .into());
-        }
-        if evidence.usage_limit {
-            cdr_store::reserve_policy::stage_usage_failure(
-                &self.db_path,
-                target,
-                "terminal typed usage-limit failure requires automatic handling",
-            )?;
-            // The failure must remain durable even if current settings preparation fails.
-            let _ = self.backend.note_usage_limit(target).await;
         }
         let generation = generation_i64(self.backend.generation())?;
         let release_owner = before_resident

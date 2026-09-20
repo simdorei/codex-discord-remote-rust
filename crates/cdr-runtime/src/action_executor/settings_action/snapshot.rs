@@ -5,7 +5,6 @@ use serde_json::Value;
 pub(crate) struct Settings {
     pub(crate) model: String,
     pub(crate) effort: Option<String>,
-    pub(crate) effort_present: bool,
     pub(crate) tier: Option<String>,
 }
 impl Settings {
@@ -17,7 +16,6 @@ impl Settings {
             .ok_or_else(|| invalid("model missing"))?;
         Ok(Self {
             model: model.into(),
-            effort_present: value.get("effort").is_some(),
             effort: nullable(value, "effort")?,
             tier: nullable(value, "serviceTier")?,
         })

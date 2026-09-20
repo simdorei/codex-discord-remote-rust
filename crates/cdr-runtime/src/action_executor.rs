@@ -56,7 +56,6 @@ pub struct ActionExecutor<B: TurnBackend> {
     archive_delete_paths: ArchiveDeletePaths,
     prompt_preprocessor: Option<Arc<dyn PromptPreprocessor>>,
     mirror_sync: std::sync::OnceLock<crate::mirror_sync::MirrorSynchronizer>,
-    pub(crate) reserve_auto: Option<Arc<crate::reserve_auto::ReserveAutoController>>,
 }
 
 impl<B: TurnBackend> ActionExecutor<B> {
@@ -91,22 +90,12 @@ impl<B: TurnBackend> ActionExecutor<B> {
             archive_delete_paths,
             prompt_preprocessor: None,
             mirror_sync: std::sync::OnceLock::new(),
-            reserve_auto: None,
         }
     }
 
     #[must_use]
     pub fn with_server(mut self, server: Arc<ResidentAppServer>) -> Self {
         self.server = Some(server);
-        self
-    }
-
-    #[must_use]
-    pub fn with_reserve_auto(
-        mut self,
-        controller: Arc<crate::reserve_auto::ReserveAutoController>,
-    ) -> Self {
-        self.reserve_auto = Some(controller);
         self
     }
 
@@ -241,6 +230,7 @@ impl<B: TurnBackend> ActionExecutor<B> {
                     .await;
             }
             CommandAction::RestartCodex => return self.restart_codex().await,
+            CommandAction::ForceRestartCodex => return Self::force_restart_codex(),
             CommandAction::Archive { reference } => {
                 return self.archive_thread(context, reference.as_deref()).await;
             }

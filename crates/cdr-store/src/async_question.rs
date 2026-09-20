@@ -15,8 +15,8 @@ mod ownership;
 mod retention;
 mod schema;
 pub use dispatch::{
-    Claim, DispatchMode, begin_dispatch, begin_dispatch_prepared, confirm_dispatch, record_error,
-    reject_definite, reject_usage_limit,
+    Claim, DispatchMode, begin_dispatch, confirm_dispatch, record_error, reject_definite,
+    reject_usage_limit,
 };
 pub use inbox::{reconcile_observations, record_observation};
 pub use observe::{NewQuestion, observe};

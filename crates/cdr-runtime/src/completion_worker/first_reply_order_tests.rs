@@ -185,6 +185,94 @@ async fn goal_progress_waits_for_actual_message_worker_first_reply() {
 }
 
 #[tokio::test]
+async fn explicit_saved_final_recovery_posts_once_without_reopening_acceptance_or_replaying() {
+    use crate::test_support::approval_http;
+    use cdr_store::{delivery_receipt, final_recovery};
+    use serde_json::json;
+    let temp = tempfile::tempdir().unwrap();
+    let http = approval_http::start().await;
+    let fixture = MessageFixture::new(
+        &temp,
+        Arc::new(
+            Client::builder()
+                .proxy(http.address.clone(), true)
+                .ratelimiter(None)
+                .build(),
+        ),
+    )
+    .await;
+    let db = fixture.queue.db_path();
+    let result = fixture
+        .queue
+        .submit_identified("saved", "thread-b", 42, 3, Some(801), "input")
+        .await
+        .unwrap();
+    rusqlite::Connection::open(db).unwrap().execute_batch("INSERT INTO discord_ingress_journal
+        (ingress_id,kind,event_id,channel_id,owner_user_id,payload_json,state,phase,target_thread_id,
+        owner_kind,owner_id,confirmation_delivered,created_at,updated_at)
+        VALUES ('message:801','message',801,42,3,'{}','owned','durable_prompt','thread-b','prompt','saved',0,1,1)").unwrap();
+    let key = json!([
+        42,
+        "message/error/v1",
+        "inbound-message/801/error-report",
+        0
+    ])
+    .to_string();
+    delivery_receipt::begin(db, &key, "original-error").unwrap();
+    delivery_receipt::confirm(db, &key, "900").unwrap();
+    let pending = fixture
+        .queue
+        .stage_turn_completion(
+            "thread-b",
+            result.turn_id.as_deref().unwrap(),
+            &"Saved answer ".repeat(220),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(worker(&fixture).deliver_one(&pending).await.is_err());
+    let request = final_recovery::Request {
+        delivery_id: pending.delivery_id.clone(),
+        job_id: pending.job_id.clone(),
+        thread_id: pending.target_thread_id.clone(),
+        turn_id: pending.turn_id.clone(),
+        channel_id: pending.channel_id,
+        original_sha256: final_recovery::sha256(&pending.content),
+        ingress_id: "message:801".into(),
+        error_receipt_key: key,
+        error_message_id: "900".into(),
+        error_sha256: "original-error".into(),
+    };
+    final_recovery::authorize(db, &request, |s| {
+        cdr_discord::text::split_delivery_chunks(s, true)
+    })
+    .unwrap();
+    let frozen = delivery::list_pending(db).unwrap().remove(0);
+    let expected = cdr_discord::text::split_delivery_chunks(&frozen.content, true);
+    worker(&fixture).deliver_pending().await.unwrap();
+    worker(&fixture).deliver_pending().await.unwrap();
+    assert!(worker(&fixture).ensure_first_reply("saved").is_err());
+    assert!(cdr_store::queue::list(db).unwrap().is_empty());
+    fixture.server.close().await.unwrap();
+    http.stop.send(()).unwrap();
+    let posts = http.task.await.unwrap();
+    assert_eq!(
+        posts
+            .iter()
+            .map(|(_, v)| v["content"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        app_fixture::rpc_log(&temp.path().join("rpc.jsonl"))
+            .iter()
+            .filter(|r| r["method"] == "turn/start")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn confirmed_echo_wakes_actual_processor_without_waiting_for_thirty_second_retry() {
     let temp = tempfile::tempdir().unwrap();
     let mut gate = http_gate::start().await;

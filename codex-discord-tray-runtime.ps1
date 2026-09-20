@@ -157,6 +157,7 @@ function Test-CdrTrayControlPending {
     param([string]$Root)
     foreach ($name in @('.codex_discord_bot.disabled','.codex_discord_rust.stop',
         '.codex_discord_rust.restart','.codex_discord_rust.restart.launch',
+        '.codex_discord_rust.force.launch',
         '.codex_discord_rust.drain.prepare','.codex_discord_rust.drain.ack',
         '.codex_discord_rust.maintenance.v2')) {
         try { $null=Get-Item -LiteralPath (Join-Path $Root $name) -ErrorAction Stop }

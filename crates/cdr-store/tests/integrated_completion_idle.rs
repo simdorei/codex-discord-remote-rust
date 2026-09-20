@@ -92,7 +92,7 @@ fn historical_job_final_is_preserved_without_new_release_authority() {
 }
 
 #[test]
-fn pending_reserve_and_unconfirmed_settings_block_release_but_stable_reserve_does_not() {
+fn historical_reserve_states_do_not_govern_current_completion_release() {
     for state in [
         "ordinary",
         "reserve",
@@ -117,11 +117,7 @@ fn pending_reserve_and_unconfirmed_settings_block_release_but_stable_reserve_doe
             Some(("resident", 1)),
         )
         .unwrap();
-        assert_eq!(
-            idle::get(&path, "thread").unwrap().is_some(),
-            matches!(state, "ordinary" | "reserve"),
-            "{state}"
-        );
+        assert!(idle::get(&path, "thread").unwrap().is_some(), "{state}");
         assert_eq!(delivery::list_pending(&path).unwrap().len(), 1);
     }
     let temp = tempfile::tempdir().unwrap();
@@ -137,7 +133,7 @@ fn pending_reserve_and_unconfirmed_settings_block_release_but_stable_reserve_doe
     )
     .unwrap();
     assert!(reserve::usage_failure_unresolved(&path, "thread").unwrap());
-    assert!(idle::get(&path, "thread").unwrap().is_none());
+    assert!(idle::get(&path, "thread").unwrap().is_some());
 }
 
 #[test]
@@ -160,7 +156,7 @@ fn same_numeric_generation_and_old_journal_do_not_imply_current_resident() {
 }
 
 #[test]
-fn late_pending_fence_invalidates_an_existing_idle_candidate() {
+fn legacy_usage_fence_does_not_invalidate_an_existing_idle_candidate() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("db.sqlite");
     let job = running(&path, 1);
@@ -175,6 +171,6 @@ fn late_pending_fence_invalidates_an_existing_idle_candidate() {
     let intent = idle::get(&path, "thread").unwrap().unwrap();
     idle::verify(&path, &intent, true).unwrap();
     reserve::stage_usage_failure(&path, "thread", "late fence").unwrap();
-    assert!(idle::verify(&path, &intent, true).is_err());
+    idle::verify(&path, &intent, true).unwrap();
     assert_eq!(idle::get(&path, "thread").unwrap().unwrap(), intent);
 }

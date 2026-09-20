@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-fn configured_path(root: &Path) -> Result<PathBuf, String> {
+pub(super) fn configured_path(root: &Path) -> Result<PathBuf, String> {
     let environment = super::project_environment(root)?;
     let home = ["USERPROFILE", "HOME"]
         .into_iter()

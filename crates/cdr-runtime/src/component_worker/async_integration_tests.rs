@@ -38,7 +38,7 @@ async fn click(f: &MessageFixture, id: &str, work: &InboundInteractionWork) -> b
     .is_ok()
 }
 #[tokio::test]
-async fn actual_async_start_uses_reserve_effort_policy_for_true_null_and_missing_ordinary() {
+async fn async_start_keeps_current_settings_without_reserve_preparation() {
     for availability in [json!(true), Value::Null, json!("omit")] {
         let http = approval_http::start().await;
         let temp = tempfile::tempdir().unwrap();
@@ -58,8 +58,11 @@ async fn actual_async_start_uses_reserve_effort_policy_for_true_null_and_missing
         );
         let start = rpc.iter().find(|v| v["event"] == "start_settings").unwrap();
         assert_eq!(start["settings"]["model"], "gpt-reserve");
-        assert_eq!(start["settings"]["effort"], "medium");
-        assert!(rpc.iter().any(|v| v["method"] == "thread/settings/update"));
+        assert_eq!(start["settings"]["effort"], "high");
+        assert!(!rpc.iter().any(|v| matches!(
+            v["method"].as_str(),
+            Some("thread/settings/update" | "account/rateLimits/read" | "model/list")
+        )));
         f.server.close().await.unwrap();
         http.stop.send(()).unwrap();
         http.task.await.unwrap();
@@ -67,7 +70,7 @@ async fn actual_async_start_uses_reserve_effort_policy_for_true_null_and_missing
 }
 
 #[tokio::test]
-async fn unsupported_reserve_effort_does_not_claim_or_start_async_answer() {
+async fn unrelated_reserve_catalog_does_not_block_an_ordinary_async_answer() {
     let http = approval_http::start().await;
     let temp = tempfile::tempdir().unwrap();
     let f = configured(&temp, http_client(&http.address)).await;
@@ -78,14 +81,16 @@ async fn unsupported_reserve_effort_does_not_claim_or_start_async_answer() {
     .await;
     let (id, work) = question(&f).await;
     queue::complete(f.executor.mirror_db(), "origin").unwrap();
-    assert!(!click(&f, &id, &work).await);
-    assert_eq!(aq::get(f.executor.mirror_db(), &id).unwrap().state, "open");
-    assert!(queue::list(f.executor.mirror_db()).unwrap().is_empty());
-    let rpc = app_fixture::rpc_log(&temp.path().join("rpc.jsonl"));
-    assert!(
-        !rpc.iter()
-            .any(|v| v["method"] == "turn/start" || v["method"] == "thread/settings/update")
+    assert!(click(&f, &id, &work).await);
+    assert_eq!(
+        aq::get(f.executor.mirror_db(), &id).unwrap().state,
+        "submitted"
     );
+    assert_eq!(queue::list(f.executor.mirror_db()).unwrap().len(), 1);
+    let rpc = app_fixture::rpc_log(&temp.path().join("rpc.jsonl"));
+    assert!(!rpc.iter().any(
+        |v| v["method"] == "account/rateLimits/read" || v["method"] == "thread/settings/update"
+    ));
     f.server.close().await.unwrap();
     http.stop.send(()).unwrap();
     http.task.await.unwrap();
@@ -119,54 +124,61 @@ async fn active_question_steer_never_mutates_reserve_settings() {
 }
 
 #[tokio::test]
-async fn real_resident_mutation_guard_rejects_post_claim_policy_change_without_start() {
-    let http = approval_http::start().await;
-    let temp = tempfile::tempdir().unwrap();
-    let f = configured(&temp, http_client(&http.address)).await;
-    let (id, _work) = question(&f).await;
-    let db = f.executor.mirror_db();
-    queue::complete(db, "origin").unwrap();
-    reserve_policy::ensure(db, "thread-b").unwrap();
-    let q = aq::get(db, &id).unwrap();
-    aq::begin_dispatch(
-        db,
-        &aq::Claim {
-            id: &id,
-            runtime_id: f.server.instance_id(),
-            generation: 1,
-            channel: 42,
-            actor: 3,
-            message: q.message_id.as_deref().unwrap(),
-            option: 1,
-            mode: aq::DispatchMode::Start,
-            prompt: "exact answer",
-            now: 2.0,
-        },
-    )
-    .unwrap();
-    reserve_policy::stage_usage_failure(db, "thread-b", "after claim").unwrap();
-    let error = f
-        .server
-        .execute(
-            cdr_app_server::requests::start_turn("thread-b", "exact answer"),
-            Some(1),
+async fn real_resident_guard_checks_job_identity_and_ignores_historical_policy() {
+    for change_identity in [false, true] {
+        let http = approval_http::start().await;
+        let temp = tempfile::tempdir().unwrap();
+        let f = configured(&temp, http_client(&http.address)).await;
+        let (id, _work) = question(&f).await;
+        let db = f.executor.mirror_db();
+        queue::complete(db, "origin").unwrap();
+        reserve_policy::ensure(db, "thread-b").unwrap();
+        let q = aq::get(db, &id).unwrap();
+        aq::begin_dispatch(
+            db,
+            &aq::Claim {
+                id: &id,
+                runtime_id: f.server.instance_id(),
+                generation: 1,
+                channel: 42,
+                actor: 3,
+                message: q.message_id.as_deref().unwrap(),
+                option: 1,
+                mode: aq::DispatchMode::Start,
+                prompt: "exact answer",
+                now: 2.0,
+            },
         )
-        .await
-        .unwrap_err();
-    assert!(error.to_string().contains("Reserve"), "{error}");
-    assert!(
-        !app_fixture::rpc_log(&temp.path().join("rpc.jsonl"))
+        .unwrap();
+        reserve_policy::stage_usage_failure(db, "thread-b", "after claim").unwrap();
+        if change_identity {
+            rusqlite::Connection::open(db)
+                .unwrap()
+                .execute("UPDATE codex_turn_queue SET prompt='changed owner'", [])
+                .unwrap();
+        }
+        let result = f
+            .server
+            .execute(
+                cdr_app_server::requests::start_turn("thread-b", "exact answer"),
+                Some(1),
+            )
+            .await;
+        assert_eq!(result.is_err(), change_identity);
+        let starts = app_fixture::rpc_log(&temp.path().join("rpc.jsonl"))
             .iter()
-            .any(|v| v["method"] == "turn/start")
-    );
-    assert_eq!(aq::get(db, &id).unwrap().state, "dispatching");
-    f.server.close().await.unwrap();
-    http.stop.send(()).unwrap();
-    http.task.await.unwrap();
+            .filter(|v| v["method"] == "turn/start")
+            .count();
+        assert_eq!(starts, usize::from(!change_identity));
+        assert_eq!(aq::get(db, &id).unwrap().state, "dispatching");
+        f.server.close().await.unwrap();
+        http.stop.send(()).unwrap();
+        http.task.await.unwrap();
+    }
 }
 
 #[tokio::test]
-async fn typed_async_start_failure_is_not_replayed_after_reserve_switch() {
+async fn typed_async_start_failure_is_rejected_once_without_policy_or_model_changes() {
     let http = approval_http::start().await;
     let temp = tempfile::tempdir().unwrap();
     let f = configured(&temp, http_client(&http.address)).await;
@@ -178,10 +190,7 @@ async fn typed_async_start_failure_is_not_replayed_after_reserve_switch() {
     assert!(!click(&f, &id, &work).await);
     assert_eq!(aq::get(db, &id).unwrap().state, "rejected");
     assert!(queue::list(db).unwrap().is_empty());
-    assert_eq!(
-        reserve_policy::get(db, "thread-b").unwrap().unwrap().state,
-        "reserve"
-    );
+    assert!(reserve_policy::get(db, "thread-b").unwrap().is_none());
     assert!(!reserve_policy::usage_failure_unresolved(db, "thread-b").unwrap());
     assert_eq!(
         app_fixture::rpc_log(&temp.path().join("rpc.jsonl"))
@@ -196,7 +205,7 @@ async fn typed_async_start_failure_is_not_replayed_after_reserve_switch() {
 }
 
 #[tokio::test]
-async fn failed_question_claim_after_successful_preparation_never_starts_answer() {
+async fn failed_question_claim_never_starts_answer() {
     let http = approval_http::start().await;
     let temp = tempfile::tempdir().unwrap();
     let f = configured(&temp, http_client(&http.address)).await;

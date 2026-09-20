@@ -57,15 +57,7 @@ pub(super) async fn handle<B: TurnBackend>(
     }
     let mode = preflight(server, &q).await?;
     let prompt = answer_prompt(&q, option)?;
-    if mode == DispatchMode::Start {
-        executor
-            .prepare_async_reply_locked(&q.thread_id)
-            .await
-            .map_err(|e| invalid(&e.to_string()))?;
-    }
-    // Captured after preparation, checked again atomically with the question claim.
-    let preparation = cdr_store::reserve_policy::admission::capture(db, &q.thread_id)?;
-    store::begin_dispatch_prepared(
+    store::begin_dispatch(
         db,
         &store::Claim {
             id,
@@ -79,7 +71,6 @@ pub(super) async fn handle<B: TurnBackend>(
             prompt: &prompt,
             now: super::now()?,
         },
-        &preparation,
     )?;
     // Actual-send boundary: original turn, no successor, connection and mapping
     // are checked again while the same target lock is held. No deferred starts.
@@ -98,18 +89,17 @@ pub(super) async fn handle<B: TurnBackend>(
         store::reject_definite(db, id, &error.to_string())?;
         return Err(error);
     }
-    dispatch_claimed(db, server, &q, mode, &prompt, executor).await?;
+    dispatch_claimed(db, server, &q, mode, &prompt).await?;
     executor.notify_delivery_ready();
     Ok(confirmation(&q))
 }
 
-async fn dispatch_claimed<B: TurnBackend>(
+async fn dispatch_claimed(
     db: &std::path::Path,
     server: &ResidentAppServer,
     q: &Question,
     mode: DispatchMode,
     prompt: &str,
-    executor: &ActionExecutor<B>,
 ) -> Result<(), ComponentWorkerError> {
     let id = &q.id;
     let request = match mode {
@@ -126,7 +116,6 @@ async fn dispatch_claimed<B: TurnBackend>(
                 && cdr_app_server::is_usage_limit_error(data.as_ref())
             {
                 store::reject_usage_limit(db, id, &error.to_string())?;
-                executor.note_async_usage_limit_locked(&q.thread_id).await;
                 return Err(error.into());
             }
             if matches!(

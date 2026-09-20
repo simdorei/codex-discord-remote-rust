@@ -24,16 +24,8 @@ fn only_structured_usage_evidence_is_typed() {
 }
 
 #[test]
-fn auto_reserve_prefix_is_a_manual_mutation_and_never_a_settings_query() {
-    let action =
-        cdr_runtime::prefix_plan::plan_prefix("settings thread-1 --auto-reserve on").unwrap();
-    assert_eq!(
-        action,
-        cdr_runtime::prefix_plan::PrefixAction::AutoReserve {
-            reference: Some("thread-1".into()),
-            enabled: true,
-        }
-    );
+fn retired_auto_reserve_prefix_is_refused_without_a_settings_mutation() {
+    assert!(cdr_runtime::prefix_plan::plan_prefix("settings thread-1 --auto-reserve on").is_err());
     assert!(
         cdr_runtime::prefix_plan::plan_prefix("settings --auto-reserve on --model gpt-5.6-luna",)
             .is_err()
@@ -54,6 +46,6 @@ fn usage_start_failure_is_persisted_as_a_hold_not_a_retry() {
         ),
         false,
     );
-    assert_eq!(held.kind, BackendFailureKind::AutoReserveHeld);
+    assert_eq!(held.kind, BackendFailureKind::ExecutionHeld);
     assert!(!held.ambiguous);
 }

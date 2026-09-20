@@ -56,9 +56,7 @@ pub(super) fn eligible_pending_head(jobs: &[StoredQueueJob]) -> Option<&StoredQu
     }
     jobs.iter().find(|job| {
         job.state == QueueJobState::Pending
-            && !job
-                .last_error
-                .starts_with(cdr_store::reserve_policy::HOLD_PREFIX)
+            && !cdr_store::execution_hold::legacy_or_current_error(&job.last_error)
     })
 }
 
@@ -70,17 +68,15 @@ pub(super) fn replay_existing(job: StoredQueueJob) -> Submission {
     let quarantined = job.state == QueueJobState::Quarantined;
     let fork_fenced = job.last_error.starts_with(UNRESOLVED_FORK_ERROR_PREFIX);
     let starting_candidates_held = job.last_error.starts_with(STARTING_CANDIDATE_HOLD_PREFIX);
-    let auto_reserve_held = job
-        .last_error
-        .starts_with(cdr_store::reserve_policy::HOLD_PREFIX);
+    let execution_held = cdr_store::execution_hold::legacy_or_current_error(&job.last_error);
     let warning = if quarantined {
         Some(BackendFailure::quarantined(job.last_error))
     } else if fork_fenced {
         Some(BackendFailure::fork_fenced(job.last_error))
     } else if starting_candidates_held {
         Some(BackendFailure::starting_candidates_held(job.last_error))
-    } else if auto_reserve_held {
-        Some(BackendFailure::auto_reserve_held(job.last_error))
+    } else if execution_held {
+        Some(BackendFailure::execution_held(job.last_error))
     } else {
         (!job.last_error.is_empty()).then(|| {
             BackendFailure::persisted(job.last_error, job.state == QueueJobState::Starting)
@@ -151,7 +147,10 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         // A cold/old-generation Starting or Running job still owns this target.
         // Filtering it out before eligibility would let a current-generation
         // kick or completion start another request past the unresolved attempt.
-        let jobs = list_filtered(&self.db_path, Some(target_thread_id), None)?;
+        let jobs = cdr_store::execution_hold::eligible_jobs(
+            &self.db_path,
+            list_filtered(&self.db_path, Some(target_thread_id), None)?,
+        )?;
         let Some(job) = eligible_pending_head(&jobs).cloned() else {
             return Ok(None);
         };
@@ -172,10 +171,6 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         {
             return Ok(None);
         }
-        self.backend
-            .prepare_turn(target_thread_id)
-            .await
-            .map_err(QueueRunnerError::Backend)?;
         let baseline = self
             .preflight_baseline(target_thread_id, generation, &job, recovered_turns)
             .await?;
@@ -188,11 +183,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             Err(error) => {
                 let failure_message =
                     if error.kind == crate::queue_runner::BackendFailureKind::UsageLimit {
-                        format!(
-                            "{}{}",
-                            cdr_store::reserve_policy::HOLD_PREFIX,
-                            error.message
-                        )
+                        format!("{}{}", cdr_store::execution_hold::PREFIX, error.message)
                     } else {
                         error.message.clone()
                     };
@@ -212,7 +203,6 @@ impl<B: TurnBackend> QueueCoordinator<B> {
                     // The notice and hold were committed atomically even when no
                     // foreground caller exists for this previously queued job.
                     self.notify_delivery_ready();
-                    let _ = self.backend.note_usage_limit(target_thread_id).await;
                 }
                 return Err(error.into());
             }

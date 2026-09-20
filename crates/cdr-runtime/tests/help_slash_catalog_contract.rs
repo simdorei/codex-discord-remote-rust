@@ -121,49 +121,32 @@ fn documented_slash_names_and_each_registered_option_reach_their_actual_actions(
 }
 
 #[test]
-fn registered_automatic_policy_routes_both_values_with_and_without_reference() {
+fn settings_schema_advertises_only_manual_options() {
     let settings = slash_commands(false)
         .into_iter()
-        .find(|command| command.name == "settings")
+        .find(|c| c.name == "settings")
         .unwrap();
     assert_eq!(
         settings
             .options
             .iter()
-            .map(|option| option.name.as_str())
+            .map(|o| o.name.as_str())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["ref", "model", "effort", "speed", "auto_reserve"])
+        BTreeSet::from(["ref", "model", "effort", "speed"])
     );
-    let automatic = settings
-        .options
-        .iter()
-        .find(|option| option.name == "auto_reserve")
-        .unwrap();
-    assert_eq!(automatic.kind, CommandOptionType::Boolean);
-    for enabled in [false, true] {
-        for reference in [None, Some("thread-b")] {
-            assert_eq!(
-                route_settings(settings_options(enabled, reference, 0)).unwrap(),
-                CommandAction::AutoReserve {
-                    reference: reference.map(str::to_owned),
-                    enabled,
-                }
-            );
-        }
-    }
 }
 
 #[test]
 fn automatic_policy_rejects_every_nonempty_manual_option_combination() {
     for enabled in [false, true] {
         for reference in [None, Some("thread-b")] {
-            for mask in 1..8 {
+            for mask in 0..8 {
                 let error = route_settings(settings_options(enabled, reference, mask)).unwrap_err();
                 assert!(
                     matches!(
                         error,
                         CommandPlanError::Unsupported(ref message)
-                            if message == "settings auto_reserve cannot be mixed with model, effort, or speed"
+                            if message == cdr_runtime::command_plan::AUTO_RESERVE_REMOVED
                     ),
                     "enabled={enabled} reference={reference:?} manual_mask={mask}: {error}"
                 );
@@ -212,7 +195,8 @@ fn route_settings(options: Vec<CommandDataOption>) -> Result<CommandAction, Comm
         resolved: None,
         target_id: None,
     };
-    let route = route_command(&data, InteractionType::ApplicationCommand, false).unwrap();
+    let route = route_command(&data, InteractionType::ApplicationCommand, false)
+        .map_err(|e| CommandPlanError::Unsupported(e.to_string()))?;
     let Some(RoutedWork::Slash(invocation)) = route.work else {
         panic!("settings did not route as slash")
     };

@@ -10,6 +10,24 @@ impl<B: TurnBackend> ActionExecutor<B> {
         let sends_unconfirmed = cdr_store::delivery_receipt::unknown_count(&self.mirror_db)?;
         let sends_rejected = cdr_store::delivery_receipt::blocked_count(&self.mirror_db)?;
         let intakes = list_prompt_intakes(&self.mirror_db)?;
+        let mut held = Vec::new();
+        for id in jobs
+            .iter()
+            .map(|j| &j.job_id)
+            .chain(intakes.iter().map(|i| &i.job_id))
+        {
+            if let Some(reason) = cdr_store::execution_hold::reason(&self.mirror_db, id)? {
+                let row = format!("{id}: {reason}");
+                if !held.contains(&row) {
+                    held.push(row);
+                }
+            }
+        }
+        let hold_summary = if held.is_empty() {
+            "none".into()
+        } else {
+            held.join("\n")
+        };
         let pending = jobs
             .iter()
             .filter(|job| job.state == QueueJobState::Pending)
@@ -31,7 +49,7 @@ impl<B: TurnBackend> ActionExecutor<B> {
             .filter(|intake| !intake.last_error.is_empty())
             .count();
         Ok(format!(
-            "Codex runners\npending: {pending}\nstarting: {starting}\nrunning: {running}\nquarantined: {quarantined}\nfinal_pending: {final_pending}\nsends_unconfirmed: {sends_unconfirmed} (not automatically resent)\nsends_rejected: {sends_rejected} (requires correction; no automatic retry)\nrecoverable_intakes: {}\nintake_backoff: {intake_backoff}",
+            "Codex runners\nexecution_held (explicit recovery required): {hold_summary}\npending: {pending}\nstarting: {starting}\nrunning: {running}\nquarantined: {quarantined}\nfinal_pending: {final_pending}\nsends_unconfirmed: {sends_unconfirmed} (not automatically resent)\nsends_rejected: {sends_rejected} (requires correction; no automatic retry)\nrecoverable_intakes: {}\nintake_backoff: {intake_backoff}",
             intakes.len()
         ))
     }

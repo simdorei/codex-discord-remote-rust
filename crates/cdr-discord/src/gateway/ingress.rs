@@ -35,6 +35,7 @@ pub struct GatewayIngress {
     normal_interactions: mpsc::Sender<InteractionIngress>,
     reserved_interactions: mpsc::Sender<InteractionIngress>,
     messages: mpsc::Sender<MessageIngress>,
+    emergency_messages: mpsc::Sender<MessageIngress>,
     receive_errors: mpsc::Sender<ReceiveErrorIngress>,
     identity: GatewayIdentityTracker,
     message_gaps: gaps::MessageGapTracker,
@@ -71,6 +72,7 @@ impl GatewayIngress {
         let (reserved_interactions, reserved_rx) =
             mpsc::channel(config.reserved_interaction_capacity);
         let (messages, message_rx) = mpsc::channel(config.message_capacity);
+        let (emergency_messages, emergency_rx) = mpsc::channel(EMERGENCY_MESSAGE_CAPACITY);
         let (receive_errors, receive_error_rx) = mpsc::channel(config.receive_error_capacity);
         let identity = GatewayIdentityTracker::new();
         let message_gaps = gaps::MessageGapTracker::new();
@@ -81,6 +83,7 @@ impl GatewayIngress {
                 normal_interactions,
                 reserved_interactions,
                 messages,
+                emergency_messages,
                 receive_errors,
                 identity,
                 message_gaps,
@@ -93,6 +96,7 @@ impl GatewayIngress {
                 normal_interactions: normal_rx,
                 reserved_interactions: reserved_rx,
                 messages: message_rx,
+                emergency_messages: emergency_rx,
                 receive_errors: receive_error_rx,
             },
         ))
@@ -201,7 +205,12 @@ impl GatewayIngress {
         let Some(sequence) = self.sequence.next() else {
             return self.message_gap(&publication, &event, UnavailableReason::SequenceExhausted);
         };
-        match self.messages.try_send(MessageIngress { sequence, event }) {
+        let messages = if is_force_restart_message(&event.content) {
+            &self.emergency_messages
+        } else {
+            &self.messages
+        };
+        match messages.try_send(MessageIngress { sequence, event }) {
             Ok(()) => PublishOutcome::MessageAccepted { sequence },
             Err(error) => {
                 let reason = types::unavailable_reason(&error);

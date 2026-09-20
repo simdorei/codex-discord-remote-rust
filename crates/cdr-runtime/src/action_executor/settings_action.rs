@@ -44,36 +44,11 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 )
                 .await
             }
-            CommandAction::AutoReserve { reference, enabled } => {
-                self.auto_reserve_setting(channel, reference.as_deref(), enabled, None)
-                    .await
+            CommandAction::AutoReserve { .. } => {
+                Ok(immediate(crate::command_plan::AUTO_RESERVE_REMOVED))
             }
             _ => Err(ActionError::Invalid("not a settings command".into())),
         }
-    }
-
-    pub(super) async fn auto_reserve_setting(
-        &self,
-        channel: u64,
-        reference: Option<&str>,
-        enabled: bool,
-        binding: Option<&crate::settings_binding::SettingsBinding>,
-    ) -> Result<ActionResult, ActionError> {
-        let thread = if let Some(binding) = binding {
-            self.settings_resolver().validate(binding, channel)?;
-            self.resolve_reference(&binding.target, false)?
-        } else {
-            self.resolve_thread(channel, reference)?
-        };
-        let controller = self
-            .reserve_auto
-            .as_ref()
-            .ok_or(ActionError::MissingAppServer)?;
-        let _guard = self.control_lock(&thread.id).await?;
-        if let Some(binding) = binding {
-            self.settings_resolver().validate(binding, channel)?;
-        }
-        Ok(immediate(controller.set_manual_mode(&thread.id, enabled)?))
     }
 
     pub(super) async fn settings(
@@ -212,10 +187,6 @@ impl<B: TurnBackend> ActionExecutor<B> {
             effort_clear: false,
             service_tier,
         };
-        if let Some(controller) = &self.reserve_auto {
-            // Record user ownership before any server mutation or acknowledgement.
-            controller.manual_override(thread)?;
-        }
         ready(server, generation).await?;
         self.validate_settings_route(channel, reference, thread, binding)?;
         let (applied, already_applied) =
@@ -236,11 +207,6 @@ impl<B: TurnBackend> ActionExecutor<B> {
             format!("모델이 변경되었습니다: {}", applied.model)
         } else {
             applied.display(thread, "설정 변경 확인 · 다음 요청부터 적용")
-        };
-        let result = if self.reserve_auto.is_some() {
-            format!("{result}\n자동 Reserve 전환·복귀 정책: 사용자 수동 설정으로 해제됨")
-        } else {
-            result
         };
         Ok(immediate(result))
     }

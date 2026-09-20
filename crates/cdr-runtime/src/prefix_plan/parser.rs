@@ -35,7 +35,17 @@ pub fn plan_prefix(command_line: &str) -> Result<PrefixAction, PrefixPlanError> 
         },
         "settings" | "setting" => plan_settings(arg)?,
         "discover_codex" => PrefixAction::DiscoverCodex,
-        "restart_codex" => PrefixAction::RestartCodex,
+        "restart_codex" if arg.is_empty() => PrefixAction::RestartCodex,
+        "restart_codex" | "force_restart" => {
+            if cdr_discord::gateway::ingress::is_force_restart_message(&format!("!{command_line}"))
+            {
+                PrefixAction::ForceRestartCodex
+            } else {
+                return Err(PrefixPlanError::Usage(
+                    "Usage: !restart_codex [force] or !force_restart".into(),
+                ));
+            }
+        }
         "archive" => PrefixAction::Archive {
             reference: optional(arg),
         },

@@ -1,3 +1,5 @@
+pub const AUTO_RESERVE_REMOVED: &str = "자동 Reserve 전환 기능은 제거되었습니다. 설정은 변경하지 않았습니다. 필요하면 !settings --model gpt-reserve 로 직접 선택하세요.";
+
 use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
@@ -56,6 +58,8 @@ enum SlashValue {
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum InteractionRouteError {
+    #[error("{0}")]
+    RemovedFeature(&'static str),
     #[error("unsupported Discord interaction type")]
     WrongInteractionType,
     #[error("only slash commands are supported")]
@@ -75,6 +79,11 @@ pub enum InteractionRouteError {
 }
 
 impl SlashInvocation {
+    #[must_use]
+    pub fn has_option(&self, name: &str) -> bool {
+        self.values.contains_key(name)
+    }
+
     #[must_use]
     pub fn string(&self, name: &str) -> Option<&str> {
         match self.values.get(name) {
@@ -113,6 +122,9 @@ pub fn route_command(
     }
     if data.kind != CommandType::ChatInput {
         return Err(InteractionRouteError::WrongCommandType);
+    }
+    if data.name == "settings" && data.options.iter().any(|o| o.name == "auto_reserve") {
+        return Err(InteractionRouteError::RemovedFeature(AUTO_RESERVE_REMOVED));
     }
     let expected = slash_commands(qa_enabled)
         .into_iter()

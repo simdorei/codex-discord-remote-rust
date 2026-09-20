@@ -21,6 +21,9 @@ async fn offline_soak_drains_state_and_proves_dedup_retry_contract() {
             events_path.to_str().expect("UTF-8 events path"),
         ])
         .env_clear()
+        .env("TMP", temp.path())
+        .env("TEMP", temp.path())
+        .env("TMPDIR", temp.path())
         .current_dir(temp.path())
         .output();
     let output = tokio::time::timeout(Duration::from_secs(10), output)
@@ -147,6 +150,9 @@ async fn three_core_args_derive_events_path_and_output_alias_is_rejected() {
             summary.to_str().expect("UTF-8 summary path"),
         ])
         .env_clear()
+        .env("TMP", temp.path())
+        .env("TEMP", temp.path())
+        .env("TMPDIR", temp.path())
         .current_dir(temp.path())
         .output();
     let output = tokio::time::timeout(Duration::from_secs(10), output)
@@ -174,6 +180,9 @@ async fn three_core_args_derive_events_path_and_output_alias_is_rejected() {
             collision.to_str().expect("UTF-8 collision path"),
         ])
         .env_clear()
+        .env("TMP", temp.path())
+        .env("TEMP", temp.path())
+        .env("TMPDIR", temp.path())
         .current_dir(temp.path())
         .output()
         .await
@@ -247,7 +256,13 @@ async fn run_binary(
     ]);
     tokio::time::timeout(
         Duration::from_secs(10),
-        command.env_clear().current_dir(root).output(),
+        command
+            .env_clear()
+            .env("TMP", root)
+            .env("TEMP", root)
+            .env("TMPDIR", root)
+            .current_dir(root)
+            .output(),
     )
     .await
     .expect("offline soak terminates")

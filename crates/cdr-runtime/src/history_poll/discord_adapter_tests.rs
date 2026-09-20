@@ -55,6 +55,23 @@ fn message(id: u64, author_is_bot: bool) -> Message {
 }
 
 #[test]
+fn force_restart_from_history_is_never_replayed() {
+    for command in [
+        "!force_restart",
+        "!restart_codex force",
+        "!restart_codex --force",
+    ] {
+        let mut input = message(990, false);
+        input.content = command.into();
+        let adapted = adapt_discord_history_message_with(input, |_| {
+            panic!("historical force command must not reach admission")
+        })
+        .unwrap();
+        assert!(matches!(adapted.kind, HistoryPollItem::Ignore));
+    }
+}
+
+#[test]
 fn dha_01_bot_author_is_ignored_before_classifier_even_when_bridge_is_mentioned() {
     let mut input = message(501, true);
     input.mentions = serde_json::from_value(serde_json::json!([{

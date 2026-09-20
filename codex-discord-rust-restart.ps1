@@ -3,6 +3,8 @@ param(
     [string]$RepoRoot,
     [switch]$DryRun,
     [switch]$Immediate,
+    [switch]$Force,
+    [switch]$ForceWorker,
     [switch]$Deferred,
     [string]$ExpectedBotIdentity,
     [int]$DelaySeconds = 10,
@@ -123,6 +125,32 @@ function Invoke-BoundRustRestart {
         -RestartWaitTimeoutSeconds $WaitTimeoutSeconds
     if ($LASTEXITCODE -ne 0) {
         throw "Rust watchdog restart failed with exit code $LASTEXITCODE"
+    }
+}
+
+if ($Force) {
+    # Emergency means no delay, quiet probe, drain acknowledgement or turn wait.
+    try {
+        . (Join-Path $RepoRoot 'scripts/CdrForceRestart.ps1')
+        $forceIdentity = Get-VerifiedRustIdentity
+        if ($ExpectedBotIdentity -and $forceIdentity -cne $ExpectedBotIdentity) {
+            throw 'Force restart target identity changed.'
+        }
+        if (-not $DryRun -and (Test-CdrCallerInsideRuntime $forceIdentity)) {
+            if ($ForceWorker) { throw 'Independent force worker is still inside the bot process tree.' }
+            $workerPid = Start-CdrDetachedForceRestart -Root $RepoRoot -Identity $forceIdentity
+            Write-RustRestartLog "force_restart_handed_off worker_pid=$workerPid identity=$forceIdentity"
+            Write-Output "force_restart_handed_off worker_pid=$workerPid active_work_wait=false"
+            exit 0
+        }
+        & $Watchdog -RepoRoot $RepoRoot -BinaryPath $BinaryPath -ForceRestart `
+            -ExpectedRuntimeIdentity $ExpectedBotIdentity -DryRun:$DryRun
+        exit $LASTEXITCODE
+    } catch {
+        Write-RustRestartLog "force_restart_failed error=$($_.Exception.Message)"
+        Add-Content -LiteralPath (Join-Path $RepoRoot 'discord_launcher.log') -Encoding UTF8 `
+            -Value "[$((Get-Date).ToString('s'))] force_restart_failed details=codex-discord-rust-restart.log"
+        throw
     }
 }
 

@@ -53,10 +53,10 @@ pub(super) fn submission_result(
                 ui: None,
             };
         }
-        if warning.kind == BackendFailureKind::AutoReserveHeld {
+        if warning.kind == BackendFailureKind::ExecutionHeld {
             return ActionResult {
                 text: format!(
-                    "Codex request was not replayed{source}\nthread_id: {thread_id}\njob_id: {}\nstatus: automatic Reserve transition is held\nreason: {}\nsafety: no request replay was attempted",
+                    "Codex request was not replayed{source}\nthread_id: {thread_id}\njob_id: {}\nstatus: request requires explicit recovery; no automatic replay\nreason: {}\nsafety: no request replay was attempted",
                     submission.job_id, warning.message
                 ),
                 waits_for_final: false,

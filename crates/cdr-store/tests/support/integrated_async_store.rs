@@ -1,35 +1,40 @@
 use super::*;
-use cdr_store::reserve_policy::{self as reserve, admission};
+use cdr_store::reserve_policy as reserve;
 
 #[test]
-fn preparation_stamp_changed_before_claim_cannot_create_a_reply_job() {
+fn old_policy_seal_is_compatible_but_identity_remains_required() {
     let (_dir, db, id) = fixture();
     queue::complete(&db, "origin").unwrap();
+    aq::begin_dispatch(&db, &claim(&id, aq::DispatchMode::Start)).unwrap();
+    let conn = open_initialized(&db).unwrap();
+    let raw: String = conn
+        .query_row(
+            "SELECT preparation_json FROM cdr_async_questions WHERE id=?",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut seal: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert!(seal.get("policy").is_none());
+    seal["policy"] =
+        serde_json::json!({"policy":{"mode":"auto","state":"unknown"},"failure_id":42});
+    conn.execute(
+        "UPDATE cdr_async_questions SET preparation_json=? WHERE id=?",
+        rusqlite::params![seal.to_string(), id],
+    )
+    .unwrap();
     reserve::ensure(&db, "thread").unwrap();
-    let stamp = admission::capture(&db, "thread").unwrap();
-    reserve::set_mode(&db, "thread", "on").unwrap();
-    assert!(
-        aq::begin_dispatch_prepared(&db, &claim(&id, aq::DispatchMode::Start), &stamp).is_err()
-    );
-    assert_eq!(aq::get(&db, &id).unwrap().state, "open");
-    assert!(queue::list(&db).unwrap().is_empty());
-}
-
-#[test]
-fn actual_dispatch_guard_accepts_only_same_reservation_and_policy() {
-    let (_dir, db, id) = fixture();
-    queue::complete(&db, "origin").unwrap();
-    reserve::ensure(&db, "thread").unwrap();
-    let stamp = admission::capture(&db, "thread").unwrap();
-    aq::begin_dispatch_prepared(&db, &claim(&id, aq::DispatchMode::Start), &stamp).unwrap();
+    reserve::mark_unknown(&db, "thread", "historical unconfirmed mutation").unwrap();
     aq::validate_dispatch_guards(&db, "thread").unwrap();
-    reserve::stage_usage_failure(&db, "thread", "late fence").unwrap();
+    assert!(aq::begin_dispatch(&db, &claim(&id, aq::DispatchMode::Start)).is_err());
+    seal.as_object_mut().unwrap().remove("identity");
+    conn.execute(
+        "UPDATE cdr_async_questions SET preparation_json=? WHERE id=?",
+        rusqlite::params![seal.to_string(), id],
+    )
+    .unwrap();
     assert!(aq::validate_dispatch_guards(&db, "thread").is_err());
-    assert_eq!(aq::get(&db, &id).unwrap().state, "dispatching");
-    assert_eq!(
-        queue::list(&db).unwrap()[0].state,
-        queue::QueueJobState::Quarantined
-    );
+    assert!(aq::confirm_dispatch(&db, &id, "accepted").is_err());
 }
 
 #[test]
@@ -53,13 +58,12 @@ fn exact_job_mutation_cannot_be_confirmed_or_deleted_by_an_old_question() {
 }
 
 #[test]
-fn typed_usage_fence_failure_rolls_back_question_rejection_and_quarantine_delete() {
+fn usage_rejection_transaction_failure_preserves_unreplayable_answer_without_policy() {
     let (_dir, db, id) = fixture();
     queue::complete(&db, "origin").unwrap();
-    reserve::ensure(&db, "thread").unwrap();
     aq::begin_dispatch(&db, &claim(&id, aq::DispatchMode::Start)).unwrap();
     let before = queue::list(&db).unwrap();
-    open_initialized(&db).unwrap().execute_batch("CREATE TRIGGER fail_usage BEFORE UPDATE ON codex_reserve_policy BEGIN SELECT RAISE(ABORT,'usage persistence failed'); END;").unwrap();
+    open_initialized(&db).unwrap().execute_batch("CREATE TRIGGER fail_usage BEFORE UPDATE ON cdr_async_questions WHEN NEW.state='rejected' BEGIN SELECT RAISE(ABORT,'usage persistence failed'); END;").unwrap();
     assert!(aq::reject_usage_limit(&db, &id, "typed rejection").is_err());
     assert_eq!(aq::get(&db, &id).unwrap().state, "dispatching");
     assert_eq!(queue::list(&db).unwrap(), before);
@@ -68,7 +72,7 @@ fn typed_usage_fence_failure_rolls_back_question_rejection_and_quarantine_delete
         .execute_batch("DROP TRIGGER fail_usage")
         .unwrap();
     aq::reject_usage_limit(&db, &id, "typed rejection").unwrap();
-    assert!(reserve::usage_failure_unresolved(&db, "thread").unwrap());
+    assert!(reserve::get(&db, "thread").unwrap().is_none());
     assert_eq!(aq::get(&db, &id).unwrap().state, "rejected");
     assert!(queue::list(&db).unwrap().is_empty());
     assert!(aq::begin_dispatch(&db, &claim(&id, aq::DispatchMode::Start)).is_err());

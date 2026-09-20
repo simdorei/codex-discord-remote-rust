@@ -142,6 +142,31 @@ impl<B: TurnBackend> ActionExecutor<B> {
         }))
     }
 
+    pub(super) fn force_restart_codex() -> Result<ActionResult, ActionError> {
+        #[cfg(windows)]
+        {
+            let executable = std::env::current_exe()?;
+            let root = std::env::current_dir()?;
+            if executable.canonicalize()?
+                != root.join("target/release/cdr-runtime.exe").canonicalize()?
+            {
+                return Err(ActionError::Invalid(
+                    "force restart is only supported for this installed Windows bridge".into(),
+                ));
+            }
+            let identity = cdr_windows_native::current_process_identity()
+                .map_err(|error| ActionError::Invalid(error.to_string()))?;
+            spawn_force_restart(&root, &identity)?;
+            Ok(immediate(
+                "강제 재시작을 요청했습니다. 진행 중인 작업과 승인 대기를 중단하고 봇·앱서버를 다시 시작합니다.",
+            ))
+        }
+        #[cfg(not(windows))]
+        Err(ActionError::Invalid(
+            "force restart is currently supported only on Windows".into(),
+        ))
+    }
+
     pub(super) async fn resources(&self) -> Result<ActionResult, ActionError> {
         let lifecycle = if let Some(server) = &self.server {
             format!("{:?}", server.lifecycle_snapshot().await)
@@ -192,5 +217,70 @@ impl<B: TurnBackend> ActionExecutor<B> {
             )));
         }
         Ok(immediate("Windows host restart scheduled in 5 seconds."))
+    }
+}
+
+#[cfg(windows)]
+fn spawn_force_restart(root: &std::path::Path, identity: &str) -> Result<(), ActionError> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let script = root.join("codex-discord-rust-restart.ps1");
+    if !script.is_file() {
+        return Err(ActionError::Invalid(
+            "force restart controller is missing".into(),
+        ));
+    }
+    // The script binds this exact process, then hands off via Windows to escape
+    // the runtime's job tree. No app-server request or graceful drain is awaited.
+    Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+        ])
+        .arg(script)
+        .arg("-RepoRoot")
+        .arg(root)
+        .arg("-Force")
+        .arg("-ExpectedBotIdentity")
+        .arg(identity)
+        .current_dir(root)
+        .creation_flags(0x0800_0000)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod force_tests {
+    #[test]
+    fn force_launch_passes_exact_identity_without_an_app_server_or_queue_wait() {
+        let root = tempfile::Builder::new()
+            .prefix("cdr force command ")
+            .tempdir()
+            .unwrap();
+        std::fs::write(root.path().join("codex-discord-rust-restart.ps1"), r"
+param($RepoRoot,[switch]$Force,$ExpectedBotIdentity)
+[IO.File]::WriteAllText((Join-Path $RepoRoot 'received.json'),(@{root=$RepoRoot;force=[bool]$Force;identity=$ExpectedBotIdentity}|ConvertTo-Json -Compress))
+").unwrap();
+        let identity = cdr_windows_native::current_process_identity().unwrap();
+        super::spawn_force_restart(root.path(), &identity).unwrap();
+        let receipt = root.path().join("received.json");
+        for _ in 0..100 {
+            if receipt.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let received: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(receipt).unwrap()).unwrap();
+        assert_eq!(received["identity"], identity);
+        assert_eq!(received["root"], root.path().to_str().unwrap());
+        assert_eq!(received["force"], true);
     }
 }

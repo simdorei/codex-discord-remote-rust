@@ -53,6 +53,7 @@ crates/cdr-remote-agent/%SystemDrive%/
 .blocker-pending/
 .codex-discord-attachments/
 .codex_discord_*
+maintenance_backups/force-restart/
 .venv/
 .python-portable*/
 artifacts/

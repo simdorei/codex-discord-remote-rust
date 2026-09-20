@@ -5,7 +5,6 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::Result;
 
-pub mod admission;
 pub mod alignment;
 pub mod start_notice;
 pub mod transition_notice;

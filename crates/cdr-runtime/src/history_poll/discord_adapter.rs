@@ -107,7 +107,9 @@ where
     F: FnOnce(Message) -> Result<MessageClassification, MessageAdmissionError>,
 {
     let watermark = HistoryWatermark::from_message(message.timestamp.as_micros(), message.id.get());
-    if message.author.bot {
+    if message.author.bot
+        || cdr_discord::gateway::ingress::is_force_restart_message(&message.content)
+    {
         return Ok(HistoryBatchItem {
             watermark,
             kind: HistoryPollItem::Ignore,

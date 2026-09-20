@@ -15,6 +15,34 @@ use super::ingress::{
     GatewayIngress, GatewayIngressConfig, InteractionIngressTag, PublishOutcome, UnavailableReason,
 };
 
+#[test]
+fn force_restart_bypasses_a_full_normal_message_queue() {
+    let (ingress, mut receivers) = GatewayIngress::new(config(1, 1, 1)).unwrap();
+    assert!(matches!(
+        ingress.publish(message_event(1), Instant::now()),
+        PublishOutcome::MessageAccepted { .. }
+    ));
+    let Event::MessageCreate(mut force) = message_event(2) else {
+        unreachable!()
+    };
+    force.content = "!restart_codex force".into();
+    assert!(matches!(
+        ingress.publish(Event::MessageCreate(force), Instant::now()),
+        PublishOutcome::MessageAccepted { .. }
+    ));
+    assert_eq!(
+        receivers
+            .emergency_messages
+            .try_recv()
+            .unwrap()
+            .event
+            .id
+            .get(),
+        2
+    );
+    assert_eq!(receivers.messages.try_recv().unwrap().event.id.get(), 1);
+}
+
 pub(super) fn config(normal: usize, reserved: usize, messages: usize) -> GatewayIngressConfig {
     GatewayIngressConfig {
         interaction_capacity: normal,

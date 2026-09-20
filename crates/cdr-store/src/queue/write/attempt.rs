@@ -49,6 +49,7 @@ pub fn try_begin_attempt(
         Err(error) => return Err(error),
     };
     if !crate::dead_generation::job_can_mutate(&transaction, &candidate)?
+        || crate::execution_hold::reason_in(&transaction, job_id)?.is_some()
         || candidate
             .last_error
             .starts_with(crate::reserve_policy::HOLD_PREFIX)
@@ -189,11 +190,13 @@ pub fn record_start_failure_if_claimed(
             baseline,
         ],
     )?;
-    if updated == 1 && !ambiguous && error.starts_with(crate::reserve_policy::HOLD_PREFIX) {
-        crate::reserve_policy::stage_usage_failure_in(
+    if updated == 1 && !ambiguous && crate::execution_hold::legacy_or_current_error(error) {
+        crate::execution_hold::hold_in(
             &transaction,
+            &claimed.job_id,
             &claimed.target_thread_id,
             &bounded_error,
+            &serde_json::to_string(claimed)?,
         )?;
         crate::reserve_policy::start_notice::stage_in(&transaction, claimed, &bounded_error)?;
     }
@@ -246,6 +249,7 @@ fn update_job(
 ) -> Result<StoredQueueJob> {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    crate::execution_hold::require_unheld_in(&transaction, job_id)?;
     let original = select_job(&transaction, job_id)?;
     if !crate::dead_generation::job_can_mutate(&transaction, &original)? {
         return Err(StoreError::DeadGenerationTargetHeld(

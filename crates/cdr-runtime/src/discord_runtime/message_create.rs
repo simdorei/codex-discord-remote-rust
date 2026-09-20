@@ -22,7 +22,7 @@ use crate::restart_readiness::drain::{AdmissionGate, AdmissionPermit, DrainGateE
 enum PreparedMessage {
     Ignore(&'static str, u64, u64),
     Duplicate,
-    Admitted(AdmittedMessage, AdmissionPermit),
+    Admitted(AdmittedMessage, Option<AdmissionPermit>),
     Unavailable,
 }
 
@@ -133,17 +133,26 @@ fn prepare_message_create_with_routing(
     };
     let pending_reply_only = allow_drain_control && candidate.is_pending_reply_candidate();
     let stop_control = candidate.is_stop_control();
-    if allow_drain_control && !pending_reply_only && !stop_control {
+    let force_restart = candidate.is_force_restart();
+    if allow_drain_control && !pending_reply_only && !stop_control && !force_restart {
         return Ok(PreparedMessage::Unavailable);
     }
-    let permit = match if pending_reply_only || stop_control {
-        admission.try_enter_control()
+    // A force request is authenticated above, then durably deduplicated below.
+    // It must remain executable even after normal AND control admission close.
+    let permit = if force_restart {
+        None
     } else {
-        admission.try_enter()
-    } {
-        Ok(permit) => permit,
-        Err(DrainGateError::Sealed) => return Ok(PreparedMessage::Unavailable),
-        Err(error) => return Err(MessageCreateBoundaryError::Drain(error)),
+        Some(
+            match if pending_reply_only || stop_control {
+                admission.try_enter_control()
+            } else {
+                admission.try_enter()
+            } {
+                Ok(permit) => permit,
+                Err(DrainGateError::Sealed) => return Ok(PreparedMessage::Unavailable),
+                Err(error) => return Err(MessageCreateBoundaryError::Drain(error)),
+            },
+        )
     };
     Ok(
         match admit_message_candidate_at(candidate, observed_at)
@@ -204,7 +213,8 @@ pub(super) async fn handle_message_create(
 ) -> Result<(), DiscordRuntimeError> {
     let report_target = ErrorReportTarget::from_message(&message);
     let database = context.executor.mirror_db();
-    let allow_drain_control = if context.admission.is_sealed() {
+    let force_restart = cdr_discord::gateway::ingress::is_force_restart_message(&message.content);
+    let allow_drain_control = if !force_restart && context.admission.is_sealed() {
         match context.executor.target_thread_id(message.channel_id.get()) {
             Ok(target) => match pending_text_reply_available(&target, &context.server).await {
                 Ok(available) => available,

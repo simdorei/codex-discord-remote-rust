@@ -1,6 +1,6 @@
 use super::{PrefixAction, PrefixPlanError};
 
-const USAGE: &str = "Usage: !settings [ref] [--model <model>] [--reasoning <effort>] [--effort <effort>] [--speed <speed>] [--auto-reserve on|off]";
+const USAGE: &str = "Usage: !settings [ref] [--model <model>] [--reasoning <effort>] [--effort <effort>] [--speed <speed>]";
 
 #[cfg(test)]
 #[path = "settings_worker_contract.rs"]
@@ -8,11 +8,18 @@ mod worker_contract;
 
 pub(super) fn plan_settings(arg: &str) -> Result<PrefixAction, PrefixPlanError> {
     let tokens = shell_words(arg)?;
+    if tokens
+        .iter()
+        .any(|t| t == "--auto-reserve" || t.starts_with("--auto-reserve="))
+    {
+        return Err(PrefixPlanError::Usage(
+            crate::command_plan::AUTO_RESERVE_REMOVED.into(),
+        ));
+    }
     let mut reference = None;
     let mut model = None;
     let mut effort = None;
     let mut speed = None;
-    let mut auto_reserve = None;
     let mut option_query = None;
     let mut index = 0;
     while index < tokens.len() {
@@ -21,7 +28,6 @@ pub(super) fn plan_settings(arg: &str) -> Result<PrefixAction, PrefixPlanError> 
             "--model" => Some("model"),
             "--reasoning" | "--effort" => Some("effort"),
             "--speed" => Some("speed"),
-            "--auto-reserve" => Some("auto"),
             _ => None,
         };
         if let Some(field) = field {
@@ -29,16 +35,12 @@ pub(super) fn plan_settings(arg: &str) -> Result<PrefixAction, PrefixPlanError> 
                 "model" => model.is_some(),
                 "effort" => effort.is_some(),
                 "speed" => speed.is_some(),
-                "auto" => auto_reserve.is_some(),
                 _ => unreachable!(),
             };
             if duplicate || option_query.is_some() {
                 return Err(PrefixPlanError::Usage(USAGE.into()));
             }
             if index + 1 >= tokens.len() || tokens[index + 1].starts_with("--") {
-                if field == "auto" {
-                    return Err(PrefixPlanError::Usage(USAGE.into()));
-                }
                 option_query = Some(field.to_owned());
                 index += 1;
                 continue;
@@ -50,13 +52,6 @@ pub(super) fn plan_settings(arg: &str) -> Result<PrefixAction, PrefixPlanError> 
                 "model" => model = Some(tokens[index + 1].clone()),
                 "effort" => effort = Some(tokens[index + 1].clone()),
                 "speed" => speed = Some(tokens[index + 1].clone()),
-                "auto" => {
-                    auto_reserve = Some(match tokens[index + 1].as_str() {
-                        "on" => true,
-                        "off" => false,
-                        _ => return Err(PrefixPlanError::Usage(USAGE.into())),
-                    });
-                }
                 _ => unreachable!(),
             }
             index += 2;
@@ -69,19 +64,13 @@ pub(super) fn plan_settings(arg: &str) -> Result<PrefixAction, PrefixPlanError> 
         index += 1;
     }
     if let Some(field) = option_query {
-        if model.is_some() || effort.is_some() || speed.is_some() || auto_reserve.is_some() {
+        if model.is_some() || effort.is_some() || speed.is_some() {
             return Err(PrefixPlanError::Usage(USAGE.into()));
         }
         return Ok(PrefixAction::SettingsOptions {
             reference,
             field: Some(field),
         });
-    }
-    if let Some(enabled) = auto_reserve {
-        if model.is_some() || effort.is_some() || speed.is_some() {
-            return Err(PrefixPlanError::Usage(USAGE.into()));
-        }
-        return Ok(PrefixAction::AutoReserve { reference, enabled });
     }
     Ok(PrefixAction::Settings {
         reference,

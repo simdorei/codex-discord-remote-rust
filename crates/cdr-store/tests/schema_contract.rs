@@ -4,7 +4,7 @@ use cdr_store::StoreError;
 use cdr_store::schema::{LATEST_STORE_SCHEMA_VERSION, assert_integrity, open_initialized};
 use rusqlite::Connection;
 
-const OWNED_TABLES: [&str; 34] = [
+const OWNED_TABLES: [&str; 38] = [
     "busy_choices",
     "cdr_archive_fences",
     "cdr_archived_cleanup_evidence",
@@ -12,6 +12,10 @@ const OWNED_TABLES: [&str; 34] = [
     "cdr_async_questions",
     "cdr_cleanup_fences",
     "cdr_idle_release",
+    "cdr_execution_holds",
+    "cdr_final_recovery",
+    "cdr_reserve_retirement_evidence",
+    "cdr_store_retirements",
     "codex_app_server_runtime",
     "codex_archive_fences",
     "codex_dead_generation_holds",

@@ -7,7 +7,6 @@ use cdr_remote_agent::{
     status::RemoteAgentStatus,
 };
 use tokio::sync::watch;
-use tokio::time::{Duration, MissedTickBehavior, interval};
 
 use crate::{
     runtime_paths::RuntimePaths,
@@ -20,8 +19,6 @@ use super::{
     DiscordRuntimeError,
     worker_supervision::{MonitoredWorker, WorkerExitNotifier, spawn_monitored},
 };
-use crate::reserve_auto::ReserveAutoController;
-use crate::{app_backend::AppServerTurnBackend, queue_runner::QueueCoordinator};
 
 pub(super) fn spawn_unit_worker<F>(
     name: &'static str,
@@ -95,36 +92,5 @@ pub(super) fn start_session_mirror_worker(
                 shutdown,
             ),
         )
-    })
-}
-
-pub(super) fn start_reserve_auto_worker(
-    controller: Option<Arc<ReserveAutoController>>,
-    queue: Arc<QueueCoordinator<AppServerTurnBackend>>,
-    mut shutdown: watch::Receiver<bool>,
-    exit_notifier: WorkerExitNotifier,
-) -> Option<MonitoredWorker> {
-    controller.map(|controller| {
-        spawn_unit_worker("reserve-auto", exit_notifier, async move {
-            let mut ticker = interval(Duration::from_secs(30));
-            ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
-            let mut cursor: Option<String> = None;
-            loop {
-                if *shutdown.borrow() {
-                    return;
-                }
-                tokio::select! {
-                    changed = shutdown.changed() => {
-                        if changed.is_err() || *shutdown.borrow() { return; }
-                    }
-                    _ = ticker.tick() => {
-                        if crate::reserve_auto::run_recovery_cycle(
-                            &controller, &queue, &mut shutdown, &mut cursor,
-                            Duration::from_secs(20),
-                        ).await { return; }
-                    }
-                }
-            }
-        })
     })
 }

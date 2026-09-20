@@ -40,7 +40,7 @@ fn dha_00_live_message_dispatch_uses_the_shared_processing_boundary() {
 fn dha_05_bot_ignore_precedes_classifier_and_policy_is_a_cycle_snapshot() {
     let adapter = compact(HISTORY_ADAPTER);
     let bot = adapter
-        .find("ifmessage.author.bot{")
+        .find("ifmessage.author.bot||")
         .expect("bot history boundary");
     let classify = adapter
         .find("letkind=matchclassify(message)?{")

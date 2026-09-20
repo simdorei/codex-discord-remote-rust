@@ -59,6 +59,7 @@ pub enum PrefixAction {
     },
     DiscoverCodex,
     RestartCodex,
+    ForceRestartCodex,
     Archive {
         reference: Option<String>,
     },

@@ -25,22 +25,6 @@ pub struct Claim<'a> {
 }
 
 pub fn begin_dispatch(path: &Path, c: &Claim<'_>) -> Result<Question> {
-    begin_dispatch_inner(path, c, None)
-}
-
-pub fn begin_dispatch_prepared(
-    path: &Path,
-    c: &Claim<'_>,
-    expected: &crate::reserve_policy::admission::Stamp,
-) -> Result<Question> {
-    begin_dispatch_inner(path, c, Some(expected))
-}
-
-fn begin_dispatch_inner(
-    path: &Path,
-    c: &Claim<'_>,
-    expected: Option<&crate::reserve_policy::admission::Stamp>,
-) -> Result<Question> {
     let mut db = open_initialized(path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let q = read(&tx, c.id)?;
@@ -63,10 +47,6 @@ fn begin_dispatch_inner(
         )));
     }
     validate_mapping(&tx, &q)?;
-    let preparation = crate::reserve_policy::admission::capture_in(&tx, &q.thread_id)?;
-    if expected.is_some_and(|expected| expected != &preparation) {
-        return Err(invalid("async reply preparation changed before claim"));
-    }
     let jobs = crate::queue::read::all_jobs(&tx)?
         .into_iter()
         .filter(|job| job.target_thread_id == q.thread_id)
@@ -122,7 +102,7 @@ fn begin_dispatch_inner(
     let option = i64::try_from(c.option).map_err(|_| invalid("invalid option index"))?;
     tx.execute("UPDATE cdr_async_questions SET state='dispatching',chosen=?,dispatch_mode=?,reply_job_id=?,updated_at=? WHERE id=? AND state='open'",
         params![option,if c.mode==DispatchMode::Start {"start"} else {"steer"},reply_job,c.now,c.id])?;
-    super::guard::seal_in(&tx, c.id, preparation)?;
+    super::guard::seal_in(&tx, c.id)?;
     let claimed = read(&tx, c.id)?;
     tx.commit()?;
     Ok(claimed)
@@ -164,15 +144,15 @@ pub fn record_error(path: &Path, id: &str, error: &str) -> Result<()> {
 
 /// Only for pre-send failure or an authoritative RPC rejection, never a timeout.
 pub fn reject_definite(path: &Path, id: &str, error: &str) -> Result<()> {
-    reject_inner(path, id, error, false)
+    reject_inner(path, id, error)
 }
 
-/// Fence and rejection are atomic: fence failure preserves the pending answer.
+/// A definitive limit rejection closes this one-shot answer without a policy dependency.
 pub fn reject_usage_limit(path: &Path, id: &str, error: &str) -> Result<()> {
-    reject_inner(path, id, error, true)
+    reject_inner(path, id, error)
 }
 
-fn reject_inner(path: &Path, id: &str, error: &str, usage_limit: bool) -> Result<()> {
+fn reject_inner(path: &Path, id: &str, error: &str) -> Result<()> {
     let mut db = open_initialized(path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let q = read(&tx, id)?;
@@ -180,9 +160,7 @@ fn reject_inner(path: &Path, id: &str, error: &str, usage_limit: bool) -> Result
         return Err(invalid("question dispatch state changed"));
     }
     super::guard::verify_identity_in(&tx, &q)?;
-    if usage_limit {
-        crate::reserve_policy::stage_usage_failure_in(&tx, &q.thread_id, error)?;
-    }
+    // Definite rejection closes this exact one-shot answer; no automatic policy is involved.
     if let Some(job) = &q.reply_job_id {
         tx.execute(
             "DELETE FROM codex_turn_queue WHERE job_id=? AND turn_id=?",

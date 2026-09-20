@@ -47,6 +47,10 @@ impl TypedIngressWorkers {
             ready_conflict,
             message_identity,
             message_conflict,
+            (
+                gateway.subscribe_identity(),
+                gateway.subscribe_identity_conflict(),
+            ),
             history_identity,
             history_conflict,
             message_gaps,

@@ -1,7 +1,6 @@
 //! Revision 11: inherit conversations, not permission to replay a failed input.
 //! Real queue/controller/worker, persistent offline stdio history and loopback HTTP.
 use super::*;
-use crate::reserve_auto::ReserveAutoController;
 use cdr_app_server::{AppServerConfig, outcomes::parse_thread_turn_states};
 use cdr_store::{delivery, observed_completion, queue, reserve_policy};
 use serde_json::{Value, json};
@@ -15,7 +14,6 @@ struct Fixture {
     log: PathBuf,
     db: PathBuf,
     server: Arc<ResidentAppServer>,
-    controller: Arc<ReserveAutoController>,
     queue: Arc<QueueCoordinator<AppServerTurnBackend>>,
     transport: http::HttpFixture,
 }
@@ -38,8 +36,7 @@ impl Fixture {
                 .into_owned(),
         );
         let server = Arc::new(ResidentAppServer::start(config.clone()).await.unwrap());
-        let controller = ReserveAutoController::new(server.clone(), db.clone());
-        let queue = Self::coordinator(&db, &server, &controller);
+        let queue = Self::coordinator(&db, &server);
         cdr_store::mapping::upsert_thread(&db, "thread-b", "project", "title", 100, 42, 1.0)
             .unwrap();
         Self {
@@ -48,7 +45,6 @@ impl Fixture {
             log,
             db,
             server,
-            controller,
             queue,
             transport: http::start().await,
         }
@@ -57,13 +53,10 @@ impl Fixture {
     fn coordinator(
         db: &std::path::Path,
         server: &Arc<ResidentAppServer>,
-        controller: &Arc<ReserveAutoController>,
     ) -> Arc<QueueCoordinator<AppServerTurnBackend>> {
         Arc::new(QueueCoordinator::new_with_admission_gate(
             db.to_path_buf(),
-            Arc::new(
-                AppServerTurnBackend::new(server.clone()).with_reserve_auto(controller.clone()),
-            ),
+            Arc::new(AppServerTurnBackend::new(server.clone())),
             crate::restart_readiness::drain::AdmissionGate::new(),
         ))
     }
@@ -94,8 +87,7 @@ impl Fixture {
         } else {
             assert!(self.server.force_restart_if_quiescent().await.unwrap());
         }
-        self.controller = ReserveAutoController::new(self.server.clone(), self.db.clone());
-        self.queue = Self::coordinator(&self.db, &self.server, &self.controller);
+        self.queue = Self::coordinator(&self.db, &self.server);
     }
 
     fn worker(&self) -> CompletionWorker {
@@ -173,13 +165,7 @@ async fn inherited_terminal_revalidates_and_starts_only_the_distinct_queued_inpu
     assert!(f.submit("distinct-next").await.queued);
     f.rpc("test/complete", json!({"turnId":turn,"status":"failed"}))
         .await;
-    assert_eq!(
-        reserve_policy::get(&f.db, "thread-b")
-            .unwrap()
-            .unwrap()
-            .state,
-        "ordinary"
-    );
+    assert!(reserve_policy::get(&f.db, "thread-b").unwrap().is_none());
     let execution = queue::list(&f.db)
         .unwrap()
         .into_iter()
@@ -195,7 +181,7 @@ async fn inherited_terminal_revalidates_and_starts_only_the_distinct_queued_inpu
     let worker = f.worker();
     worker.recover().await.unwrap();
     worker.recover().await.unwrap();
-    assert_eq!(f.count("thread/settings/update"), 1);
+    assert_eq!(f.count("thread/settings/update"), 0);
     assert_eq!(f.count("turn/start"), 2);
     assert!(!reserve_policy::usage_failure_unresolved(&f.db, "thread-b").unwrap());
     let jobs = queue::list(&f.db).unwrap();
@@ -214,7 +200,7 @@ async fn inherited_terminal_revalidates_and_starts_only_the_distinct_queued_inpu
         .filter(|v| v["event"] == "start_settings")
         .collect();
     assert_eq!(starts[0]["settings"]["model"], "model-a");
-    assert_eq!(starts[1]["settings"]["model"], "gpt-reserve");
+    assert_eq!(starts[1]["settings"]["model"], "model-a");
     assert_eq!(failed_count(&f.close().await), 1);
 }
 
@@ -240,49 +226,13 @@ async fn inherited_terminal_with_reused_generation_or_legacy_null_is_a_recheck_n
         worker.recover().await.unwrap();
         assert_eq!(
             f.count("thread/settings/update"),
-            1,
+            0,
             "new_runtime={new_runtime} legacy_null={legacy_null}"
         );
         assert_eq!(f.count("turn/start"), 1);
         assert!(queue::list(&f.db).unwrap().is_empty());
         assert!(!reserve_policy::usage_failure_unresolved(&f.db, "thread-b").unwrap());
         assert_eq!(failed_count(&f.close().await), 1);
-    }
-}
-
-#[tokio::test]
-async fn confirmed_reserve_is_revalidated_after_restart_then_restores_the_saved_settings() {
-    for new_runtime in [false, true] {
-        let mut f = Fixture::new().await;
-        f.controller.prepare_turn("thread-b").await.unwrap();
-        let episode = reserve_policy::get(&f.db, "thread-b").unwrap().unwrap();
-        f.restart(new_runtime).await;
-        f.controller.prepare_turn("thread-b").await.unwrap();
-        assert_eq!(
-            f.count("thread/settings/update"),
-            1,
-            "inheritance must not reapply Reserve"
-        );
-        assert_eq!(
-            reserve_policy::get(&f.db, "thread-b").unwrap().unwrap(),
-            episode
-        );
-        f.configure(json!({"ordinary":true})).await;
-        f.controller.prepare_turn("thread-b").await.unwrap();
-        let settings = f.rpc("thread/resume", json!({})).await;
-        assert_eq!(settings["model"], "model-a");
-        assert_eq!(settings["reasoningEffort"], "high");
-        assert_eq!(settings["serviceTier"], "priority");
-        assert_eq!(
-            reserve_policy::get(&f.db, "thread-b")
-                .unwrap()
-                .unwrap()
-                .state,
-            "ordinary"
-        );
-        assert_eq!(f.count("thread/settings/update"), 2);
-        assert_eq!(f.count("turn/start"), 0);
-        f.close().await;
     }
 }
 
@@ -310,92 +260,8 @@ async fn inherited_terminal_keeps_manual_off_and_current_quota_unknown_safe() {
         assert_eq!(f.count("thread/settings/update"), 0, "{mode}");
         assert_eq!(f.count("turn/start"), 1, "{mode}");
         assert!(queue::list(&f.db).unwrap().is_empty());
-        assert_eq!(
-            reserve_policy::usage_failure_unresolved(&f.db, "thread-b").unwrap(),
-            mode.starts_with("unknown")
-        );
+        assert!(!reserve_policy::usage_failure_unresolved(&f.db, "thread-b").unwrap());
         assert_eq!(failed_count(&f.close().await), 1);
-    }
-}
-
-#[tokio::test]
-async fn inherited_reserve_never_overwrites_changed_account_or_current_settings() {
-    for change in [
-        json!({"account":"account-b"}),
-        json!({"settings":{"model":"model-b","effort":"medium","serviceTier":"default"}}),
-    ] {
-        let mut f = Fixture::new().await;
-        f.controller.prepare_turn("thread-b").await.unwrap();
-        f.restart(false).await;
-        f.configure(change).await;
-        f.configure(json!({"ordinary":true})).await;
-        assert!(f.controller.prepare_turn("thread-b").await.is_err());
-        assert_eq!(f.count("thread/settings/update"), 1);
-        assert_eq!(f.count("turn/start"), 0);
-        assert_eq!(
-            reserve_policy::get(&f.db, "thread-b")
-                .unwrap()
-                .unwrap()
-                .state,
-            "unknown"
-        );
-        f.close().await;
-    }
-}
-
-#[tokio::test]
-async fn historical_recheck_obeys_archive_fence_without_changing_the_episode() {
-    let mut f = Fixture::new().await;
-    f.controller.prepare_turn("thread-b").await.unwrap();
-    let policy = reserve_policy::get(&f.db, "thread-b").unwrap().unwrap();
-    let operation = cdr_store::archive_fence::reserve(
-        &f.db,
-        &std::collections::BTreeSet::from(["thread-b".to_owned()]),
-        None,
-    )
-    .unwrap();
-    f.restart(false).await;
-    let resumes = f.count("thread/resume");
-    for verified in [false, true] {
-        if verified {
-            cdr_store::archive_fence::verified(&f.db, &operation).unwrap();
-        }
-        f.controller.note_usage_limit("thread-b").await;
-        f.queue
-            .recover_reserve_target(&f.controller, "thread-b")
-            .await
-            .unwrap();
-        assert_eq!(
-            reserve_policy::get(&f.db, "thread-b").unwrap().unwrap(),
-            policy
-        );
-        assert!(reserve_policy::usage_failure_unresolved(&f.db, "thread-b").unwrap());
-        assert_eq!(f.count("thread/resume"), resumes);
-        assert_eq!(f.count("thread/settings/update"), 1);
-        assert_eq!(f.count("turn/start"), 0);
-    }
-    f.close().await;
-}
-
-#[tokio::test]
-async fn inherited_unconfirmed_settings_are_not_replayed_even_when_live_reserve_matches() {
-    for phase in ["entering", "restoring", "held", "unknown"] {
-        let mut f = Fixture::new().await;
-        f.controller.prepare_turn("thread-b").await.unwrap();
-        rusqlite::Connection::open(&f.db)
-            .unwrap()
-            .execute(
-                "UPDATE codex_reserve_policy SET state=?1 WHERE thread_id='thread-b'",
-                [phase],
-            )
-            .unwrap();
-        f.restart(false).await;
-        f.controller.note_usage_limit("thread-b").await;
-        assert!(f.controller.prepare_turn("thread-b").await.is_err());
-        assert!(reserve_policy::usage_failure_unresolved(&f.db, "thread-b").unwrap());
-        assert_eq!(f.count("thread/settings/update"), 1);
-        assert_eq!(f.count("turn/start"), 0);
-        f.close().await;
     }
 }
 

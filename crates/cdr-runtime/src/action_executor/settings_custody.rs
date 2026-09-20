@@ -74,14 +74,8 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 )
                 .await
             }
-            CommandAction::AutoReserve { enabled, .. } => {
-                self.auto_reserve_setting(
-                    context.channel_id,
-                    Some(binding.target.as_str()),
-                    enabled,
-                    Some(&binding),
-                )
-                .await
+            CommandAction::AutoReserve { .. } => {
+                Ok(super::immediate(crate::command_plan::AUTO_RESERVE_REMOVED))
             }
             _ => unreachable!(),
         }

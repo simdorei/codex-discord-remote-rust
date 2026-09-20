@@ -17,6 +17,10 @@ pub(super) fn spawn_consumers(
     ready_conflict: cdr_discord::gateway::GatewayIdentityConflictReceiver,
     message_identity: cdr_discord::gateway::GatewayIdentityReceiver,
     message_conflict: cdr_discord::gateway::GatewayIdentityConflictReceiver,
+    emergency_identity: (
+        cdr_discord::gateway::GatewayIdentityReceiver,
+        cdr_discord::gateway::GatewayIdentityConflictReceiver,
+    ),
     history_identity: cdr_discord::gateway::GatewayIdentityReceiver,
     history_conflict: cdr_discord::gateway::GatewayIdentityConflictReceiver,
     message_gaps: cdr_discord::gateway::ingress::MessageGapReceiver,
@@ -26,11 +30,12 @@ pub(super) fn spawn_consumers(
         normal_interactions,
         reserved_interactions,
         messages,
+        emergency_messages,
         receive_errors,
     } = receivers;
     let interaction_handler = interaction::DiscordInteractionHandler::from_context(&context);
-    let mut handles = Vec::with_capacity(6);
-    let mut readiness = Vec::with_capacity(6);
+    let mut handles = Vec::with_capacity(7);
+    let mut readiness = Vec::with_capacity(7);
     macro_rules! spawn {
         ($lane:literal, $future:expr) => {{
             let (sender, receiver) = oneshot::channel();
@@ -48,6 +53,16 @@ pub(super) fn spawn_consumers(
         ready::run(
             ready_identity,
             ready_conflict,
+            context.clone(),
+            shutdown.clone()
+        )
+    );
+    spawn!(
+        "message-emergency",
+        message::run(
+            emergency_messages,
+            emergency_identity.0,
+            emergency_identity.1,
             context.clone(),
             shutdown.clone()
         )

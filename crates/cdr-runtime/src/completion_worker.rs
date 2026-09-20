@@ -30,7 +30,7 @@ mod idle_release;
 mod observation;
 mod receipt;
 mod start_failure;
-pub(crate) use start_failure::{deliver_reserve_transition_notices, deliver_start_failures};
+pub(crate) use start_failure::deliver_start_failures;
 mod recovery;
 mod terminal_fence;
 mod typing;

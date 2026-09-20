@@ -111,7 +111,10 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         let _guard = lock.lock().await;
         self.ensure_target_not_held(request.target_thread_id)?;
         let generation = generation_i64(self.backend.generation())?;
-        let existing = list_filtered(&self.db_path, Some(request.target_thread_id), None)?;
+        let existing = cdr_store::execution_hold::eligible_jobs(
+            &self.db_path,
+            list_filtered(&self.db_path, Some(request.target_thread_id), None)?,
+        )?;
         let queued = existing
             .iter()
             .any(|job| job.state != QueueJobState::Quarantined);

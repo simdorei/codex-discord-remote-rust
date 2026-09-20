@@ -1,7 +1,7 @@
 //! The pending answer owns an immutable preparation and job snapshot.
 //! Rechecked by the resident's actual-write mutation journal, not just the UI.
 use super::{Question, invalid, read, validate_mapping};
-use crate::{Result, reserve_policy::admission, schema::open_initialized};
+use crate::{Result, schema::open_initialized};
 use rusqlite::{Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -9,7 +9,6 @@ use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
 struct Seal {
-    policy: admission::Stamp,
     identity: Value,
 }
 
@@ -55,10 +54,9 @@ fn identity(db: &Connection, q: &Question) -> Result<Value> {
     }))
 }
 
-pub(super) fn seal_in(db: &Connection, id: &str, policy: admission::Stamp) -> Result<()> {
+pub(super) fn seal_in(db: &Connection, id: &str) -> Result<()> {
     let q = read(db, id)?;
     let seal = Seal {
-        policy,
         identity: identity(db, &q)?,
     };
     db.execute(
@@ -93,13 +91,6 @@ pub fn validate_dispatch_guards(path: &Path, thread: &str) -> Result<()> {
     for id in ids {
         let q = read(&tx, &id)?;
         verify_identity_in(&tx, &q)?;
-        let encoded: String = tx.query_row(
-            "SELECT preparation_json FROM cdr_async_questions WHERE id=?",
-            [&id],
-            |r| r.get(0),
-        )?;
-        let seal: Seal = serde_json::from_str(&encoded)?;
-        admission::require_in(&tx, thread, &seal.policy)?;
     }
     Ok(())
 }

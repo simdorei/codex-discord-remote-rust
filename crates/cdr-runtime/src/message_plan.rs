@@ -59,6 +59,9 @@ pub fn plan_message(input: &IncomingMessage<'_>) -> Result<MessagePlan, MessageP
     }
 
     let content = input.content.trim();
+    if input.author_is_bot && cdr_discord::gateway::ingress::is_force_restart_message(content) {
+        return Ok(MessagePlan::Ignore("force_restart_requires_human"));
+    }
     if let Some(command) = content.strip_prefix('!') {
         return Ok(MessagePlan::Execute(prefix_to_command(plan_prefix(
             command,
@@ -140,6 +143,7 @@ fn prefix_to_command(action: PrefixAction) -> Result<CommandAction, MessagePlanE
             CommandAction::SettingsOptions { reference, field }
         }
         PrefixAction::RestartCodex => CommandAction::RestartCodex,
+        PrefixAction::ForceRestartCodex => CommandAction::ForceRestartCodex,
         PrefixAction::Archive { reference } => CommandAction::Archive { reference },
         PrefixAction::DeleteArchivePreview { reference } => {
             CommandAction::DeleteArchivePreview { reference }

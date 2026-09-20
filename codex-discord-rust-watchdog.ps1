@@ -7,6 +7,7 @@ param(
     [switch]$LogHealthy,
     [switch]$CheckRestartReady,
     [switch]$PrepareRestart,
+    [switch]$ForceRestart,
     [string]$CompleteRestartFenceJson,
     [string]$RecoverDeploymentStatePath,
     [string]$MaintenanceStatePath,
@@ -58,6 +59,7 @@ if (-not (Test-Path -LiteralPath $DrainSupportPath -PathType Leaf)) {
 . (Join-Path $RepoRoot 'scripts/CdrDeploymentRecovery.ps1')
 . (Join-Path $RepoRoot 'scripts/CdrLaunchJournal.ps1')
 . (Join-Path $RepoRoot 'scripts/CdrRestartTransaction.ps1')
+. (Join-Path $RepoRoot 'scripts/CdrForceRestart.ps1')
 
 if (
     $HealthCpuPercent -ne 95 -or
@@ -360,8 +362,29 @@ if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
 $script:CdrTrayStartedIdentity = ''
 $script:CdrTrayPollAllowed = $false
 $script:CdrTrayObservedIdentity = ''
-$controlGuard = Enter-CdrControl -Root $RepoRoot -MaintenanceV2:([bool]$MaintenanceStatePath)
+$forceGuard = $null
+if ($ForceRestart -and -not $DryRun) {
+    if ($MaintenanceStatePath -or $RecoverDeploymentStatePath -or $PrepareRestart -or
+        $CheckRestartReady -or $CompleteRestartFenceJson) { throw 'force_restart_mode_conflict' }
+    if ($ExpectedRuntimeIdentity -and (Get-VerifiedRuntimeIdentity) -cne $ExpectedRuntimeIdentity) {
+        throw 'Force restart target identity changed.'
+    }
+    $forceGuard = Enter-CdrForceGate -Root $RepoRoot
+}
+$controlGuard = $null
 try {
+if ($null -ne $forceGuard) {
+    $controlGuard = Enter-CdrForceControl -Root $RepoRoot
+} else {
+    $purpose = if ($MaintenanceStatePath -or $RecoverDeploymentStatePath) { 'maintenance' }
+        elseif ([IO.File]::Exists((Join-Path $RepoRoot '.codex_discord_rust.force.launch'))) { 'force_restart' }
+        else { 'watchdog' }
+    $controlGuard = Enter-CdrControl -Root $RepoRoot -MaintenanceV2:([bool]$MaintenanceStatePath) -Purpose $purpose
+}
+if ($ForceRestart -or [IO.File]::Exists((Join-Path $RepoRoot '.codex_discord_rust.force.launch'))) {
+    Invoke-CdrForceRestart -ExpectedIdentity $ExpectedRuntimeIdentity -Preview:$DryRun
+    exit 0
+}
 if ($MaintenanceStatePath) {
     if ($RecoverDeploymentStatePath -or $PrepareRestart -or $CheckRestartReady -or $CompleteRestartFenceJson -or $DryRun) {
         throw 'maintenance_v2_mode_conflict'
@@ -550,7 +573,8 @@ $script:CdrTrayObservedIdentity = $runningIdentity
 $script:CdrTrayPollAllowed = $true
 exit 0
 } finally {
-    $controlGuard.Dispose()
+    if ($null -ne $controlGuard) { $controlGuard.Dispose() }
+    if ($null -ne $forceGuard) { $forceGuard.Dispose() }
     # Only an ordinary successful watchdog reaches this UI branch. Dedicated
     # maintenance/recovery/check/prepare/completion and their reentry never do.
     if ($script:CdrTrayPollAllowed) {

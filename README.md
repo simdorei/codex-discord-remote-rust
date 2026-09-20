@@ -23,6 +23,11 @@ Discord에서 Codex 작업을 요청하고, 진행 상황과 최종 답변을 �
 실제 명령 목록은 Discord의 `!help` 또는 `/help`를 확인하세요.
 `!new` 다음에 보내는 메시지는 새 Codex 스레드의 첫 요청입니다.
 
+진행 중인 작업 때문에 재시작이 대기 상태라면 Discord에서 `!restart_codex force` 또는 `!force_restart`를 보내세요. Windows에서는
+`codex-discord-force-restart.cmd`를 실행하거나 트레이의 **Force restart bot + app-server (interrupt work)**를 선택하세요.
+작업·승인·종료 대기를 건너뛰고 봇과 소유 앱서버를 강제로 재시작합니다.
+[명령과 복구 동작](docs/force-restart.md)을 참고하세요.
+
 ## 실행 구조
 
 `crates/`에 Rust 작업 공간이 있으며, `cdr-runtime`이 Discord 봇 실행 파일입니다.
@@ -155,3 +160,9 @@ cargo test --locked -p cdr-mcp-server --test multi_device_restart_smoke_contract
 - Pro 연결에는 기존 `Simdorei Local Project Oauth` 이름·주소 계약이 남아 있습니다.
   임의의 MCP 주소만 바꾼다고 Pro 커넥터까지 자동 변경되지는 않습니다.
 - `NOTICE.md`와 각 플러그인의 고지문에 포함된 출처 표시를 유지합니다.
+
+### Manual Reserve
+
+Use `!settings --model gpt-reserve` to select Reserve explicitly. The bridge validates capacity and the applied model, effort and speed. It never switches into or out of Reserve automatically. Retired `--auto-reserve` / slash `auto_reserve` requests are refused as a whole, including old bound actions.
+
+A usage-limit rejection is held and never replayed after a model change or restart. Send a new request after changing settings. `!runners` lists execution holds. Startup retires old policy authority before queue recovery, retaining audit evidence and unaccepted legacy input. Exact saved-final recovery is a local admin operation described in [manual Reserve and recovery](docs/manual-reserve.md); it does not run the original turn again.

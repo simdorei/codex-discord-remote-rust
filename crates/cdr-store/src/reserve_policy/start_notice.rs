@@ -33,13 +33,14 @@ pub(super) fn schema_current(connection: &Connection) -> Result<bool> {
 /// Called in the same transaction as the CAS that records the usage failure.
 pub(crate) fn stage_in(connection: &Connection, job: &StoredQueueJob, reason: &str) -> Result<()> {
     let reason: String = reason
-        .strip_prefix(super::HOLD_PREFIX)
+        .strip_prefix(crate::execution_hold::PREFIX)
+        .or_else(|| reason.strip_prefix(super::HOLD_PREFIX))
         .unwrap_or(reason)
         .chars()
         .take(700)
         .collect();
     let content = format!(
-        "Failed\n사용량 한도로 요청 시작이 거절됐습니다.\njob: {}\n{reason}\n이 요청은 자동 재실행하지 않습니다. Reserve 전환 여부는 별도로 확인하세요.",
+        "Failed\n사용량 한도로 요청 시작이 거절됐습니다.\njob: {}\n{reason}\n이 요청은 자동 재실행하지 않습니다. 필요하면 모델을 수동으로 변경한 뒤 새 요청을 보내세요.",
         job.job_id
     );
     connection.execute(
@@ -109,7 +110,7 @@ pub(crate) fn validate_claim_in(
          JOIN codex_turn_queue q ON q.job_id=n.job_id AND q.target_thread_id=n.target_thread_id
          AND q.channel_id=n.channel_id
          AND q.attempt_count=n.attempt_count WHERE n.job_id=?1 AND q.state='pending'
-         AND q.turn_id IS NULL AND substr(q.last_error,1,length(?2))=?2",
+         AND q.turn_id IS NULL AND (EXISTS(SELECT 1 FROM cdr_execution_holds h WHERE h.job_id=q.job_id) OR substr(q.last_error,1,length(?2))=?2)",
             params![job_id, super::HOLD_PREFIX],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )

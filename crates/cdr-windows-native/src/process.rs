@@ -18,6 +18,38 @@ use handle::OwnedHandle;
 
 use crate::error::{NativeError, api_error};
 
+/// Same PID + UTC .NET creation ticks used by the Windows restart controller.
+pub fn current_process_identity() -> Result<String, NativeError> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: the current-process pseudo handle is valid; all four outputs are
+    // distinct writable FILETIMEs and no ownership of the pseudo handle is taken.
+    if unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &raw mut creation,
+            &raw mut exit,
+            &raw mut kernel,
+            &raw mut user,
+        )
+    } == 0
+    {
+        return Err(api_error("GetProcessTimes(current process)"));
+    }
+    let windows_ticks =
+        (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
+    let dotnet_ticks = windows_ticks + 504_911_232_000_000_000;
+    Ok(format!(
+        "{}|{}",
+        std::process::id(),
+        dotnet_ticks - dotnet_ticks % 10
+    ))
+}
+
 pub struct WindowProcess {
     process: Option<OwnedHandle>,
     job: Option<OwnedHandle>,
@@ -163,5 +195,21 @@ impl Drop for CapturedWindowProcess {
     fn drop(&mut self) {
         self.job.take();
         self.process.take();
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    #[test]
+    fn native_identity_matches_the_powershell_restart_fence() {
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-Command"])
+            .arg(format!("$p=Get-Process -Id {}; $t=$p.StartTime.ToUniversalTime().Ticks; $t-=$t%10; Write-Output \"$($p.Id)|$t\"", std::process::id()))
+            .output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            super::current_process_identity().unwrap(),
+            String::from_utf8(output.stdout).unwrap().trim()
+        );
     }
 }

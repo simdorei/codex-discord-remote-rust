@@ -10,6 +10,51 @@ use super::{
 };
 use crate::restart_readiness::drain::{AdmissionGate, DrainFenceKey};
 
+#[test]
+fn force_restart_ignores_closed_drain_but_keeps_auth_and_deduplication() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("mirror.sqlite");
+    let gate = AdmissionGate::new();
+    let fence = DrainFenceKey::new("runtime-a", "42|99", "force").unwrap();
+    gate.seal(&fence).unwrap();
+    gate.close_controls(&fence).unwrap();
+    let now = UNIX_EPOCH + Duration::from_secs(800);
+    let prepare = |input, config: &crate::config::RuntimeConfig| {
+        prepare_message_create_at_with_gate(input, None, config, &database, now, &gate, true)
+            .unwrap_or_else(|_| panic!("force classification failed"))
+    };
+    let config = config();
+    let first = prepare(message(900, "!restart_codex force"), &config);
+    assert!(matches!(first, PreparedMessage::Admitted(_, None)));
+    assert!(matches!(
+        prepare(message(900, "!restart_codex force"), &config),
+        PreparedMessage::Duplicate
+    ));
+    assert!(matches!(
+        prepare(message(901, "!restart_codex"), &config),
+        PreparedMessage::Unavailable
+    ));
+    let mut forbidden = config.clone();
+    forbidden.allowed_user_ids = [99].into();
+    assert!(matches!(
+        prepare(message(902, "!force_restart"), &forbidden),
+        PreparedMessage::Ignore("user_not_allowed", _, _)
+    ));
+    forbidden = config.clone();
+    forbidden.allow_all_channels = false;
+    forbidden.allowed_channel_ids.clear();
+    assert!(matches!(
+        prepare(message(903, "!force_restart"), &forbidden),
+        PreparedMessage::Ignore("channel_not_allowed", _, _)
+    ));
+    let mut bot = message(904, "!force_restart");
+    bot.author.bot = true;
+    assert!(matches!(
+        prepare(bot, &config),
+        PreparedMessage::Ignore(_, _, _)
+    ));
+}
+
 #[tokio::test]
 async fn mcb_04_restart_drain_waits_for_full_message_processing() {
     let temp = tempfile::tempdir().expect("create temporary directory");

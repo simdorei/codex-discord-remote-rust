@@ -189,7 +189,7 @@ pub fn complete(path: &Path, delivery_id: &str) -> Result<bool> {
     )? == 1)
 }
 
-fn select(connection: &Connection, delivery_id: &str) -> Result<StoredDelivery> {
+pub(crate) fn select(connection: &Connection, delivery_id: &str) -> Result<StoredDelivery> {
     connection
         .query_row(
             &format!("SELECT {COLUMNS} FROM codex_delivery_outbox WHERE delivery_id = ?"),

@@ -20,6 +20,9 @@ pub fn try_claim_prompt_intake(
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     storage::ensure_schema(&transaction)?;
+    if crate::execution_hold::reason_in(&transaction, job_id)?.is_some() {
+        return Ok(None);
+    }
     let updated = transaction.execute(
         "UPDATE codex_prompt_intakes SET claim_token = ?, claim_expires_at = ?, updated_at = ? \
          WHERE job_id = ? AND retry_after <= ? AND claim_expires_at <= ? \

@@ -119,7 +119,10 @@ fn migrate_rust_extensions(connection: &Connection) -> Result<()> {
     crate::queue::migrate_cancellation_schema(connection)?;
     crate::room_cleanup::migrate_schema(connection)?;
     crate::archive_fence::migrate_schema(connection)?;
-    crate::reserve_policy::migrate_schema(connection)
+    crate::reserve_policy::migrate_schema(connection)?;
+    crate::execution_hold::migrate_schema(connection)?;
+    crate::final_recovery::migrate_schema(connection)?;
+    crate::reserve_retirement::migrate_schema(connection)
 }
 
 fn rust_extensions_current(connection: &Connection) -> Result<bool> {
@@ -167,7 +170,10 @@ fn rust_extensions_current(connection: &Connection) -> Result<bool> {
         && crate::room_cleanup::schema_current(connection)?
         && crate::mirror::schema_current(connection)?
         && crate::archive_fence::schema_current(connection)?
-        && crate::reserve_policy::schema_current(connection)?)
+        && crate::reserve_policy::schema_current(connection)?
+        && crate::execution_hold::schema_current(connection)?
+        && crate::final_recovery::schema_current(connection)?
+        && crate::reserve_retirement::schema_current(connection)?)
 }
 
 fn migrate_goal_waiting(connection: &Connection) -> Result<()> {

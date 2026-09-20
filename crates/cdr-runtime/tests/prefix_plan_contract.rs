@@ -3,6 +3,32 @@ use cdr_runtime::prefix_plan::{
 };
 
 #[test]
+fn forced_restart_is_explicit_and_matches_the_emergency_gateway_route() {
+    assert_eq!(plan_prefix("restart_codex"), Ok(PrefixAction::RestartCodex));
+    for command in [
+        "restart_codex force",
+        "restart_codex --force",
+        "force_restart",
+        "RESTART_CODEX FORCE",
+    ] {
+        assert_eq!(plan_prefix(command), Ok(PrefixAction::ForceRestartCodex));
+        assert!(cdr_discord::gateway::ingress::is_force_restart_message(
+            &format!("!{command}")
+        ));
+    }
+    for command in [
+        "restart_codex maybe",
+        "restart_codex force later",
+        "force_restart now",
+    ] {
+        assert!(plan_prefix(command).is_err());
+        assert!(!cdr_discord::gateway::ingress::is_force_restart_message(
+            &format!("!{command}")
+        ));
+    }
+}
+
+#[test]
 fn help_bridge_and_thread_commands_preserve_python_aliases_and_limits() {
     assert_eq!(plan_prefix(""), Ok(PrefixAction::Help));
     assert_eq!(plan_prefix("START"), Ok(PrefixAction::Help));

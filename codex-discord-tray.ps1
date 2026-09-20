@@ -165,6 +165,18 @@ try {
         }
     })
     [void]$menu.Items.Add($restartItem)
+    $forceRestartItem = New-Object Windows.Forms.ToolStripMenuItem
+    $forceRestartItem.Text = 'Force restart bot + app-server (interrupt work)'
+    $forceRestartItem.Add_Click({
+        try {
+            Request-BotForceRestart
+            $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Force restart requested. Active work will be interrupted.', [Windows.Forms.ToolTipIcon]::Warning)
+        } catch {
+            Write-LauncherLog "tray_force_restart_failed type=$($_.Exception.GetType().FullName) error=$($_.Exception.Message)"
+            try { $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Force restart request failed. Check discord_launcher.log.', [Windows.Forms.ToolTipIcon]::Error) } catch { }
+        }
+    })
+    [void]$menu.Items.Add($forceRestartItem)
     [void]$menu.Items.Add((New-Object Windows.Forms.ToolStripSeparator))
     $exitItem = New-Object Windows.Forms.ToolStripMenuItem
     $exitItem.Text = 'Exit tray icon'

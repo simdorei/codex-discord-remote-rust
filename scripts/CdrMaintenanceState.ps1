@@ -39,6 +39,7 @@ function Read-CdrMaintenanceState([string]$Path) {
 function Get-CdrMaintenanceProgramPaths {
     @('codex-discord-rust-watchdog.ps1','codex-discord-rust-control.ps1','codex-discord-rust-drain.ps1',
         'scripts/CdrLaunchJournal.ps1','scripts/CdrDeploymentRecovery.ps1','scripts/CdrRestartTransaction.ps1',
+        'scripts/CdrForceRestart.ps1',
         'scripts/Invoke-CdrMaintenance.ps1','scripts/CdrMaintenanceState.ps1','scripts/CdrMaintenanceEngine.ps1',
         'scripts/CdrMaintenanceCommand.ps1','scripts/CdrMaintenanceDiagnostics.ps1','scripts/CdrMaintenanceActions.ps1','scripts/CdrMaintenanceLaunch.ps1','scripts/CdrMaintenanceNotification.ps1',
         'scripts/CdrMaintenanceSchedule.ps1','scripts/CdrMaintenanceBackup.ps1','scripts/CdrMaintenanceFailure.ps1',

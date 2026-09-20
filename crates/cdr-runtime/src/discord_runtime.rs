@@ -40,8 +40,7 @@ use shutdown_deadline::{
 use typed_ingress::{InteractionResources, TypedIngressContext, TypedIngressWorkers};
 use worker_supervision::{WorkerSet, exit_channel};
 use workers::{
-    prepare_remote_worker, spawn_unit_worker, start_remote_worker, start_reserve_auto_worker,
-    start_session_mirror_worker,
+    prepare_remote_worker, spawn_unit_worker, start_remote_worker, start_session_mirror_worker,
 };
 
 const INTERACTION_QUEUE_CAPACITY: usize = 64;
@@ -73,6 +72,8 @@ pub async fn run(
     );
     let admission_gate = drain_controller.admission_gate();
     prepare_storage(&paths)?;
+    let retirement = cdr_store::reserve_retirement::retire(&paths.mirror_db, &[])?;
+    eprintln!("manual_reserve_retirement: {retirement:?}");
 
     let server = start_app_server(
         &paths,
@@ -189,14 +190,6 @@ pub async fn run(
             completion_shutdown_rx,
         ),
     ));
-    if let Some(worker) = start_reserve_auto_worker(
-        executor.reserve_auto.clone(),
-        Arc::clone(&queue),
-        completion_shutdown.subscribe(),
-        worker_exit_notifier.clone(),
-    ) {
-        workers.push(worker);
-    }
     workers.push(spawn_unit_worker(
         "new-first-reply-verification",
         worker_exit_notifier.clone(),

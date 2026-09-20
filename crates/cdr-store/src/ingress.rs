@@ -34,6 +34,7 @@ pub use new_prompt_arm::pending_new_prompt;
 pub(crate) use ownership::verify_new_prompt;
 pub(crate) use ownership::{link_prompt_owner, link_prompt_owner_by_key, record_busy_owner};
 pub use read::{by_origin, get, get_for_owner_readonly, list_for_owner, unfinished_for_archive};
+pub(crate) use recovery::retire_unowned_in;
 pub use recovery::{hold, recover_prior_runtime};
 pub(crate) use schema::{migrate_schema, schema_current};
 

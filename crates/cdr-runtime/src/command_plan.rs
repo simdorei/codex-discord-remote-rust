@@ -1,7 +1,9 @@
+pub use cdr_discord::interaction::AUTO_RESERVE_REMOVED;
+
 use cdr_discord::interaction::SlashInvocation;
 use thiserror::Error;
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CommandAction {
     Help,
     List {
@@ -73,6 +75,7 @@ pub enum CommandAction {
         field: Option<String>,
     },
     RestartCodex,
+    ForceRestartCodex,
     Archive {
         reference: Option<String>,
     },
@@ -120,26 +123,21 @@ pub fn plan_slash(invocation: &SlashInvocation) -> Result<CommandAction, Command
             reference: optional_reference(invocation)?,
         },
         "settings" => {
+            if invocation.has_option("auto_reserve") {
+                return Err(CommandPlanError::Unsupported(AUTO_RESERVE_REMOVED.into()));
+            }
             let reference = optional_reference(invocation)?;
             let model = optional_string(invocation, "model")?;
             let effort = optional_string(invocation, "effort")?;
             let speed = optional_string(invocation, "speed")?;
-            if let Some(enabled) = invocation.boolean("auto_reserve") {
-                if model.is_some() || effort.is_some() || speed.is_some() {
-                    return Err(CommandPlanError::Unsupported(
-                        "settings auto_reserve cannot be mixed with model, effort, or speed".into(),
-                    ));
-                }
-                CommandAction::AutoReserve { reference, enabled }
-            } else {
-                CommandAction::Settings {
-                    reference,
-                    model,
-                    effort,
-                    speed,
-                }
+            CommandAction::Settings {
+                reference,
+                model,
+                effort,
+                speed,
             }
         }
+
         "where" => CommandAction::Where,
         "context" => CommandAction::Context {
             all_threads: invocation.boolean("all_threads").unwrap_or(false),

@@ -55,7 +55,10 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         if cdr_store::dead_generation::target_is_held(&self.db_path, target)? {
             return Ok(());
         }
-        let jobs = list_filtered(&self.db_path, Some(target), None)?;
+        let jobs = cdr_store::execution_hold::eligible_jobs(
+            &self.db_path,
+            list_filtered(&self.db_path, Some(target), None)?,
+        )?;
         if jobs.is_empty() {
             return Ok(());
         }

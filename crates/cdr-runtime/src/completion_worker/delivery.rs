@@ -15,8 +15,6 @@ const NO_VISIBLE_REPLY: &str = "Completed (no visible reply)";
 impl CompletionWorker {
     pub(super) async fn deliver_pending(&self) -> Result<(), CompletionWorkerError> {
         let starts = super::deliver_start_failures(self.queue.db_path(), &self.http).await;
-        let transitions =
-            super::deliver_reserve_transition_notices(self.queue.db_path(), &self.http).await;
         let commentary = self.deliver_pending_commentary().await;
         let finals = attempt_all(list_pending(self.queue.db_path())?, |pending| async move {
             let delivery_id = pending.delivery_id.clone();
@@ -29,7 +27,7 @@ impl CompletionWorker {
             result
         })
         .await;
-        starts.and(transitions).and(commentary).and(finals)
+        starts.and(commentary).and(finals)
     }
 
     pub(super) async fn deliver_one(
@@ -37,7 +35,17 @@ impl CompletionWorker {
         pending: &StoredDelivery,
     ) -> Result<(), CompletionWorkerError> {
         let result = async {
-            self.ensure_delivery_order(&pending.job_id, None)?;
+            if cdr_store::final_recovery::authorized(self.queue.db_path(), pending)? {
+                if let Some(reason) =
+                    cdr_store::new_reply::output_hold(self.queue.db_path(), &pending.job_id)?
+                {
+                    return Err(CompletionWorkerError::Held(reason));
+                }
+                // The final-only grant validates original error evidence and all earlier progress.
+                // Shared commentary and goal-progress first-reply barriers remain unchanged.
+            } else {
+                self.ensure_delivery_order(&pending.job_id, None)?;
+            }
             if cdr_store::goal_progress::has_pending_job(
                 self.queue.db_path(),
                 &pending.job_id,

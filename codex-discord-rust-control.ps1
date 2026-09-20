@@ -1,17 +1,43 @@
 # All Rust maintenance entry points share this process-lifetime OS file lock.
 # A crashed owner releases its handle automatically. Never delete the lock file.
 function Enter-CdrControl {
-    param([string]$Root, [switch]$MaintenanceV2)
+    param([string]$Root, [switch]$MaintenanceV2, [switch]$Emergency,
+        [string]$Purpose = 'maintenance')
+    if (-not $Emergency) { Assert-CdrNoEmergencyOwner -Root $Root }
     $path = Join-Path ([IO.Path]::GetFullPath($Root)) '.codex_discord_rust.control.lock'
-    try { $handle = [IO.File]::Open($path, 'OpenOrCreate', 'ReadWrite', 'None') }
+    # A reader can inspect the owner, but a second writer still cannot enter.
+    try { $handle = [IO.File]::Open($path, 'OpenOrCreate', 'ReadWrite', 'Read') }
     catch [IO.IOException] {
         if (($_.Exception.HResult -band 0xffff) -in @(32, 33)) {
             throw 'cdr_control_busy: another maintenance operation owns the control lock'
         }
         throw
     }
-    try { if (-not $MaintenanceV2) { Assert-CdrNoMaintenanceV2 -Root $Root }; return $handle }
+    try {
+        if (-not $Emergency) { Assert-CdrNoEmergencyOwner -Root $Root }
+        if (-not $MaintenanceV2) { Assert-CdrNoMaintenanceV2 -Root $Root }
+        $owner = [Diagnostics.Process]::GetCurrentProcess()
+        try {
+            $ticks = $owner.StartTime.ToUniversalTime().Ticks
+            $ticks -= ($ticks % 10)
+            $record = @{ Version=1; Root=[IO.Path]::GetFullPath($Root)
+                ProcessId=$PID; StartTicks="$ticks"; Executable=$owner.MainModule.FileName
+                Purpose=$Purpose } | ConvertTo-Json -Compress
+            $bytes = [Text.UTF8Encoding]::new($false).GetBytes($record)
+            $handle.SetLength(0); $handle.Write($bytes, 0, $bytes.Length); $handle.Flush()
+        } finally { $owner.Dispose() }
+        return $handle
+    }
     catch { $handle.Dispose(); throw }
+}
+
+function Assert-CdrNoEmergencyOwner {
+    param([string]$Root)
+    $path = Join-Path $Root '.codex_discord_rust.force.lock'
+    if (-not [IO.File]::Exists($path)) { return }
+    try { $probe = [IO.File]::Open($path, 'Open', 'ReadWrite', 'None') }
+    catch [IO.IOException] { throw 'cdr_force_restart_in_progress: emergency restart owns control' }
+    $probe.Dispose()
 }
 
 function Get-CdrArtifactHash {
@@ -28,6 +54,7 @@ function Assert-CdrNoPendingRestart {
     param([string]$Root)
     Assert-CdrNoMaintenanceV2 -Root $Root
     foreach ($name in @('.codex_discord_rust.restart.launch',
+        '.codex_discord_rust.force.launch',
         '.codex_discord_rust.restart', '.codex_discord_rust.drain.prepare',
         '.codex_discord_rust.drain.ack')) {
         if (Test-Path -LiteralPath (Join-Path $Root $name)) {

@@ -41,7 +41,6 @@ const SETTINGS: &[OptionSpec] = &[
     option("model", CommandOptionType::String, false, true),
     option("effort", CommandOptionType::String, false, true),
     option("speed", CommandOptionType::String, false, false),
-    option("auto_reserve", CommandOptionType::Boolean, false, false),
 ];
 const CONTEXT: &[OptionSpec] = &[
     option("all_threads", CommandOptionType::Boolean, false, false),

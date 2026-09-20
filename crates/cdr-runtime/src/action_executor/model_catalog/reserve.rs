@@ -123,31 +123,6 @@ pub(crate) fn effort(
     Ok(default.into())
 }
 
-/// Automatic policy: supported default at least medium, then high, then medium.
-/// Unknown effort names have no known rank and are never assumed above the floor.
-pub(crate) fn auto_effort(catalog: &Value) -> Result<String, ActionError> {
-    let default = super::rows(catalog)
-        .find(|row| super::name(row) == Some(MODEL))
-        .and_then(|row| row.get("defaultReasoningEffort"))
-        .and_then(Value::as_str);
-    for effort in default.into_iter().chain(["high", "medium"]) {
-        if validate_auto_effort(catalog, effort).is_ok() {
-            return Ok(effort.into());
-        }
-    }
-    Err(invalid("no supported automatic effort at or above medium"))
-}
-
-/// Post-apply validation never chooses or applies a fallback.
-pub(crate) fn validate_auto_effort(catalog: &Value, effort: &str) -> Result<(), ActionError> {
-    if !matches!(effort, "medium" | "high" | "xhigh") {
-        return Err(ActionError::Invalid(
-            "automatic Reserve effort is below medium or has an unknown rank".into(),
-        ));
-    }
-    validate_effort(catalog, MODEL, effort)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -52,6 +52,7 @@ pub fn begin_guarded(
 ) -> Result<ReceiptState> {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    crate::final_recovery::validate_claim_in(&transaction, key, content_hash, guard)?;
     if let Some(reason) =
         crate::new_reply::validate_claim_in(&transaction, key, content_hash, guard)?
     {
