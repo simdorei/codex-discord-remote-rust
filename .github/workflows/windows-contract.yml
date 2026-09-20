@@ -11,11 +11,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Configure Windows temporary directory
+        shell: pwsh
+        run: |
+          $runnerTempPath = $env:RUNNER_TEMP
+          if ([string]::IsNullOrWhiteSpace($runnerTempPath) -or
+              -not [System.IO.Path]::IsPathFullyQualified($runnerTempPath) -or
+              $runnerTempPath.Contains("`r") -or $runnerTempPath.Contains("`n")) {
+            throw 'RUNNER_TEMP must be a nonempty, fully qualified directory path'
+          }
+          $runnerTempDirectory = Get-Item -LiteralPath $runnerTempPath -Force -ErrorAction Stop
+          if (-not $runnerTempDirectory.PSIsContainer -or
+              $runnerTempDirectory.PSProvider.Name -ne 'FileSystem') {
+            throw 'RUNNER_TEMP must be an existing filesystem directory'
+          }
+          Write-Host "Original TEMP=$env:TEMP; TMP=$env:TMP"
+          Write-Host "Selected temporary directory=$runnerTempPath"
+          "TEMP=$runnerTempPath", "TMP=$runnerTempPath" |
+            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
       - name: Verify pinned Rust workspace
         run: |
+          if ($env:TEMP -cne $env:RUNNER_TEMP -or $env:TMP -cne $env:RUNNER_TEMP) {
+            throw 'Windows temporary directory settings did not propagate'
+          }
+          Write-Host "Effective TEMP=$env:TEMP; TMP=$env:TMP"
           rustup show active-toolchain
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/Test-RustFormatting.ps1
