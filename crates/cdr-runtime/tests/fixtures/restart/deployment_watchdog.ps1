@@ -1,6 +1,9 @@
 param([string]$RepoRoot,[string]$BinaryPath,[string]$RecoverDeploymentStatePath)
 $ErrorActionPreference='Stop'
 if(-not $RecoverDeploymentStatePath){throw 'generic watchdog prohibited'}
+# Match the real watchdog's startup normalization, including Windows 8.3 aliases.
+$RepoRoot=[IO.Path]::GetFullPath($RepoRoot)
+$BinaryPath=[IO.Path]::GetFullPath($BinaryPath)
 . (Join-Path $env:CDR_SOURCE 'codex-discord-rust-drain.ps1')
 . (Join-Path $env:CDR_SOURCE 'codex-discord-rust-control.ps1')
 . (Join-Path $env:CDR_SOURCE 'scripts/CdrDeploymentRecovery.ps1')
