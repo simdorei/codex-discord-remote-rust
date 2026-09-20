@@ -7,7 +7,7 @@ use cdr_remote_agent::commands::{
 use tempfile::TempDir;
 use tokio::sync::watch;
 
-use super::cleanup::PidCleanup;
+use super::cleanup::{PidCleanup, settle_failure};
 
 #[tokio::test]
 async fn proc3_bridge_cancellation_kills_the_owned_process_tree() {
@@ -26,7 +26,22 @@ async fn proc3_bridge_cancellation_kills_the_owned_process_tree() {
                 "powershell.exe".into(),
                 "-NoProfile".into(),
                 "-Command".into(),
-                "$p=Start-Process powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 30' -PassThru; [Console]::Out.Write($p.Id); [Console]::Out.Flush(); [Console]::Error.Write('cancel-ready'); [Console]::Error.Flush(); Set-Content -LiteralPath $env:CDR_PROCESS_CONTRACT_PID_PATH -Value $p.Id -NoNewline; Start-Sleep -Seconds 30".into(),
+                // Avoid the Management cmdlets: they can stall fixture setup
+                // on the hosted runner before the cancellation contract begins.
+                r#"$ErrorActionPreference = 'Stop'
+$start = [Diagnostics.ProcessStartInfo]::new('powershell.exe')
+$start.Arguments = '-NoProfile -NonInteractive -Command "[Threading.Thread]::Sleep(30000)"'
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$child = [Diagnostics.Process]::Start($start)
+[Console]::Out.Write($child.Id)
+[Console]::Out.Flush()
+[Console]::Error.Write('cancel-ready')
+[Console]::Error.Flush()
+[IO.File]::WriteAllText($env:CDR_PROCESS_CONTRACT_PID_PATH, [string]$child.Id)
+[Threading.Thread]::Sleep(30000)
+"#
+                .into(),
             ],
             Path::new("."),
             &environment,
@@ -35,20 +50,27 @@ async fn proc3_bridge_cancellation_kills_the_owned_process_tree() {
             cancelled,
         )
         .await
-        .expect("cancellation is an outcome")
     });
-    let Some(descendant_id) = cleanup.wait_ready(Duration::from_secs(5)).await else {
-        task.abort();
-        let _ = task.await;
-        panic!("descendant did not publish its PID before cancellation");
+    let ready = tokio::select! {
+        ready = cleanup.wait_ready(Duration::from_secs(5)) => ready,
+        result = &mut task => panic!("operation ended before PID readiness: {result:?}; {}", cleanup.diagnostic()),
+    };
+    let Some(descendant_id) = ready else {
+        let snapshot = cleanup.diagnostic();
+        let settlement = settle_failure(&mut task, &cancel).await;
+        panic!(
+            "descendant did not publish a parseable PID before cancellation; {snapshot}; {settlement}"
+        );
     };
     cancel.send(true).expect("cancellation receiver");
     let Ok(joined) = tokio::time::timeout(Duration::from_secs(8), &mut task).await else {
-        task.abort();
-        let _ = task.await;
-        panic!("cancellation cleanup exceeded its deadline");
+        let snapshot = cleanup.diagnostic();
+        let settlement = settle_failure(&mut task, &cancel).await;
+        panic!("cancellation cleanup exceeded its deadline; {snapshot}; {settlement}");
     };
-    let outcome = joined.expect("process task");
+    let outcome = joined
+        .expect("process task")
+        .expect("cancellation is an outcome");
 
     assert_eq!(outcome.completion, ProcessCompletion::Cancelled);
     assert_eq!(outcome.exit_code, None);

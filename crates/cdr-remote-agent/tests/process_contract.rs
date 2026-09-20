@@ -105,13 +105,17 @@ async fn proc1_preserves_small_output_and_bounds_noisy_streams() {
 
 #[tokio::test]
 async fn proc2_timeout_kills_the_owned_process_tree_and_keeps_diagnostics() {
+    #[cfg(windows)]
+    let (_fixture, command) = windows::timeout_fixture("started", "timeout-error");
+    #[cfg(not(windows))]
+    let command = vec![
+        "powershell.exe".into(),
+        "-NoProfile".into(),
+        "-Command".into(),
+        "[Console]::Out.Write('started'); [Console]::Out.Flush(); [Console]::Error.Write('timeout-error'); [Console]::Error.Flush(); Start-Sleep -Seconds 30".into(),
+    ];
     let outcome = run_bounded_process(
-        &[
-            "powershell.exe".into(),
-            "-NoProfile".into(),
-            "-Command".into(),
-            "[Console]::Out.Write('started'); [Console]::Out.Flush(); [Console]::Error.Write('timeout-error'); [Console]::Error.Flush(); Start-Sleep -Seconds 30".into(),
-        ],
+        &command,
         Path::new("."),
         &safe_environment(),
         Duration::from_millis(750),

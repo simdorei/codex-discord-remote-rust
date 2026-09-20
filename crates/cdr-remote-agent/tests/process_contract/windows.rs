@@ -1,11 +1,15 @@
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::os::windows::process::CommandExt as _;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use cdr_remote_agent::commands::{ProcessCompletion, run_bounded_process, safe_environment};
+use cdr_remote_agent::commands::{
+    ProcessCompletion, run_bounded_process, run_bounded_process_cancellable, safe_environment,
+};
 use tempfile::TempDir;
+use tokio::sync::watch;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -14,7 +18,7 @@ mod cancellation;
 #[path = "windows/cleanup.rs"]
 mod cleanup;
 
-use cleanup::PidCleanup;
+use cleanup::{PidCleanup, settle_failure};
 
 #[tokio::test]
 async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
@@ -28,7 +32,7 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
         format!(
             "@echo off\r\n\
              start \"\" /b \"{}\" --ignored --exact windows::pipe_holding_descendant_fixture --nocapture\r\n\
-             powershell.exe -NoProfile -Command \"$d=[DateTime]::UtcNow.AddSeconds(5); while (!(Test-Path -LiteralPath $env:CDR_PROCESS_CONTRACT_PID_PATH)) {{ if ([DateTime]::UtcNow -ge $d) {{ exit 7 }}; Start-Sleep -Milliseconds 10 }}\"\r\n\
+             powershell.exe -NoProfile -NonInteractive -Command \"$d=[DateTime]::UtcNow.AddSeconds(5); while (![IO.File]::Exists($env:CDR_PROCESS_CONTRACT_PID_PATH)) {{ if ([DateTime]::UtcNow -ge $d) {{ exit 7 }}; [Threading.Thread]::Sleep(10) }}\"\r\n\
              if errorlevel 1 exit /b 7\r\n\
              <nul set /p \"=parent-done\"\r\n\
              exit /b 0\r\n",
@@ -42,9 +46,9 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
         pid_path.to_string_lossy().into_owned(),
     );
 
-    let completed = tokio::time::timeout(
-        Duration::from_secs(8),
-        run_bounded_process(
+    let (cancel, cancelled) = watch::channel(false);
+    let mut task = tokio::spawn(async move {
+        run_bounded_process_cancellable(
             &[
                 "cmd.exe".into(),
                 "/D".into(),
@@ -56,12 +60,18 @@ async fn proc4_parent_exit_closes_owned_job_before_joining_pipe_readers() {
             &environment,
             Duration::from_secs(15),
             256,
-        ),
-    )
-    .await;
-    let outcome = completed
-        .expect("normal parent exit must not leave capture waiting on a descendant")
-        .expect("owned process outcome");
+            cancelled,
+        )
+        .await
+    });
+    let completed = tokio::time::timeout(Duration::from_secs(8), &mut task).await;
+    let outcome = if let Ok(result) = completed {
+        result.expect("owned task").expect("owned process outcome")
+    } else {
+        let snapshot = cleanup.diagnostic();
+        let settlement = settle_failure(&mut task, &cancel).await;
+        panic!("normal parent exit exceeded its original deadline; {snapshot}; {settlement}");
+    };
     let descendant_id = cleanup.observe().unwrap_or_else(|| {
         panic!(
             "descendant did not publish its pid; stdout={:?}, stderr={:?}",
@@ -108,6 +118,7 @@ fn pipe_holding_descendant_fixture() {
 
 #[tokio::test]
 async fn proc5_timeout_terminates_only_the_owned_job() {
+    let (_fixture, command) = timeout_fixture("owned", "");
     let mut sentinel = Command::new("powershell.exe")
         .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
         .creation_flags(CREATE_NO_WINDOW)
@@ -119,7 +130,7 @@ async fn proc5_timeout_terminates_only_the_owned_job() {
     let result = tokio::time::timeout(
         Duration::from_secs(8),
         run_bounded_process(
-            &powershell_command("[Console]::Out.Write('owned'); Start-Sleep -Seconds 30".into()),
+            &command,
             Path::new("."),
             &safe_environment(),
             Duration::from_millis(750),
@@ -137,13 +148,29 @@ async fn proc5_timeout_terminates_only_the_owned_job() {
     assert!(sentinel_running, "cleanup terminated an unrelated process");
 }
 
-fn powershell_command(script: String) -> Vec<String> {
-    vec![
-        "powershell.exe".into(),
-        "-NoProfile".into(),
-        "-Command".into(),
-        script,
-    ]
+// Emit the fixed fixture markers before starting PowerShell. Its cold startup
+// can exceed the 750 ms timeout on CI; that is unrelated to output retention.
+pub(super) fn timeout_fixture(stdout: &str, stderr: &str) -> (TempDir, Vec<String>) {
+    let temp = TempDir::new().expect("temporary timeout fixture");
+    let path = temp.path().join("timeout.cmd");
+    let mut script = format!("@echo off\r\n<nul set /p \"={stdout}\"\r\n");
+    if !stderr.is_empty() {
+        write!(script, "<nul set /p \"={stderr}\" 1>&2\r\n").expect("write stderr marker");
+    }
+    script.push_str(
+        "powershell.exe -NoProfile -NonInteractive -Command \"[Threading.Thread]::Sleep(30000)\"\r\n",
+    );
+    std::fs::write(&path, script).expect("write timeout fixture");
+    (
+        temp,
+        vec![
+            "cmd.exe".into(),
+            "/D".into(),
+            "/S".into(),
+            "/C".into(),
+            path.to_string_lossy().into_owned(),
+        ],
+    )
 }
 
 fn stop_child(child: &mut Child) {
