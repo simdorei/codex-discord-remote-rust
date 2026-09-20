@@ -38,7 +38,7 @@ fn windows_preserves_each_native_exit_and_bounded_formatting() {
     for command in [
         "rustup show active-toolchain",
         "cargo build --workspace --locked",
-        "cargo test --workspace --locked --all-targets -- --test-threads=2",
+        "cargo test --workspace --locked --all-targets --no-fail-fast -- --test-threads=2",
         "cargo clippy --workspace --all-targets --locked -- -D warnings",
     ] {
         assert!(
