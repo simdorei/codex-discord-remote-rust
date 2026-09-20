@@ -1,68 +1,29 @@
-name: Windows contract
+name: Diagnostic Windows fixture initialization
 
 on:
   push:
-  pull_request:
+    branches:
+      - diagnostic/windows-fixture-startup-20260921
+
+permissions:
+  contents: read
 
 jobs:
-  windows-contract:
+  diagnose-fixture-load:
     runs-on: windows-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Configure Windows temporary directory
+          persist-credentials: false
+      - name: Observe bounded isolated fixture initialization
         shell: pwsh
         run: |
-          $runnerTempPath = $env:RUNNER_TEMP
-          if ([string]::IsNullOrWhiteSpace($runnerTempPath) -or
-              -not [System.IO.Path]::IsPathFullyQualified($runnerTempPath) -or
-              $runnerTempPath.Contains("`r") -or $runnerTempPath.Contains("`n")) {
-            throw 'RUNNER_TEMP must be a nonempty, fully qualified directory path'
+          $temporary = $env:RUNNER_TEMP
+          if ([string]::IsNullOrWhiteSpace($temporary) -or
+              -not [IO.Path]::IsPathFullyQualified($temporary) -or
+              $temporary.Contains("`r") -or $temporary.Contains("`n") -or
+              -not [IO.Directory]::Exists($temporary)) {
+            throw 'RUNNER_TEMP must be an existing absolute directory'
           }
-          $runnerTempDirectory = Get-Item -LiteralPath $runnerTempPath -Force -ErrorAction Stop
-          if (-not $runnerTempDirectory.PSIsContainer -or
-              $runnerTempDirectory.PSProvider.Name -ne 'FileSystem') {
-            throw 'RUNNER_TEMP must be an existing filesystem directory'
-          }
-          Write-Host "Original TEMP=$env:TEMP; TMP=$env:TMP"
-          Write-Host "Selected temporary directory=$runnerTempPath"
-          "TEMP=$runnerTempPath", "TMP=$runnerTempPath" |
-            Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-      - name: Verify pinned Rust workspace
-        run: |
-          if ($env:TEMP -cne $env:RUNNER_TEMP -or $env:TMP -cne $env:RUNNER_TEMP) {
-            throw 'Windows temporary directory settings did not propagate'
-          }
-          Write-Host "Effective TEMP=$env:TEMP; TMP=$env:TMP"
-          rustup show active-toolchain
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/Test-RustFormatting.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build --workspace --locked
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --workspace --locked --all-targets --no-fail-fast -- --test-threads=2
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo clippy --workspace --all-targets --locked -- -D warnings
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify packaged plugin cachebuster
-        if: >-
-          github.event_name == 'pull_request' ||
-          github.event.before != '0000000000000000000000000000000000000000'
-        env:
-          PLUGIN_VERSION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          ./target/debug/cdr-pro-helper.exe verify-cachebuster --repo-root .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify native Pro and installation contracts
-        run: |
-          cargo test --locked -p cdr-pro --all-targets -- --test-threads=2
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p cdr-runtime --test shell_wrapper_contract --test admin_cli_contract --test python_free_installer_contract -- --test-threads=2
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify Windows installer dry-run
-        shell: powershell
-        run: .\install.ps1 -DryRun -SkipBuild -SkipEnvFile -SkipCodexPlugin
+          ./.review/windows-process/probe-maintenance-load.ps1 -SourceRoot $env:GITHUB_WORKSPACE -TemporaryRoot $temporary
