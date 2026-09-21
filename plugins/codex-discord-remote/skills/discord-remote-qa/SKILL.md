@@ -9,18 +9,24 @@ Use this skill when validating local changes or deciding whether the remote is r
 
 ## Standard QA
 
-Run:
+Use the [evidence reuse and retry rules](../intent-driven-qa/SKILL.md#reuse-evidence-and-retry-only-affected-work) for existing checks as well as new tests. Share existing execution results with other QA/review skills. Select checks from the changed behavior and required release scope; do not rerun the full smoke command when valid evidence already covers it, or merely to repair a reviewer's evidence-access problem.
+
+When full workspace QA is needed and matching evidence is missing or invalidated, run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File plugins/codex-discord-remote/scripts/qa-smoke.ps1
 ```
 
-The smoke script covers:
+The wrapper calls `scripts/Test-NativeWorkspace.ps1`, which covers:
 
 - `git diff --check`
-- installer dry-run without dependency or `.env` changes
-- Python compile checks for core remote modules
-- the main Discord bot and mirror cleanup test suites
+- Rust formatting, locked workspace build, workspace tests, and Clippy
+- PowerShell installer and Discord setup dry-runs without installation or `.env` changes
+- Git Bash syntax checks and installer/setup dry-runs
+
+`-SkipUnitTests` produces partial checks only. Even a complete workspace PASS does not establish live Discord behavior or prove that the running deployment matches the tested source. Report newly run and reused results separately, and verify only the runtime observations relevant to the claim below.
+
+Pro review is not a mandatory QA stage. When requested or when its automatic-consultation criteria apply, use `ask-chatgpt-pro` and its existing Chrome/connector recovery procedure. A connection or evidence-access failure does not invalidate unrelated test results; resume that review stage after recovery.
 
 ## Runtime QA Notes
 

@@ -63,6 +63,27 @@ Assign each contract item a stable ID so requirements, tests, evidence, and resi
 
 Start at the lowest layer that can prove the behavior. Duplicate a scenario at a higher layer only when that layer establishes a distinct wiring, persistence, or trust-boundary risk. Do not create the same test pyramid at every layer by default.
 
+## Reuse Evidence And Retry Only Affected Work
+
+Before running checks, inspect the results already collected by local commands, CI, and other reviewers or skills. Use one evidence record for the task, extending existing logs or notes instead of creating a parallel checklist. Record only what the claim needs: contract or covered scope, tested source/artifact identity, command and relevant configuration, platform/toolchain/dependencies, result, and a retrievable log or run reference. Include the relevant working-tree changes when the source is dirty; a commit ID alone does not identify that code.
+
+- Reuse a recorded execution when its covered behavior and relevant inputs still match. A passing broader suite can supply an included focused result when the test actually ran under equivalent conditions. Re-reading the same result through another skill or Pro is not additional test coverage.
+- Invalidate only checks affected by changes to the contract, product code, tests, fixtures, configuration, dependencies, or environment. Explain the affected boundary before rerunning; broaden when shared dependencies or uncertain impact justify it. Do not repeat an unchanged check merely because the workflow reached another stage.
+- Required CI for an exact candidate must still exist for that candidate. Reused local evidence is not a new CI run or approval for a different artifact. For publication claims, verify the binding between the reviewed source, CI candidate, and published artifact using existing Git/CI/artifact checks; include content hashes only where needed.
+- Static test evidence does not establish current external state. Refresh the specific account, running process, deployment, or live delivery observation when making that claim, without rerunning unrelated static tests.
+
+Classify a failure before choosing what to repeat:
+
+| Failure | Next action | Evidence to retain |
+| --- | --- | --- |
+| Product behavior or incorrect oracle | Resolve the contract/oracle, make the authorized fix, then run the affected tests and relevant regression scope. | Results outside the affected dependency boundary. |
+| Fixture, environment, or runner | Repair the failing setup and rerun the checks it prevented or invalidated; retain assertions and timeout requirements unless the contract justifies changing them. | Unaffected executions in valid environments. |
+| Missing, redacted, or inaccessible evidence | Recover the original log or artifact reference and verify its identity through an authorized direct read or deterministic comparison. Rerun only the check whose evidence cannot be recovered. | Code/test results and stage decisions whose inputs and supporting evidence remain valid. |
+
+For example, a reviewer unable to compare masked commit IDs has an evidence gap, not proof of a product defect. Use an existing read-only comparison of the exact artifacts where possible; do not disable secret redaction or rebuild and rerun the whole suite solely to reformat evidence. If identity cannot be established, label that claim unverified.
+
+Preserve completed stages whose inputs remain valid and resume at the failed stage. Every retry needs a changed input, recovered evidence, or a concrete transient-failure hypothesis and a bounded retry budget. Stop and report the remaining gap if the same failure recurs without progress; do not restart the whole workflow indefinitely. Pro review is optional unless the user or repository requires it. When used, send the changed scope or unresolved question with existing evidence; do not invent a follow-up after a supported answer already resolves the request.
+
 ## Test Strength Rules
 
 - Assert observable outcomes and invariants. Assert internal call order or counts only when the interaction itself is the contract.
@@ -85,6 +106,8 @@ For new or changed behavior:
 5. Make the minimum authorized product change without weakening the contract.
 6. Run the same focused test and record GREEN.
 7. Run the relevant module or regression suite and record its result.
+
+These steps specify required evidence, not duplicate executions. Reuse valid recorded RED, GREEN, or regression runs under the rules above; do not replay a completed sequence solely for another reviewer.
 
 If the new test is GREEN before implementation, say so. Classify it as characterization or added coverage; never invent RED evidence. When a controlled mutation would add meaningful confidence, perform it only in an isolated or safely reversible workspace and restore it before continuing.
 
@@ -120,6 +143,8 @@ Evidence
 - RED: command, failing test, intended reason
 - GREEN: same focused test
 - Regression: relevant suite result
+- For each result: newly run or reused, tested identity, environment, and log/run reference
+- Reruns: invalidated evidence and the change or gap that required another execution
 
 Changes
 - test files
@@ -130,7 +155,7 @@ Residual risk
 - unautomated or environment-blocked behavior and why it remains
 ```
 
-Never report a check as passing if it was not run. Distinguish verified evidence, static inference, and remaining risk.
+Report PASS only with actual execution evidence, and identify reused results rather than claiming a new run. Distinguish failed behavior, blocked or unverified evidence, static inference, and remaining risk. Keep code QA, reviewer approval, publication, and running-runtime verification separate; one does not imply the others.
 
 ## Definition Of Done
 
