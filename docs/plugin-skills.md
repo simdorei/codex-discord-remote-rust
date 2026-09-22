@@ -13,6 +13,22 @@ some skills also have slash or `!` command wrappers.
 | `archive-used` | Bulk archive workflow for Codex threads whose `used` value in bridge list output is at or above a user-provided `<threshold>`, targeting the UUID printed in each selected list row. | `!archive-used <threshold>` invokes the skill from Discord; Codex then uses local bridge list/archive commands or the equivalent `!list` and `!archive <uuid-from-list>`. |
 | `deep-interview` | Clarification-first requirements workflow. It confirms the work structure, asks one question at a time, scores ambiguity, preserves the user's language, tracks scope/entities/constraints, and stops at a pending-approval ticket before implementation. | `/interview <request>` or `!interview <request>`. |
 
+### QA And Review Roles
+
+`intent-driven-qa` is a general software QA methodology packaged with this plugin:
+it designs defect-detecting tests from intended behavior. `discord-remote-qa`
+adds checks specific to the Discord bridge.
+
+The companion [Repo Review Gate](../.agents/skills/repo-review-gate/SKILL.md)
+controls review order: inspect existing execution evidence, run missing or
+invalidated checks, then review uncovered paths. Its source is maintained under
+`.agents/skills/repo-review-gate` as a project skill, outside the plugin's bundled
+skill directory. It can also be installed personally for use across repositories.
+
+Select the workflow needed by the task. When combining them, share valid execution
+evidence and add only the missing coverage; these skills do not require repeating
+the same checks in separate QA and review stages.
+
 ### Requesting Intent-Driven QA
 
 In a mapped Discord thread or a Codex task, give the behavior and evidence you care about; let the skill choose how many tests belong at each layer. Use the fully qualified plugin skill name from Discord:

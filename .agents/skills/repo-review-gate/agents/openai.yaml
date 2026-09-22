@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Review Gate"
+  short_description: "Run repo-local review gates before manual review."
+  default_prompt: "Discover repo-local review gates, run them first, then do only a short residual critical review."
