@@ -27,6 +27,27 @@ fn computer(request_id: &str, session_id: &str, request: ComputerRequest) -> Gat
     }
 }
 
+fn assert_active_ui_result(result: &BridgeResult) {
+    #[cfg(windows)]
+    assert!(matches!(
+        result,
+        BridgeResult::ProjectOperationResult {
+            output: ProjectOperationOutput::Computer(ComputerOutput::ComputerWindows { .. }),
+            ..
+        }
+    ));
+    #[cfg(not(windows))]
+    assert!(matches!(
+        result,
+        BridgeResult::OperationError {
+            error_code,
+            message,
+            ..
+        } if error_code == "computer_control"
+            && message == "computer platform operation failed: Computer control is currently available only on Windows."
+    ));
+}
+
 #[tokio::test]
 async fn cd1_stop_fails_closed_until_a_new_session_generation_rebinds() {
     let root = tempfile::tempdir().expect("project");
@@ -43,18 +64,14 @@ async fn cd1_stop_fails_closed_until_a_new_session_generation_rebinds() {
         BridgeResult::ProjectSessionResult { .. }
     ));
 
-    assert!(matches!(
-        dispatcher
+    assert_active_ui_result(
+        &dispatcher
             .execute(
                 computer("list-a", SESSION_A, ComputerRequest::ComputerListWindows),
                 Some(1),
             )
             .await,
-        BridgeResult::ProjectOperationResult {
-            output: ProjectOperationOutput::Computer(ComputerOutput::ComputerWindows { .. }),
-            ..
-        }
-    ));
+    );
     assert!(matches!(
         dispatcher
             .execute(
@@ -84,17 +101,13 @@ async fn cd1_stop_fails_closed_until_a_new_session_generation_rebinds() {
             .await,
         BridgeResult::ProjectSessionResult { .. }
     ));
-    assert!(matches!(
-        dispatcher
+    assert_active_ui_result(
+        &dispatcher
             .execute(
                 computer("list-b", SESSION_B, ComputerRequest::ComputerListWindows),
                 Some(1),
             )
             .await,
-        BridgeResult::ProjectOperationResult {
-            output: ProjectOperationOutput::Computer(ComputerOutput::ComputerWindows { .. }),
-            ..
-        }
-    ));
+    );
     dispatcher.retire_sessions().await.expect("retire");
 }
