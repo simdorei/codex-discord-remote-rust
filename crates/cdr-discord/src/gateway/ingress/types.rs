@@ -35,6 +35,24 @@ pub fn is_force_restart_message(content: &str) -> bool {
             }))
 }
 
+/// Recovery uses the same reserved lane, without treating its text as a prompt.
+#[must_use]
+pub fn is_emergency_message(content: &str) -> bool {
+    if is_force_restart_message(content) {
+        return true;
+    }
+    let Some(command) = content.trim().strip_prefix('!') else {
+        return false;
+    };
+    let mut words = command.split_whitespace();
+    let name = words.next().unwrap_or_default();
+    (name.eq_ignore_ascii_case("recover")
+        || name == "복구"
+        || name.eq_ignore_ascii_case("repair")
+        || name == "도구복구")
+        && words.count() <= 1
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GatewayIngressConfig {
     pub interaction_capacity: usize,

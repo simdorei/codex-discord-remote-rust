@@ -43,6 +43,12 @@ pub enum PrefixAction {
     Stop {
         reference: Option<String>,
     },
+    Recover {
+        reference: Option<String>,
+    },
+    Repair {
+        reference: Option<String>,
+    },
     Settings {
         reference: Option<String>,
         model: Option<String>,
@@ -86,6 +92,9 @@ pub enum PrefixAction {
     Runners,
     SavedRequest {
         request_id: String,
+    },
+    DiscardRequest {
+        job_id: String,
     },
     Resources,
     Retract {

@@ -19,6 +19,12 @@ where
 {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let creation = super::container_creation::before_project_in(
+        &transaction,
+        canonical_key,
+        channel_id,
+        &keys_match,
+    )?;
     let aliases = {
         let mut statement = transaction.prepare("SELECT project_key FROM mirror_projects")?;
         statement
@@ -39,6 +45,13 @@ where
         "INSERT OR REPLACE INTO mirror_projects \
          (project_key, project_name, discord_channel_id, updated_at) VALUES (?, ?, ?, ?)",
         params![canonical_key, project_name, channel_id, now],
+    )?;
+    super::container_creation::finish_project_in(
+        &transaction,
+        canonical_key,
+        channel_id,
+        creation,
+        &keys_match,
     )?;
     transaction.commit()?;
     Ok(aliases)

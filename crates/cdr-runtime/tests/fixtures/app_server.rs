@@ -10,6 +10,8 @@ mod action;
 mod approval;
 #[path = "app_server/archive.rs"]
 mod archive;
+#[path = "app_server/async_history.rs"]
+mod async_history;
 #[path = "app_server/async_question.rs"]
 mod async_question;
 #[path = "app_server/display.rs"]
@@ -18,6 +20,10 @@ mod display;
 mod goal;
 #[path = "app_server/idle_release.rs"]
 mod idle_release;
+#[path = "app_server/repair.rs"]
+mod repair;
+#[path = "app_server/repair_contract.rs"]
+mod repair_contract;
 #[path = "app_server/reserve_auto.rs"]
 mod reserve_auto;
 #[path = "app_server/resume.rs"]
@@ -32,7 +38,10 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + 
 pub fn run() -> Result {
     match std::env::args().nth(2).as_deref() {
         Some("action") => action::run(),
+        Some("repair") => repair::run(),
+        Some("repair-contract") => repair_contract::run(),
         Some("async-question") => async_question::run(),
+        Some("async-history") => async_history::run(),
         Some("approval") => approval::run(false),
         Some("interaction") => approval::run(true),
         Some("archive") => archive::run(),

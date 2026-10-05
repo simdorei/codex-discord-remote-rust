@@ -11,6 +11,7 @@ pub mod idle_release;
 mod input_replies;
 mod input_validation;
 mod manager;
+pub mod observation;
 pub mod outcomes;
 mod process;
 pub mod requests;
@@ -18,6 +19,9 @@ mod rpc;
 mod startup_budget;
 mod state;
 mod transport;
+
+#[cfg(feature = "test-writer-faults")]
+pub mod writer_fault_fixture;
 
 pub use approval_replies::{ApprovalAnswer, build_approval_response, parse_approval_answer};
 pub use client::{AppServerClient, AppServerConfig, DEFAULT_CLIENT_NAME, DEFAULT_CLIENT_TITLE};
@@ -33,8 +37,8 @@ pub use input_replies::{
 };
 pub use input_validation::{input_option_labels, validate_input_questions};
 pub use manager::{
-    ResidentAppServer, ResidentLifecycleSnapshot, ResidentNotificationEvent,
-    ResidentServerRequestEvent,
+    NativeRecoveryObservation, ResidentAppServer, ResidentLifecycleSnapshot,
+    ResidentNotificationEvent, ResidentServerRequestEvent,
 };
 pub use rpc::{Notification, RequestId, ServerRequest, ServerRequestOccurrence};
 pub use startup_budget::{APP_SERVER_INITIALIZE_TIMEOUT, APP_SERVER_STARTUP_TIMEOUT};

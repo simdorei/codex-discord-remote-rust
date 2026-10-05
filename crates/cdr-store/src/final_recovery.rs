@@ -116,10 +116,14 @@ pub fn authorize(
 pub fn authorized(path: &Path, pending: &StoredDelivery) -> Result<bool> {
     let mut db = open_initialized(path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Deferred)?;
-    let Some(grant) = read(&tx, &pending.delivery_id)? else {
+    authorized_in(&tx, pending)
+}
+
+pub(crate) fn authorized_in(db: &Connection, pending: &StoredDelivery) -> Result<bool> {
+    let Some(grant) = read(db, &pending.delivery_id)? else {
         return Ok(false);
     };
-    validate(&tx, pending, &grant)?;
+    validate(db, pending, &grant)?;
     Ok(true)
 }
 

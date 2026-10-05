@@ -14,7 +14,24 @@ impl MirrorSynchronizer {
         channels: &mut Vec<MirrorChannel>,
     ) -> Result<MirrorChannel, MirrorSyncError> {
         let stored = find_project(&self.mirror_db, Some(key), keys_match)?;
-        let mut channel = if let Some(stored) = stored {
+        let expected = cdr_store::mapping::container_creation::project_snapshot(
+            &self.mirror_db,
+            key,
+            keys_match,
+        )?;
+        if stored.as_ref().map_or(!expected.is_empty(), |stored| {
+            !expected.contains(&(stored.stored_key.clone(), stored.channel_id))
+        }) {
+            return Err(MirrorSyncError::Invalid(
+                "project mapping changed before lookup".into(),
+            ));
+        }
+        let mut channel = if let Some(channel) = self
+            .confirmed_project_creation(guild, category, key, &expected)
+            .await?
+        {
+            Some(channel)
+        } else if let Some(stored) = stored {
             self.remote.channel(discord_id(stored.channel_id)?).await?
         } else {
             None
@@ -33,6 +50,11 @@ impl MirrorSynchronizer {
                 )?
                 .is_none()
                 {
+                    cdr_store::mapping::container_creation::ensure_adoptable(
+                        &self.mirror_db,
+                        db_id(candidate.id)?,
+                        db_id(category)?,
+                    )?;
                     channel = Some(candidate.clone());
                     break;
                 }
@@ -60,13 +82,13 @@ impl MirrorSynchronizer {
             channel
         } else {
             let channel = self
-                .remote
-                .create(
+                .create_project_with_receipt(
                     guild,
-                    Some(category),
-                    ChannelType::GuildText,
+                    category,
+                    key,
+                    &expected,
                     &expected_name,
-                    Some(&topic),
+                    &topic,
                 )
                 .await?;
             channels.push(channel.clone());
@@ -91,7 +113,15 @@ impl MirrorSynchronizer {
         name: &str,
     ) -> Result<(MirrorChannel, Option<(i64, i64)>), MirrorSyncError> {
         let expected = thread_channels(&self.mirror_db, thread)?;
-        let channel = if let Some((_, id)) = expected {
+        let scope = cdr_store::mapping::creation::CreationScope {
+            thread,
+            guild: db_id(guild)?,
+            parent: db_id(parent)?,
+            expected,
+        };
+        let channel = if let Some(channel) = self.confirmed_thread_creation(scope).await? {
+            Some(channel)
+        } else if let Some((_, id)) = expected {
             self.remote.channel(discord_id(id)?).await?
         } else {
             None
@@ -103,9 +133,7 @@ impl MirrorSynchronizer {
             }
             channel
         } else {
-            self.remote
-                .create(guild, Some(parent), ChannelType::PublicThread, name, None)
-                .await?
+            self.create_thread_with_receipt(scope, name).await?
         };
         Ok((channel, expected))
     }

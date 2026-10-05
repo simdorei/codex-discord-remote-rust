@@ -26,6 +26,8 @@ $script:CutoverStatePath=Join-Path $RepoRoot 'state.json'
 $script:CutoverSeal='fixture-cutover'
 foreach ($support in @('codex-discord-rust-watchdog.ps1','codex-discord-rust-control.ps1','codex-discord-rust-drain.ps1',
     'scripts/CdrLaunchJournal.ps1','scripts/CdrForceRestart.ps1','scripts/CdrDeploymentRecovery.ps1','scripts/CdrRestartTransaction.ps1',
+    'scripts/CdrMaintenanceCompatibility.ps1','scripts/CdrAsyncRecoveryCompatibility.ps1',
+    'scripts/CdrRuntimeLaunchCompatibility.ps1',
     'scripts/CdrManualReserveCutover.ps1','scripts/Invoke-CdrManualReserveCutover.ps1')) {
     $destination=Join-Path $RepoRoot $support
     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))

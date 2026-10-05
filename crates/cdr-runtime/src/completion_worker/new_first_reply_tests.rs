@@ -5,6 +5,11 @@ use crate::{
 };
 use cdr_store::{delivery, new_reply};
 
+// Test-runner/DB contention watchdog, not a product acknowledgement SLA.
+// Persistence is created only after the HTTP gate is entered, so waiting for
+// persistence still deadlocks and fails with this longer deadline.
+const REQUEST_PROGRESS_WATCHDOG: Duration = Duration::from_secs(10);
+
 fn worker(fixture: &crate::test_support::message_fixture::MessageFixture) -> CompletionWorker {
     CompletionWorker {
         server: fixture.server.clone(),
@@ -25,7 +30,7 @@ async fn delayed_first_reply(delay: Duration, ack_first: bool) {
         fixture.admit("!new 첫 요청"),
         &context,
     ));
-    tokio::time::timeout(Duration::from_secs(2),async {
+    tokio::time::timeout(REQUEST_PROGRESS_WATCHDOG,async {
         tokio::select! { result=&mut request=>panic!("first reply failed before HTTP: {result:?}"),entered=&mut gate.entered=>entered.unwrap() }
     }).await.expect("new acknowledgement waited for persistence");
     let db = fixture.executor.mirror_db();
@@ -120,14 +125,14 @@ async fn bare_new_then_plain_message_runs_one_first_turn_and_delivers_final() {
         fixture.admit_id("!new", 800),
         &context,
     ));
-    tokio::time::timeout(Duration::from_secs(2), async {
+    tokio::time::timeout(REQUEST_PROGRESS_WATCHDOG, async {
         tokio::select! {result=&mut arm=>panic!("arm failed before reply: {result:?}"),entered=&mut gate.entered=>entered.unwrap()}
     }).await.unwrap();
     assert_eq!(remote.creates.load(std::sync::atomic::Ordering::SeqCst), 0);
     gate.release.send(()).unwrap();
     arm.await.unwrap();
     tokio::time::timeout(
-        Duration::from_secs(2),
+        REQUEST_PROGRESS_WATCHDOG,
         message_worker::process_admitted_gateway_message(fixture.admit("첫 요청"), &context),
     )
     .await

@@ -9,6 +9,8 @@ use cdr_app_server::requests::{
 use cdr_app_server::{AppServerError, ResidentAppServer, extract_thread_id};
 use serde_json::Value;
 
+mod async_history;
+mod async_terminal;
 mod fresh_thread;
 
 use crate::queue_runner::{BackendFailure, BoxBackendFuture, TurnBackend, TurnRecord};
@@ -44,6 +46,49 @@ impl AppServerTurnBackend {
         self.resume_timeout = resume;
         self.history_read_timeout = history_read;
         self
+    }
+
+    async fn start_with_claim(
+        &self,
+        thread_id: &str,
+        prompt: &str,
+        claimed: Option<&cdr_store::queue::StoredQueueJob>,
+    ) -> Result<String, BackendFailure> {
+        let request = self.pro_skill_path.as_ref().map_or_else(
+            || start_turn(thread_id, prompt),
+            |path| {
+                start_turn_with_input(thread_id, &cdr_pro::prompt::build_turn_input(prompt, path))
+            },
+        );
+        self.fresh_threads.consume(thread_id);
+        let result = if let Some(claimed) = claimed {
+            let generation = u64::try_from(claimed.app_server_generation)
+                .map_err(|error| BackendFailure::definite(error.to_string()))?;
+            let authority = serde_json::to_value(claimed)
+                .map_err(|error| BackendFailure::definite(error.to_string()))?;
+            self.server
+                .execute_queue_turn(request, generation, authority)
+                .await
+        } else {
+            self.server.execute(request, Some(self.generation())).await
+        }
+        .map_err(|error| {
+            if claimed.is_some() && matches!(error, AppServerError::MutationHeld { .. }) {
+                // A failed authority/DB check cannot grant a retry or rewind
+                // Starting. Recovery may already own or have removed the row.
+                BackendFailure::ambiguous(error.to_string())
+            } else {
+                start_failure(&error)
+            }
+        })?;
+        result
+            .get("turn")
+            .and_then(|turn| turn.get("id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|turn_id| !turn_id.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| BackendFailure::ambiguous("turn/start returned no turn id"))
     }
 }
 
@@ -114,6 +159,38 @@ impl TurnBackend for AppServerTurnBackend {
         })
     }
 
+    fn read_async_history<'a>(
+        &'a self,
+        thread_id: &'a str,
+        originals: &'a [String],
+    ) -> BoxBackendFuture<'a, Option<Value>> {
+        Box::pin(async move {
+            self.read_async_resolution_history(thread_id, originals)
+                .await
+        })
+    }
+
+    fn read_async_terminal<'a>(
+        &'a self,
+        thread_id: &'a str,
+        owners: &'a [String],
+    ) -> BoxBackendFuture<'a, Option<Value>> {
+        Box::pin(async move { self.read_async_terminal_history(thread_id, owners).await })
+    }
+
+    fn read_recovery_prerequisites<'a>(
+        &'a self,
+        thread_id: &'a str,
+        owners: &'a [String],
+    ) -> BoxBackendFuture<'a, cdr_app_server::NativeRecoveryObservation> {
+        Box::pin(async move {
+            self.server
+                .observe_recovery_prerequisites(thread_id, owners, self.history_read_timeout)
+                .await
+                .map_err(|error| definite(&error))
+        })
+    }
+
     fn fork_thread<'a>(&'a self, thread_id: &'a str) -> BoxBackendFuture<'a, String> {
         Box::pin(async move {
             let result = self
@@ -138,31 +215,14 @@ impl TurnBackend for AppServerTurnBackend {
         thread_id: &'a str,
         prompt: &'a str,
     ) -> BoxBackendFuture<'a, String> {
-        Box::pin(async move {
-            let request = self.pro_skill_path.as_ref().map_or_else(
-                || start_turn(thread_id, prompt),
-                |path| {
-                    start_turn_with_input(
-                        thread_id,
-                        &cdr_pro::prompt::build_turn_input(prompt, path),
-                    )
-                },
-            );
-            self.fresh_threads.consume(thread_id);
-            let result = self
-                .server
-                .execute(request, Some(self.generation()))
-                .await
-                .map_err(|error| start_failure(&error))?;
-            result
-                .get("turn")
-                .and_then(|turn| turn.get("id"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|turn_id| !turn_id.is_empty())
-                .map(str::to_owned)
-                .ok_or_else(|| BackendFailure::ambiguous("turn/start returned no turn id"))
-        })
+        Box::pin(self.start_with_claim(thread_id, prompt, None))
+    }
+
+    fn start_claimed_turn<'a>(
+        &'a self,
+        claimed: &'a cdr_store::queue::StoredQueueJob,
+    ) -> BoxBackendFuture<'a, String> {
+        Box::pin(self.start_with_claim(&claimed.target_thread_id, &claimed.prompt, Some(claimed)))
     }
 }
 
@@ -171,6 +231,20 @@ fn definite(error: &AppServerError) -> BackendFailure {
 }
 
 fn resume_failure(error: &AppServerError) -> BackendFailure {
+    if matches!(
+        error,
+        AppServerError::MutationHeld { .. } | AppServerError::MutationOutcomeUnknown { .. }
+    ) {
+        return BackendFailure::execution_held(error.to_string());
+    }
+    if matches!(error, AppServerError::IdleRelease { .. })
+        && error
+            .to_string()
+            .contains(cdr_store::async_resolution::HOLD_PREFIX)
+    {
+        return BackendFailure::execution_held(error.to_string());
+    }
+
     if let AppServerError::Remote {
         method,
         code: -32_600,
@@ -186,6 +260,17 @@ fn resume_failure(error: &AppServerError) -> BackendFailure {
 }
 
 fn start_failure(error: &AppServerError) -> BackendFailure {
+    if matches!(error, AppServerError::MutationHeld { .. }) {
+        return BackendFailure::execution_held(error.to_string());
+    }
+    if matches!(error, AppServerError::IdleRelease { .. })
+        && error
+            .to_string()
+            .contains(cdr_store::async_resolution::HOLD_PREFIX)
+    {
+        return BackendFailure::execution_held(error.to_string());
+    }
+
     if let AppServerError::Remote { data, .. } = error
         && cdr_app_server::is_usage_limit_error(data.as_ref())
     {
@@ -195,9 +280,21 @@ fn start_failure(error: &AppServerError) -> BackendFailure {
 }
 
 fn mutation_failure(error: &AppServerError) -> BackendFailure {
+    if matches!(error, AppServerError::MutationHeld { .. }) {
+        return BackendFailure::execution_held(error.to_string());
+    }
+    if matches!(error, AppServerError::IdleRelease { .. })
+        && error
+            .to_string()
+            .contains(cdr_store::async_resolution::HOLD_PREFIX)
+    {
+        return BackendFailure::execution_held(error.to_string());
+    }
+
     let ambiguous = matches!(
         error,
         AppServerError::Io(_)
+            | AppServerError::MutationOutcomeUnknown { .. }
             | AppServerError::Json(_)
             | AppServerError::Timeout { .. }
             | AppServerError::TransportClosed { .. }

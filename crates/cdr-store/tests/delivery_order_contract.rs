@@ -163,3 +163,101 @@ fn legacy_goal_progress_is_preserved_without_guessing_a_request_owner() {
             .contains("undelivered goal progress")
     );
 }
+
+fn admit_original(db: &Path) -> ingress::NewIngress {
+    let original = ingress::NewIngress {
+        ingress_id: "message:801".into(),
+        kind: ingress::IngressKind::Message,
+        event_id: Some(801),
+        application_id: None,
+        channel_id: 42,
+        owner_user_id: 3,
+        source_message_id: Some(801),
+        payload: serde_json::json!({"content":"input"}),
+        target_thread_id: Some("thread".into()),
+        canonical_owner: None,
+        now: 1.0,
+    };
+    ingress::admit(db, &original).unwrap();
+    prompt_intake::admit_prompt_intake(
+        db,
+        prompt_intake::NewPromptIntake {
+            job_id: "job",
+            target_thread_id: "thread",
+            channel_id: 42,
+            owner_user_id: Some(3),
+            discord_message_id: Some(801),
+            raw_prompt: "input",
+            auto_queue_when_busy: false,
+            require_current_mirror: false,
+            created_at: 2.0,
+        },
+    )
+    .unwrap();
+    original
+}
+
+#[test]
+fn final_ready_then_late_producers_or_duplicate_ingress_cannot_reopen_barriers() {
+    for headless in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let db = temp.path().join("db.sqlite");
+        let original = (!headless).then(|| admit_original(&db));
+        running(&db);
+        if original.is_some() {
+            ingress::record_result(
+                &db,
+                "message:801",
+                &serde_json::json!({"response":"echo"}),
+                3.0,
+            )
+            .unwrap();
+            ingress::confirm(&db, "message:801", 4.0).unwrap();
+        }
+        let pending = delivery::stage_queue_completion(&db, "job", "Final", 5.0).unwrap();
+        assert_eq!(
+            delivery::final_preflight(&db, &pending).unwrap(),
+            delivery::FinalReadiness::Ready
+        );
+        assert!(queue::list(&db).unwrap().is_empty());
+        // These are the actual producers between preflight and writer claim.
+        assert!(
+            commentary_outbox::stage(&db, "thread", "turn", "late")
+                .unwrap()
+                .is_none()
+        );
+        assert!(goal_progress::stage(&db, "job", "turn", 1, "late").is_err());
+        if let Some(original) = &original {
+            ingress::admit(&db, original).unwrap();
+            assert!(
+                ingress::get(&db, "message:801")
+                    .unwrap()
+                    .unwrap()
+                    .confirmation_delivered
+            );
+        }
+        assert!(first_reply::pending(&db, "job").unwrap().is_none());
+        assert!(!commentary_outbox::has_pending(&db, "job", None).unwrap());
+        assert!(!goal_progress::has_pending_job(&db, "job", "thread").unwrap());
+        assert_eq!(
+            delivery::final_preflight(&db, &pending).unwrap(),
+            delivery::FinalReadiness::Ready
+        );
+        let key = serde_json::json!([42, "completion/v1", pending.delivery_id, 0]).to_string();
+        assert_eq!(
+            cdr_store::delivery_receipt::begin_guarded(
+                &db,
+                &key,
+                &cdr_store::final_recovery::sha256(&pending.content),
+                Some(&cdr_store::new_reply::DeliveryGuard {
+                    job_id: "job",
+                    thread_id: "thread",
+                    turn_id: "turn",
+                }),
+            )
+            .unwrap(),
+            cdr_store::delivery_receipt::ReceiptState::New
+        );
+        assert!(queue::list(&db).unwrap().is_empty());
+    }
+}

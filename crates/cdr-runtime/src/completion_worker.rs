@@ -28,7 +28,10 @@ mod goal_progress;
 mod history_request;
 mod idle_release;
 mod observation;
+mod observation_gap;
 mod receipt;
+mod scheduler;
+mod source_driver;
 mod start_failure;
 pub(crate) use start_failure::deliver_start_failures;
 mod recovery;
@@ -108,6 +111,53 @@ pub async fn run_completion_worker(
     driver::run(worker, receiver, shutdown).await;
 }
 
+#[derive(Clone, Copy)]
+enum Processing<'a> {
+    Inline,
+    Staged(&'a StateAdmission<'a>),
+}
+
+struct StateAdmission<'a> {
+    lease: crate::queue_runner::TargetLease<'a, AppServerTurnBackend>,
+    owner: AdmissionOwner,
+}
+
+enum AdmissionOwner {
+    NotTerminal,
+    Missing,
+    Exact(Box<cdr_store::queue::StoredQueueJob>),
+}
+
+impl<'a> Processing<'a> {
+    fn is_inline(self) -> bool {
+        matches!(self, Self::Inline)
+    }
+    fn admission(self) -> Option<&'a StateAdmission<'a>> {
+        match self {
+            Self::Inline => None,
+            Self::Staged(admission) => Some(admission),
+        }
+    }
+    fn validate_owner(
+        self,
+        owner: &cdr_store::queue::StoredQueueJob,
+    ) -> Result<(), CompletionWorkerError> {
+        if let Some(admission) = self.admission() {
+            let matches = match &admission.owner {
+                AdmissionOwner::NotTerminal => true,
+                AdmissionOwner::Missing => false,
+                AdmissionOwner::Exact(expected) => expected.as_ref() == owner,
+            };
+            if !matches {
+                return Err(CompletionWorkerError::Held(
+                    "completion admission owner changed".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 struct CompletionWorker {
     server: Arc<ResidentAppServer>,
     queue: Arc<QueueCoordinator<AppServerTurnBackend>>,
@@ -143,7 +193,16 @@ impl CompletionWorker {
         .await
     }
 
+    #[cfg(test)]
     async fn handle(&self, event: ResidentNotificationEvent) -> Result<(), CompletionWorkerError> {
+        self.handle_mode(event, Processing::Inline).await
+    }
+
+    async fn handle_mode(
+        &self,
+        event: ResidentNotificationEvent,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
         // The observer may precede Goal attachment; FIFO processing can now
         // record the exact owned event. INSERT OR IGNORE preserves first evidence.
         self.observe_terminal(&event)?;
@@ -152,7 +211,11 @@ impl CompletionWorker {
             notification,
         } = event
         else {
-            return self.recover().await;
+            return if mode.is_inline() {
+                self.recover().await
+            } else {
+                Ok(())
+            };
         };
         if notification.method == "item/completed"
             && notification
@@ -160,7 +223,12 @@ impl CompletionWorker {
                 .get("item")
                 .is_some_and(cdr_app_server::async_questions::is_async_message)
         {
-            return self.deliver_questions().await;
+            return if mode.is_inline() {
+                self.deliver_questions().await
+            } else {
+                self.queue.notify_delivery_ready();
+                Ok(())
+            };
         }
         if self.commentary_enabled {
             let block = self
@@ -169,7 +237,7 @@ impl CompletionWorker {
                 .await
                 .observe(&notification.method, &notification.params);
             if let Some(block) = block {
-                self.send_commentary(&block).await?;
+                self.stage_commentary(&block, mode).await?;
             }
         }
         match notification.method.as_str() {
@@ -185,27 +253,48 @@ impl CompletionWorker {
                         &thread,
                         &turn,
                     )?;
-                    let _ = self
-                        .queue
-                        .goal_turn_started_observed(&thread, &turn, generation, None)
-                        .await?;
+                    let _ = if let Some(admission) = mode.admission() {
+                        admission
+                            .lease
+                            .goal_turn_started_observed(&turn, generation, None)?
+                    } else {
+                        self.queue
+                            .goal_turn_started_observed(&thread, &turn, generation, None)
+                            .await?
+                    };
                     // The observer may already have journalled this successor's
                     // questions while goal-progress delivery delayed the handoff.
-                    self.deliver_questions().await?;
+                    if mode.is_inline() {
+                        self.deliver_questions().await?;
+                    } else {
+                        cdr_store::async_question::reconcile_observations(
+                            self.queue.db_path(),
+                            self.server.instance_id(),
+                            i64::try_from(self.server.generation())
+                                .map_err(|_| QueueRunnerError::IntegerRange)?,
+                        )?;
+                        self.queue.notify_delivery_ready();
+                    }
                 }
             }
             "turn/completed" => {
                 let completion = parse_turn_completion(&notification.params, false)?;
                 let evidence_generation =
                     i64::try_from(generation).map_err(|_| QueueRunnerError::IntegerRange)?;
-                self.finish(generation, evidence_generation, &completion)
-                    .await?;
+                self.finish_with_owner_mode(
+                    generation,
+                    evidence_generation,
+                    &completion,
+                    None,
+                    mode,
+                )
+                .await?;
             }
             "thread/goal/updated" => {
                 let update = parse_thread_goal_update(&notification.params)
                     .map_err(|error| CompletionWorkerError::Goal(error.to_string()))?;
                 if update.status != ThreadGoalStatus::Active {
-                    self.finish_waiting_goal(generation, &update.thread_id)
+                    self.finish_waiting_goal_mode(generation, &update.thread_id, mode)
                         .await?;
                 }
             }
@@ -214,6 +303,7 @@ impl CompletionWorker {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn finish(
         &self,
         server_generation: u64,
@@ -224,6 +314,7 @@ impl CompletionWorker {
             .await
     }
 
+    #[cfg(test)]
     async fn finish_with_owner(
         &self,
         server_generation: u64,
@@ -231,12 +322,30 @@ impl CompletionWorker {
         completion: &TurnCompletion,
         expected_owner: Option<&cdr_store::queue::StoredQueueJob>,
     ) -> Result<(), CompletionWorkerError> {
+        self.finish_with_owner_mode(
+            server_generation,
+            evidence_generation,
+            completion,
+            expected_owner,
+            Processing::Inline,
+        )
+        .await
+    }
+
+    async fn finish_with_owner_mode(
+        &self,
+        server_generation: u64,
+        evidence_generation: i64,
+        completion: &TurnCompletion,
+        expected_owner: Option<&cdr_store::queue::StoredQueueJob>,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
         let Some(owner) = list(self.queue.db_path())?.into_iter().find(|job| {
             job.state == QueueJobState::Running
                 && job.target_thread_id == completion.thread_id
                 && job.turn_id.as_deref() == Some(completion.turn_id.as_str())
         }) else {
-            if expected_owner.is_some() {
+            if expected_owner.is_some() || !mode.is_inline() {
                 return Err(CompletionWorkerError::Held(
                     "captured completion owner no longer exists".into(),
                 ));
@@ -248,6 +357,7 @@ impl CompletionWorker {
             )?;
             return Ok(());
         };
+        mode.validate_owner(&owner)?;
         if expected_owner.is_some_and(|expected| expected != &owner) {
             return Err(CompletionWorkerError::Held(
                 "captured completion ownership changed".into(),
@@ -302,6 +412,7 @@ impl CompletionWorker {
                     },
                     &owner,
                     evidence_generation,
+                    mode,
                 )
                 .await;
         };
@@ -313,12 +424,15 @@ impl CompletionWorker {
             } else {
                 format!("[Goal progress]\n{exact}")
             };
-            if let Some(pending) = self.queue.stage_owned_goal_progress(&owner, &text).await? {
-                self.deliver_goal_progress(&pending).await?;
+            if let Some(pending) = self.stage_progress_mode(&owner, &text, mode).await? {
+                self.queue.notify_delivery_ready();
+                if mode.is_inline() {
+                    self.deliver_goal_progress(&pending).await?;
+                }
             }
             return Ok(());
         }
-        self.finish_owned_terminal(&owner, completion, &exact, goal, evidence_generation)
+        self.finish_owned_terminal(&owner, completion, &exact, goal, evidence_generation, mode)
             .await
     }
 
@@ -329,23 +443,15 @@ impl CompletionWorker {
         exact: &str,
         goal: Option<ThreadGoalStatus>,
         evidence_generation: i64,
+        mode: Processing<'_>,
     ) -> Result<(), CompletionWorkerError> {
         let text = completion_message(completion, exact, goal);
-        if let Some(delivery) = self
-            .queue
-            .stage_owned_turn_completion_observed(
-                owner,
-                &text,
-                completion.usage_limit,
-                self.release_generation(completion, evidence_generation)?,
-            )
-            .await?
-        {
-            self.deliver_one(&delivery).await?;
-        }
-        if self
-            .running_channel(&completion.thread_id, &completion.turn_id)?
-            .is_none()
+        self.stage_terminal(owner, completion, &text, evidence_generation, mode)
+            .await?;
+        if mode.is_inline()
+            && self
+                .running_channel(&completion.thread_id, &completion.turn_id)?
+                .is_none()
         {
             cdr_store::observed_completion::finish(
                 self.queue.db_path(),
@@ -362,31 +468,75 @@ impl CompletionWorker {
         goal: Option<ThreadGoalStatus>,
         owner: &cdr_store::queue::StoredQueueJob,
         evidence_generation: i64,
+        mode: Processing<'_>,
     ) -> Result<(), CompletionWorkerError> {
         let text = "ERROR: Codex turn completed, but its exact final reply could not be recovered: \
 thread/read did not contain the requested turn and no matching final-answer event was stored.";
         if goal == Some(ThreadGoalStatus::Active) {
-            if let Some(pending) = self.queue.stage_owned_goal_progress(owner, text).await? {
-                self.deliver_goal_progress(&pending).await?;
+            if let Some(pending) = self.stage_progress_mode(owner, text, mode).await? {
+                self.queue.notify_delivery_ready();
+                if mode.is_inline() {
+                    self.deliver_goal_progress(&pending).await?;
+                }
             }
             return Ok(());
         }
-        if let Some(delivery) = self
-            .queue
-            .stage_owned_turn_completion_observed(
-                owner,
-                text,
-                completion.usage_limit,
-                self.release_generation(completion, evidence_generation)?,
-            )
-            .await?
+        self.stage_terminal(owner, completion, text, evidence_generation, mode)
+            .await?;
+        Ok(())
+    }
+
+    async fn stage_progress_mode(
+        &self,
+        owner: &cdr_store::queue::StoredQueueJob,
+        text: &str,
+        mode: Processing<'_>,
+    ) -> Result<Option<cdr_store::goal_progress::PendingProgress>, CompletionWorkerError> {
+        Ok(if let Some(admission) = mode.admission() {
+            admission.lease.stage_owned_goal_progress(owner, text)?
+        } else {
+            self.queue.stage_owned_goal_progress(owner, text).await?
+        })
+    }
+
+    async fn stage_terminal(
+        &self,
+        owner: &cdr_store::queue::StoredQueueJob,
+        completion: &TurnCompletion,
+        text: &str,
+        generation: i64,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
+        let observed = self.release_generation(completion, generation)?;
+        let pending = if mode.is_inline() {
+            self.queue
+                .stage_owned_turn_completion_observed(owner, text, completion.usage_limit, observed)
+                .await?
+        } else {
+            mode.admission()
+                .expect("staged admission")
+                .lease
+                .save_owned_turn_completion_observed(owner, text, observed)
+                .await?
+        };
+        if let Some(delivery) = pending
+            && mode.is_inline()
         {
             self.deliver_one(&delivery).await?;
         }
         Ok(())
     }
 
+    #[cfg(test)]
     async fn send_commentary(&self, block: &CommentaryBlock) -> Result<(), CompletionWorkerError> {
+        self.stage_commentary(block, Processing::Inline).await
+    }
+
+    async fn stage_commentary(
+        &self,
+        block: &CommentaryBlock,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
         let Some(pending) = cdr_store::commentary_outbox::stage(
             self.queue.db_path(),
             &block.thread_id,
@@ -396,7 +546,12 @@ thread/read did not contain the requested turn and no matching final-answer even
         else {
             return Ok(());
         };
-        self.deliver_commentary(&pending).await
+        self.queue.notify_delivery_ready();
+        if mode.is_inline() {
+            self.deliver_commentary(&pending).await
+        } else {
+            Ok(())
+        }
     }
 
     fn running_channel(&self, thread_id: &str, turn_id: &str) -> Result<Option<i64>, StoreError> {

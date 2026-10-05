@@ -11,6 +11,7 @@ use super::{QueueCoordinator, QueueRunnerError, TurnBackend, generation_i64};
 struct CompletionEvidence<'a> {
     expected_job: Option<&'a cdr_store::queue::StoredQueueJob>,
     observed_generation: Option<i64>,
+    start_next: bool,
 }
 
 impl<B: TurnBackend> QueueCoordinator<B> {
@@ -70,6 +71,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             CompletionEvidence {
                 expected_job: None,
                 observed_generation: None,
+                start_next: true,
             },
         )
         .await
@@ -89,6 +91,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             CompletionEvidence {
                 expected_job: None,
                 observed_generation: Some(generation),
+                start_next: true,
             },
         )
         .await
@@ -121,6 +124,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             CompletionEvidence {
                 expected_job: Some(expected),
                 observed_generation,
+                start_next: true,
             },
         )
         .await
@@ -135,6 +139,17 @@ impl<B: TurnBackend> QueueCoordinator<B> {
     ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
         let lock = self.target_lock(target)?;
         let _guard = lock.lock().await;
+        self.stage_turn_completion_locked(target, turn, content, evidence)
+            .await
+    }
+
+    async fn stage_turn_completion_locked(
+        &self,
+        target: &str,
+        turn: &str,
+        content: &str,
+        evidence: CompletionEvidence<'_>,
+    ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
         if cdr_store::dead_generation::target_is_held(&self.db_path, target)? {
             return Ok(None);
         }
@@ -179,7 +194,9 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             release_owner,
         )?;
         self.notify_delivery_ready();
-        let _ = self.start_next_locked(target, generation).await?;
+        if evidence.start_next {
+            let _ = self.start_next_locked(target, generation).await?;
+        }
         Ok(Some(delivery))
     }
 
@@ -214,6 +231,14 @@ impl<B: TurnBackend> QueueCoordinator<B> {
     ) -> Result<Option<cdr_store::goal_progress::PendingProgress>, QueueRunnerError> {
         let lock = self.target_lock(&expected.target_thread_id)?;
         let _guard = lock.lock().await;
+        self.stage_owned_goal_progress_locked(expected, content)
+    }
+
+    fn stage_owned_goal_progress_locked(
+        &self,
+        expected: &cdr_store::queue::StoredQueueJob,
+        content: &str,
+    ) -> Result<Option<cdr_store::goal_progress::PendingProgress>, QueueRunnerError> {
         // The store revalidates the entire captured owner and uniqueness in the
         // same transaction as progress, journal consumption and waiting handoff.
         Ok(cdr_store::goal_progress::stage_owned(
@@ -265,6 +290,21 @@ impl<B: TurnBackend> QueueCoordinator<B> {
     ) -> Result<bool, QueueRunnerError> {
         let lock = self.target_lock(target_thread_id)?;
         let _guard = lock.lock().await;
+        self.goal_turn_started_observed_locked(
+            target_thread_id,
+            turn_id,
+            observation_generation,
+            expected_owner,
+        )
+    }
+
+    fn goal_turn_started_observed_locked(
+        &self,
+        target_thread_id: &str,
+        turn_id: &str,
+        observation_generation: u64,
+        expected_owner: Option<&cdr_store::queue::StoredQueueJob>,
+    ) -> Result<bool, QueueRunnerError> {
         // Validate the live observation, not the historical job generation.
         // Recheck after waiting for the target lock so an old event cannot bind
         // merely because an inherited job is now visible across generations.
@@ -295,5 +335,51 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             turn_id,
             generation_i64(observation_generation)?,
         )?)
+    }
+}
+
+impl<B: TurnBackend> super::TargetLease<'_, B> {
+    pub(crate) async fn save_owned_turn_completion_observed(
+        &self,
+        expected: &cdr_store::queue::StoredQueueJob,
+        content: &str,
+        observed_generation: Option<i64>,
+    ) -> Result<Option<StoredDelivery>, QueueRunnerError> {
+        self.require_target(&expected.target_thread_id)?;
+        let turn = expected.turn_id.as_deref().ok_or_else(|| {
+            cdr_store::StoreError::InvalidQueueState("completion owner has no turn".into())
+        })?;
+        self.queue
+            .stage_turn_completion_locked(
+                self.target(),
+                turn,
+                content,
+                CompletionEvidence {
+                    expected_job: Some(expected),
+                    observed_generation,
+                    start_next: false,
+                },
+            )
+            .await
+    }
+
+    pub(crate) fn stage_owned_goal_progress(
+        &self,
+        expected: &cdr_store::queue::StoredQueueJob,
+        content: &str,
+    ) -> Result<Option<cdr_store::goal_progress::PendingProgress>, QueueRunnerError> {
+        self.require_target(&expected.target_thread_id)?;
+        self.queue
+            .stage_owned_goal_progress_locked(expected, content)
+    }
+
+    pub(crate) fn goal_turn_started_observed(
+        &self,
+        turn: &str,
+        generation: u64,
+        expected: Option<&cdr_store::queue::StoredQueueJob>,
+    ) -> Result<bool, QueueRunnerError> {
+        self.queue
+            .goal_turn_started_observed_locked(self.target(), turn, generation, expected)
     }
 }

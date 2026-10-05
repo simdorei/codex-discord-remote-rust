@@ -2,7 +2,6 @@ use super::{MirrorSyncError, MirrorSyncResult, MirrorSynchronizer, db_id, names,
 use cdr_codex_state::load_session_thread_names;
 use cdr_store::mapping::{MirrorThreadUpdate, commit_thread_sync};
 use std::collections::BTreeMap;
-use twilight_model::channel::ChannelType;
 
 impl MirrorSynchronizer {
     pub async fn sync(
@@ -10,7 +9,15 @@ impl MirrorSynchronizer {
         origin_channel: u64,
         limit: Option<i64>,
     ) -> Result<MirrorSyncResult, MirrorSyncError> {
-        let _guard = self.lock.lock().await;
+        self.with_operation_deadline("sync", false, self.sync_locked(origin_channel, limit))
+            .await
+    }
+
+    async fn sync_locked(
+        &self,
+        origin_channel: u64,
+        limit: Option<i64>,
+    ) -> Result<MirrorSyncResult, MirrorSyncError> {
         self.ensure_cleanup_reconciled()?;
         let started = now()?;
         let threads = self.scope(limit)?;
@@ -28,23 +35,7 @@ impl MirrorSynchronizer {
                 })?,
         };
         let mut channels = self.remote.channels(guild).await?;
-        let categories = channels
-            .iter()
-            .filter(|channel| channel.kind == ChannelType::GuildCategory && channel.name == "Codex")
-            .collect::<Vec<_>>();
-        if categories.len() > 1 {
-            return Err(MirrorSyncError::Invalid(
-                "multiple Codex categories; resolve the duplicate first".into(),
-            ));
-        }
-        let category = if let Some(category) = categories.first() {
-            category.id
-        } else {
-            self.remote
-                .create(guild, None, ChannelType::GuildCategory, "Codex", None)
-                .await?
-                .id
-        };
+        let category = self.category_channel(guild, &channels).await?;
         let index = self
             .state_db
             .parent()

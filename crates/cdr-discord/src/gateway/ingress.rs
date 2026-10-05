@@ -205,7 +205,7 @@ impl GatewayIngress {
         let Some(sequence) = self.sequence.next() else {
             return self.message_gap(&publication, &event, UnavailableReason::SequenceExhausted);
         };
-        let messages = if is_force_restart_message(&event.content) {
+        let messages = if is_emergency_message(&event.content) {
             &self.emergency_messages
         } else {
             &self.messages

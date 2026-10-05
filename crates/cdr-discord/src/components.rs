@@ -5,11 +5,15 @@ use twilight_model::http::interaction::{InteractionResponse, InteractionResponse
 mod async_choice;
 mod claims;
 mod fingerprint;
+mod recovery_abandonment;
+mod recovery_publication;
 mod rows;
 
 pub use async_choice::async_choice_rows;
 pub use claims::{persistent_claim_key, persistent_component_claim_key};
 pub use fingerprint::{ComponentRequestId, request_fingerprint, thread_fingerprint};
+pub use recovery_abandonment::{AbandonDecision, abandonment_decision_rows};
+pub use recovery_publication::{PublicationDecision, publication_decision_rows};
 pub use rows::{
     approval_button_row, bound_approval_button_row, bound_input_button_row, busy_button_row,
     input_button_row,
@@ -35,6 +39,16 @@ pub enum ApprovalAnswer {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum ComponentId {
+    RecoveryAbandonDecision {
+        proposal_id: String,
+        revision: i64,
+        decision: AbandonDecision,
+    },
+    RecoveryPublicationDecision {
+        proposal_id: String,
+        revision: i64,
+        decision: PublicationDecision,
+    },
     AsyncChoice {
         question_id: String,
         option: usize,
@@ -78,6 +92,12 @@ pub fn parse_component_id(custom_id: &str) -> Option<ComponentId> {
     }
     let parts = custom_id.split(':').collect::<Vec<_>>();
     match parts.as_slice() {
+        ["codex_discard", "v1", proposal, revision, decision] => {
+            recovery_abandonment::parse(proposal, revision, decision)
+        }
+        ["codex_pub", "v1", proposal, revision, decision] => {
+            recovery_publication::parse(proposal, revision, decision)
+        }
         ["codex_async", question, option] if valid_fingerprint(question, 64) => {
             let index = option.parse::<usize>().ok()?;
             (index < 25 && index.to_string() == *option).then(|| ComponentId::AsyncChoice {

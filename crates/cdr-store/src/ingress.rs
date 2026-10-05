@@ -18,7 +18,10 @@ mod new_prompt_arm;
 mod ownership;
 mod read;
 mod recovery;
+mod recovery_custody;
+pub use recovery_custody::{RecoveryClaim, claim_recovery, validate_recovery_binding_in};
 mod schema;
+pub mod stop;
 
 pub use admission::admit;
 pub use busy::admit_busy_interaction;

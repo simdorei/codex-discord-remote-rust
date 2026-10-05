@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod mutation;
 mod release;
 mod transport;
 #[cfg(test)]
@@ -22,6 +23,8 @@ struct Work {
     permit: ExclusivePermit,
     token: IdleReleaseToken,
     fence: Option<Arc<dyn crate::DeadGenerationFence>>,
+    dispatch_check: Option<super::dispatch::DispatchCheck>,
+    stop_origin: Option<Value>,
 }
 
 impl ResidentAppServer {
@@ -40,6 +43,8 @@ impl ResidentAppServer {
             permit,
             token,
             fence: self.dead_generation_fence.clone(),
+            dispatch_check: None,
+            stop_origin: super::dispatch::origin::current(),
         })
     }
 
@@ -48,9 +53,11 @@ impl ResidentAppServer {
         permit: ExclusivePermit,
         token: IdleReleaseToken,
         params: Value,
+        check: Option<super::dispatch::DispatchCheck>,
     ) -> Result<Value, AppServerError> {
         // Resubscribing was durably committed by admission, before this task exists.
-        let work = self.idle_work(permit, token)?;
+        let mut work = self.idle_work(permit, token)?;
+        work.dispatch_check = check;
         tokio::spawn(async move { work.resubscribe(params).await })
             .await
             .map_err(|e| {
@@ -69,8 +76,17 @@ impl ResidentAppServer {
                 "only Candidate or known-ACK AwaitUnload may run maintenance",
             ));
         }
+        let stop_origin = self
+            .dead_generation_fence
+            .as_ref()
+            .map(|fence| {
+                fence.request_origin("thread/unsubscribe", &json!({"threadId":token.thread_id}))
+            })
+            .transpose()?
+            .flatten();
         let permit = self.target_gate.reserve(&token)?;
-        let work = self.idle_work(permit, token)?;
+        let mut work = self.idle_work(permit, token)?;
+        work.stop_origin = stop_origin;
         tokio::spawn(async move { work.release().await })
             .await
             .map_err(|e| {

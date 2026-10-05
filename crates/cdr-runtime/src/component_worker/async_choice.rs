@@ -6,7 +6,8 @@ use crate::{
 };
 use cdr_app_server::{
     AppServerError, ResidentAppServer,
-    requests::{AppRequest, start_turn, steer_turn},
+    outcomes::{TurnStatus, parse_thread_turn_states},
+    requests::{AppRequest, read_thread_with_timeout, start_turn, steer_turn},
 };
 use cdr_store::async_question::{self as store, DispatchMode, Question};
 use serde_json::json;
@@ -55,7 +56,8 @@ pub(super) async fn handle<B: TurnBackend>(
             q.state, q.error
         )));
     }
-    let mode = preflight(server, &q).await?;
+    let prepared = preflight(server, &q).await?;
+    let mode = prepared.0;
     let prompt = answer_prompt(&q, option)?;
     store::begin_dispatch(
         db,
@@ -68,6 +70,7 @@ pub(super) async fn handle<B: TurnBackend>(
             message: &message,
             option,
             mode,
+            baseline_turn_ids: prepared.1.clone(),
             prompt: &prompt,
             now: super::now()?,
         },
@@ -76,7 +79,7 @@ pub(super) async fn handle<B: TurnBackend>(
     // are checked again while the same target lock is held. No deferred starts.
     let checked = async {
         store::require_current_mapping(db, &q)?;
-        if preflight(server, &q).await? != mode {
+        if preflight(server, &q).await? != prepared {
             return Err(invalid(
                 "질문의 원래 작업 상태가 변경되어 답변하지 않았습니다.",
             ));
@@ -154,7 +157,7 @@ async fn dispatch_claimed(
 async fn preflight(
     server: &ResidentAppServer,
     q: &Question,
-) -> Result<DispatchMode, ComponentWorkerError> {
+) -> Result<(DispatchMode, Vec<String>), ComponentWorkerError> {
     let snapshot = server.lifecycle_snapshot().await;
     if !snapshot.healthy
         || snapshot.quarantined
@@ -168,7 +171,7 @@ async fn preflight(
     }
     if let Some(active) = server.active_turn_id(&q.thread_id).await? {
         return if active == q.turn_id {
-            Ok(DispatchMode::Steer)
+            Ok((DispatchMode::Steer, Vec::new()))
         } else {
             Err(invalid(
                 "새 작업이 이미 시작되어 이전 질문의 버튼은 만료되었습니다.",
@@ -210,20 +213,45 @@ async fn preflight(
             "목표 작업이 계속 실행 중입니다. 원래 작업이 활성 상태일 때 답하거나 새 메시지로 요청해 주세요.",
         ));
     }
-    Ok(DispatchMode::Start)
+    Ok((
+        DispatchMode::Start,
+        start_baseline(server, q, snapshot.generation).await?,
+    ))
+}
+
+async fn start_baseline(
+    server: &ResidentAppServer,
+    q: &Question,
+    generation: u64,
+) -> Result<Vec<String>, ComponentWorkerError> {
+    // A one-shot answer bypasses the ordinary queue start, but must retain the
+    // same pre-start history boundary. Old UI turns are not Goal successors.
+    let result = server
+        .execute(
+            read_thread_with_timeout(&q.thread_id, true, Duration::from_secs(8)),
+            Some(generation),
+        )
+        .await?;
+    let states = parse_thread_turn_states(&result, &q.thread_id)
+        .map_err(|error| invalid(&error.to_string()))?;
+    if result["thread"]["turns"].as_array().map(Vec::len) != Some(states.len())
+        || states.get(&q.turn_id).map(|turn| turn.status) != Some(TurnStatus::Completed)
+        || states
+            .values()
+            .any(|turn| turn.status == TurnStatus::InProgress)
+    {
+        return Err(invalid(
+            "async answer history is incomplete or changed; no new turn started",
+        ));
+    }
+    Ok(states.into_keys().collect())
 }
 
 fn answer_prompt(q: &Question, option: usize) -> Result<String, ComponentWorkerError> {
-    let selected = q
-        .body
-        .options
-        .get(option)
-        .ok_or(ComponentWorkerError::InvalidComponent)?;
-    let data = json!({"thread_id":q.thread_id,"original_turn_id":q.turn_id,"question_item_id":q.item_id,
-        "question_index":q.body.index,"question_title":q.body.title,"selected_option_index":option,"selected_option":selected});
-    Ok(format!(
-        "The user answered exactly this earlier async question through Discord. Apply this selection only to this question; other questions remain unanswered.\n{data}"
-    ))
+    if option >= q.body.options.len() {
+        return Err(ComponentWorkerError::InvalidComponent);
+    }
+    Ok(store::answer_prompt(q, option)?)
 }
 
 fn confirmation(q: &Question) -> ConfirmationPlan {

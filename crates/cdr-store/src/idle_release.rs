@@ -93,11 +93,15 @@ pub fn bot_idle(path: &Path, thread: &str) -> Result<bool> {
 }
 
 fn bot_idle_on(db: &Connection, thread: &str) -> Result<bool> {
+    if crate::async_resolution::held_in(db, thread)? {
+        return Ok(false);
+    }
+
     Ok(db.query_row(
         "SELECT
         NOT EXISTS(SELECT 1 FROM codex_turn_queue WHERE target_thread_id=?1)
         AND NOT EXISTS(SELECT 1 FROM cdr_async_questions WHERE thread_id=?1
-            AND state NOT IN ('submitted','rejected')
+            AND state NOT IN ('submitted','rejected','closed_unknown')
             AND NOT (state='expired' AND chosen IS NULL AND dispatch_mode IS NULL
                 AND reply_job_id IS NULL AND accepted_turn_id IS NULL AND preparation_json IS NULL))
         AND NOT EXISTS(SELECT 1 FROM cdr_async_question_inbox WHERE thread_id=?1 AND state!='expired')
@@ -111,7 +115,29 @@ fn bot_idle_on(db: &Connection, thread: &str) -> Result<bool> {
 
 pub fn verify(path: &Path, expected: &Intent, require_idle: bool) -> Result<()> {
     let db = open_initialized(path)?;
-    let current = select(&db, &expected.thread_id)?;
+    verify_in(&db, expected, require_idle)
+}
+
+/// Token, bot obligations and observation coverage are read in one snapshot.
+pub fn verify_with_observations(path: &Path, expected: &Intent, require_idle: bool) -> Result<()> {
+    let mut db = open_initialized(path)?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)?;
+    verify_in(&tx, expected, require_idle)?;
+    let scope = crate::observation_gap::Scope {
+        owner_id: expected.owner_id.clone(),
+        generation: expected.generation,
+    };
+    if require_idle && !crate::observation_gap::scope_verified_in(&tx, &scope, 0)? {
+        return Err(StoreError::Integrity(
+            "idle unverified: durable observation range remains".into(),
+        ));
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn verify_in(db: &Connection, expected: &Intent, require_idle: bool) -> Result<()> {
+    let current = select(db, &expected.thread_id)?;
     if current
         .as_ref()
         .is_none_or(|i| !same_revision(i, expected) || i.state != expected.state)
@@ -120,7 +146,7 @@ pub fn verify(path: &Path, expected: &Intent, require_idle: bool) -> Result<()> 
             "idle release identity/state changed".into(),
         ));
     }
-    if require_idle && !bot_idle_on(&db, &expected.thread_id)? {
+    if require_idle && !bot_idle_on(db, &expected.thread_id)? {
         return Err(StoreError::Integrity(
             "idle release deferred: unresolved bot work".into(),
         ));

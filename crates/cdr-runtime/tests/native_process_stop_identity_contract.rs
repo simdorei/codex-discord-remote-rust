@@ -82,11 +82,21 @@ Import-Module $env:CDR_OBSERVER -Force
     $script:launches=0; $script:startReads=0; $script:stopReads=0
     $script:subscriptions=[Collections.Generic.List[string]]::new(); $script:subscriptions.Add('unrelated')
     $script:removed=[Collections.Generic.List[string]]::new()
-    function script:Register-WmiEvent { param($Class,$SourceIdentifier); $script:subscriptions.Add($SourceIdentifier) }
-    function script:Unregister-Event { param($SourceIdentifier); $null=$script:subscriptions.Remove($SourceIdentifier) }
-    function script:Remove-Event {
-        [CmdletBinding()]param([Parameter(ValueFromPipeline)]$InputObject)
-        process {$script:removed.Add([string]$InputObject.SourceIdentifier)}
+    function script:Start-CdrProcessObserver {
+        param($StartId,$StopId)
+        $script:subscriptions.Add($StartId); $script:subscriptions.Add($StopId)
+        [pscustomobject]@{start=$StartId;stop=$StopId}
+    }
+    function script:Stop-CdrProcessObserver {
+        param($Observer)
+        foreach($id in @($Observer.start,$Observer.stop)) {
+            $null=$script:subscriptions.Remove($id); $script:removed.Add($id)
+        }
+    }
+    function script:Get-CdrProcessObserverEvents {
+        param($Observer,$StartId,$StopId,[switch]$Final)
+        Read-CdrStopFixture $StartId
+        Read-CdrStopFixture $StopId
     }
     function script:Invoke-CdrNative {
         param($Executable,$Arguments,$TimeoutSeconds,[ref]$ProcessIdentity)
@@ -104,8 +114,19 @@ Import-Module $env:CDR_OBSERVER -Force
         [pscustomobject]@{SourceIdentifier=$source;SourceEventArgs=[pscustomobject]@{NewEvent=[pscustomobject]@{
             TIME_CREATED=$time;ProcessID=$id;ParentProcessID=$parent;ProcessName=$name}}}
     }
-    function script:Get-Event {
+    function script:Read-CdrStopFixture {
         [CmdletBinding()]param([string]$SourceIdentifier)
+        # Readiness cannot observe the not-yet-launched payload or advance drain counters.
+        if($script:launches -lt 2) {
+            if($script:launches -eq 1) {
+                if($SourceIdentifier -like 'CdrObservedStart-*') {
+                    FixtureEvent $SourceIdentifier 1 51 $PID cmd.exe
+                } elseif($SourceIdentifier -like 'CdrObservedStop-*') {
+                    FixtureEvent $SourceIdentifier 2 51 0 cmd.exe
+                } else {throw 'queried unrelated readiness events'}
+            }
+            return
+        }
         if($SourceIdentifier -like 'CdrObservedStart-*') {
             $script:startReads++
             FixtureEvent $SourceIdentifier 1 51 $PID cmd.exe

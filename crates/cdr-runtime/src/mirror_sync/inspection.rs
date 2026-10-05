@@ -15,7 +15,16 @@ impl MirrorSynchronizer {
         limit: Option<u32>,
         list: bool,
     ) -> Result<String, MirrorSyncError> {
-        let _guard = self.lock.lock().await;
+        self.with_operation_deadline("inspect", true, self.inspect_locked(origin, limit, list))
+            .await
+    }
+
+    async fn inspect_locked(
+        &self,
+        origin: u64,
+        limit: Option<u32>,
+        list: bool,
+    ) -> Result<String, MirrorSyncError> {
         let InspectionSnapshot {
             mappings,
             mut parents,

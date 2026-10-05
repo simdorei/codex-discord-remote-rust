@@ -81,7 +81,7 @@ pub async fn run_session_mirror_worker<S: SessionMirrorSender + 'static>(
         if wait_or_shutdown(next_poll_after, &mut shutdown).await {
             return;
         }
-        let Some(result) = poll_or_shutdown(&worker, &mut shutdown).await else {
+        let Some(result) = poll_or_shutdown(&worker, &mut shutdown, &mut retry_state).await else {
             return;
         };
         next_poll_after = match result {
@@ -125,11 +125,12 @@ async fn wait_or_shutdown(delay: Duration, shutdown: &mut watch::Receiver<bool>)
 async fn poll_or_shutdown<S: SessionMirrorSender>(
     worker: &SessionMirrorWorker<S>,
     shutdown: &mut watch::Receiver<bool>,
+    retry_state: &mut SessionMirrorRetryState,
 ) -> Option<Result<SessionMirrorPoll, SessionMirrorError>> {
     if *shutdown.borrow() {
         return None;
     }
-    let poll = worker.poll_once();
+    let poll = worker.poll_background(retry_state);
     tokio::pin!(poll);
     loop {
         tokio::select! {

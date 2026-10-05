@@ -110,8 +110,39 @@ pub(super) fn run() -> Result {
             "turn/start" => json!({"turn":{"id":"existing-turn","status":"inProgress"}}),
             _ => json!({}),
         };
-        reply(&request, &result)
+        fixture_reply(&request, &result)
     })
+}
+
+fn fixture_reply(request: &Value, result: &Value) -> Result {
+    if method(request) == "turn/interrupt"
+        && std::env::var_os("CDR_STOP_DROP_INTERRUPT_REPLY").is_some()
+    {
+        return Ok(());
+    }
+    emit_external_observation(request)?;
+    reply(request, result)
+}
+
+// Out-of-band fixture observation, not a privileged control RPC.
+fn emit_external_observation(request: &Value) -> Result {
+    if method(request) == "thread/read"
+        && let Ok(path) = std::env::var("CDR_STOP_NEXT_ACTIVE_PATH")
+        && let Ok(text) = std::fs::read_to_string(&path)
+    {
+        let observation: Value = serde_json::from_str(&text)?;
+        turn(
+            observation["threadId"]
+                .as_str()
+                .ok_or("missing observed thread")?,
+            observation["turnId"]
+                .as_str()
+                .ok_or("missing observed turn")?,
+            false,
+        )?;
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 fn persist(path: &str, state: &State, input: &Value) -> Result {

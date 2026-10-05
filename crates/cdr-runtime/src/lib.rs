@@ -9,6 +9,8 @@ pub mod action_ui;
 pub mod admin;
 pub mod app_backend;
 pub mod archive_delete;
+#[cfg(test)]
+mod async_orphan_tests;
 mod async_question_ui;
 pub mod attachments;
 pub mod bridge_state;
@@ -58,3 +60,4 @@ pub mod soak;
 pub mod startup;
 #[cfg(test)]
 mod test_support;
+pub mod writer_recovery;

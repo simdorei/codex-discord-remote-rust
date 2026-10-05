@@ -48,6 +48,7 @@ pub fn try_begin_attempt(
         Err(StoreError::QueueJobNotFound(_)) => return Ok(None),
         Err(error) => return Err(error),
     };
+    crate::async_resolution::assert_admission_in(&transaction, &candidate.target_thread_id)?;
     if !crate::dead_generation::job_can_mutate(&transaction, &candidate)?
         || crate::execution_hold::reason_in(&transaction, job_id)?.is_some()
         || candidate
@@ -92,6 +93,17 @@ pub fn mark_running_if_claimed(
     claimed: &StoredQueueJob,
     turn_id: &str,
 ) -> Result<Option<StoredQueueJob>> {
+    mark_running_with_resident_if_claimed(path, claimed, turn_id, None)
+}
+
+/// Resident identity must be captured before dispatch of this exact queue claim.
+/// Late stop binding and the observed ACK commit together, or neither commits.
+pub fn mark_running_with_resident_if_claimed(
+    path: &Path,
+    claimed: &StoredQueueJob,
+    turn_id: &str,
+    resident: Option<&str>,
+) -> Result<Option<StoredQueueJob>> {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     super::super::fork_handoff::ensure_schema(&transaction)?;
@@ -120,6 +132,22 @@ pub fn mark_running_if_claimed(
             baseline,
         ],
     )?;
+    if updated == 1 {
+        let running = select_job(&transaction, &claimed.job_id)?;
+        if running.turn_id.as_deref() != Some(turn_id) {
+            return Err(StoreError::Integrity(
+                "queue ACK turn differs from backend response; original Starting preserved".into(),
+            ));
+        }
+        if let Some(resident) = resident {
+            crate::ingress::stop::control::bind_late_start_in(
+                &transaction,
+                claimed,
+                &running,
+                resident,
+            )?;
+        }
+    }
     claimed_result(transaction, &claimed.job_id, updated)
 }
 

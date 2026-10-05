@@ -20,6 +20,28 @@ pub struct IdleReleaseToken {
 /// Implementations must compare every identity field and commit before returning.
 /// They may not resolve uncertain effects from elapsed time or a new owner UUID.
 pub trait IdleReleaseJournal: Send + Sync {
+    fn tracks_observations(&self) -> bool {
+        false
+    }
+    fn record_observation_gap(&self, _owner: &str, _generation: u64) -> Result<(), AppServerError> {
+        Err(held("durable observation journal unavailable"))
+    }
+    fn observe_source_upper(
+        &self,
+        _owner: &str,
+        _generation: u64,
+        _upper: u64,
+    ) -> Result<(), AppServerError> {
+        Err(held("source observation journal unavailable"))
+    }
+    fn observation_scope_verified(
+        &self,
+        _owner: &str,
+        _generation: u64,
+        _through: u64,
+    ) -> Result<bool, AppServerError> {
+        Ok(false)
+    }
     fn before_mutation(
         &self,
         owner: &str,

@@ -4,17 +4,23 @@ use cdr_store::StoreError;
 use cdr_store::schema::{LATEST_STORE_SCHEMA_VERSION, assert_integrity, open_initialized};
 use rusqlite::Connection;
 
-const OWNED_TABLES: [&str; 38] = [
+const OWNED_TABLES: [&str; 46] = [
+    "cdr_server_responses",
     "busy_choices",
     "cdr_archive_fences",
     "cdr_archived_cleanup_evidence",
+    "cdr_async_execution_handoffs",
+    "cdr_async_execution_obligations",
     "cdr_async_question_inbox",
     "cdr_async_questions",
+    "cdr_async_terminal_candidates",
+    "cdr_async_terminal_settlements",
     "cdr_cleanup_fences",
     "cdr_idle_release",
     "cdr_execution_holds",
     "cdr_final_recovery",
     "cdr_reserve_retirement_evidence",
+    "cdr_runtime_capability_requirements",
     "cdr_store_retirements",
     "codex_app_server_runtime",
     "codex_archive_fences",
@@ -27,6 +33,8 @@ const OWNED_TABLES: [&str; 38] = [
     "codex_commentary_outbox",
     "codex_delivery_receipts",
     "codex_goal_progress",
+    "codex_mutation_attempts",
+    "codex_mutation_runtime",
     "codex_new_first_replies",
     "codex_observed_completions",
     "codex_observed_final_answers",
@@ -45,12 +53,16 @@ const OWNED_TABLES: [&str; 38] = [
     "codex_reserve_transition_notices",
 ];
 
-const OWNED_INDEXES: [&str; 14] = [
+const OWNED_INDEXES: [&str; 18] = [
+    "cdr_server_response_target",
     "cdr_archived_cleanup_evidence_ingress",
+    "cdr_async_obligation_target",
     "cdr_async_question_inbox_pending",
     "cdr_async_question_pending",
     "cdr_async_question_reply_job",
     "codex_cancelled_message",
+    "codex_mutation_prepared",
+    "codex_mutation_prepared_target",
     "codex_new_first_replies_pending",
     "codex_prompt_intakes_message_id",
     "codex_prompt_intakes_target_ready",
@@ -98,11 +110,44 @@ fn s1_new_database_matches_shared_schema_and_rust_extensions() {
     assert_eq!(version, LATEST_STORE_SCHEMA_VERSION);
     assert_eq!(
         object_names(&conn, "table"),
-        OWNED_TABLES.map(String::from).into()
+        OWNED_TABLES
+            .into_iter()
+            .chain([
+                "cdr_stop_controls",
+                "cdr_stop_clock",
+                "cdr_stop_revisions",
+                "cdr_stop_revision_receipts",
+                "cdr_async_recovery_policies",
+                "cdr_mirror_container_creations",
+                "cdr_mirror_thread_creations",
+                "cdr_observation_gaps",
+                "cdr_observation_streams",
+                "cdr_recovery_publication_proposals",
+                "cdr_recovery_publication_deliveries",
+                "cdr_recovery_publication_decisions",
+                "cdr_recovery_abandonment_proposals",
+                "cdr_recovery_abandonment_deliveries",
+                "cdr_recovery_abandonment_decisions",
+                "cdr_recovery_ingress_order",
+            ])
+            .map(String::from)
+            .collect::<BTreeSet<_>>()
     );
     assert_eq!(
         object_names(&conn, "index"),
-        OWNED_INDEXES.map(String::from).into()
+        OWNED_INDEXES
+            .into_iter()
+            .chain([
+                "cdr_stop_pending",
+                "cdr_stop_target",
+                "cdr_stop_original_interrupt",
+                "cdr_stop_revision_target",
+                "cdr_observation_gap_scope",
+                "cdr_observation_gap_unknown",
+                "cdr_recovery_publication_job_revision",
+            ])
+            .map(String::from)
+            .collect::<BTreeSet<_>>()
     );
     let timeout: i64 = conn
         .pragma_query_value(None, "busy_timeout", |row| row.get(0))

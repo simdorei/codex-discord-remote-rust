@@ -186,7 +186,7 @@ where
     Report: FnOnce(ErrorReportTarget, MessageWorkerError) -> ReportFuture,
     ReportFuture: Future<Output = ()>,
 {
-    let (admitted, _admission_permit) = match prepare()? {
+    let (admitted, admission_permit) = match prepare()? {
         PreparedMessage::Ignore(reason, channel_id, user_id) => {
             eprintln!("ignored_message reason={reason} chat={channel_id} user={user_id}");
             return Ok(());
@@ -198,6 +198,7 @@ where
         }
         PreparedMessage::Admitted(admitted, permit) => (admitted, permit),
     };
+    let admitted = admitted.retain_admission(admission_permit.as_ref());
     if let Err(error) = process_with_error_report(report_target, admitted, process, report).await {
         eprintln!("on_message_internal_admission_error: {error}");
         return Err(DiscordRuntimeError::MessageAdmission(error));
@@ -213,7 +214,7 @@ pub(super) async fn handle_message_create(
 ) -> Result<(), DiscordRuntimeError> {
     let report_target = ErrorReportTarget::from_message(&message);
     let database = context.executor.mirror_db();
-    let force_restart = cdr_discord::gateway::ingress::is_force_restart_message(&message.content);
+    let force_restart = cdr_discord::gateway::ingress::is_emergency_message(&message.content);
     let allow_drain_control = if !force_restart && context.admission.is_sealed() {
         match context.executor.target_thread_id(message.channel_id.get()) {
             Ok(target) => match pending_text_reply_available(&target, &context.server).await {
@@ -267,3 +268,7 @@ mod failure_tests;
 #[cfg(test)]
 #[path = "message_create_settings_tests.rs"]
 mod settings_tests;
+
+#[cfg(test)]
+#[path = "message_create_abandonment_tests.rs"]
+mod abandonment_tests;

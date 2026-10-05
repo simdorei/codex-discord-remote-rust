@@ -20,11 +20,13 @@ pub(super) fn run(interaction: bool) -> Result {
                 json!({"requested":true})
             }
             "test/pending" if !interaction => {
-                turn("thread-b", "turn-b", false)?;
+                let thread = params["threadId"].as_str().unwrap_or("thread-b");
+                let turn_id = params["turnId"].as_str().unwrap_or("turn-b");
+                turn(thread, turn_id, false)?;
                 emit(
                     &json!({"id":params.get("requestId").cloned().unwrap_or(json!("approval-1")),
                     "method":params.get("method").cloned().unwrap_or(json!("item/commandExecution/requestApproval")),
-                    "params":{"threadId":"thread-b","turnId":"turn-b",
+                    "params":{"threadId":thread,"turnId":turn_id,
                         "command":params.get("command").cloned().unwrap_or(json!("echo fixture")),
                         "questions":params.get("questions").cloned().unwrap_or(json!([{"id":"q","question":"Choose one","options":[{"label":"First"},{"label":"Second"}]}]))}}),
                 )?;

@@ -73,6 +73,69 @@ async fn setup(
     (f, server, worker)
 }
 
+async fn wait_for_waiting_questions(db: &std::path::Path) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let held: i64 = cdr_store::schema::open_initialized(db).unwrap().query_row(
+                "SELECT COUNT(*) FROM cdr_async_question_inbox WHERE thread_id='thread-b' AND turn_id='goal-next' AND candidate_job_id='origin' AND state='waiting'", [], |r| r.get(0)).unwrap();
+            if held == 2 { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+}
+
+async fn wait_for_observed_handoff(db: &std::path::Path, ids: &[String]) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if ids
+                .iter()
+                .all(|id| aq::get(db, id).is_ok_and(|q| q.state == "observed"))
+                && queue::list(db).unwrap()[0].turn_id.as_deref() == Some("goal-next")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+async fn wait_for_open_questions(
+    db: &std::path::Path,
+    ids: &[String],
+) -> Result<(), tokio::time::error::Elapsed> {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if ids
+                .iter()
+                .all(|id| aq::get(db, id).is_ok_and(|q| q.state == "open"))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+}
+
+async fn wait_for_completed_item(
+    seen_rx: &mut mpsc::Receiver<cdr_app_server::ResidentNotificationEvent>,
+) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(event) = seen_rx.recv().await {
+            if let cdr_app_server::ResidentNotificationEvent::Notification { notification, .. } =
+                event
+                && notification.method == "item/completed"
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn async_question_goal_handoff_preserves_question_during_progress_http_barrier() {
     let temp = tempfile::tempdir().unwrap();
@@ -100,11 +163,20 @@ async fn async_question_goal_handoff_preserves_question_during_progress_http_bar
     ));
     // A tap proves the observer consumed/journalled Q while processing is blocked.
     let (to_processor, processing_rx) = mpsc::channel(128);
+    let (release_start, start_ready) = tokio::sync::oneshot::channel();
     let tap = tokio::spawn(async move {
         let mut pending = pending;
+        let mut start_ready = Some(start_ready);
         while let Some(event) = pending.recv().await {
-            to_processor.send(event.clone()).await.unwrap();
-            seen.send(event).await.unwrap();
+            let observed = event.event.clone();
+            if matches!(&observed, cdr_app_server::ResidentNotificationEvent::Notification { notification, .. }
+                if notification.method == "turn/started")
+                && let Some(ready) = start_ready.take()
+            {
+                ready.await.unwrap();
+            }
+            to_processor.send(event).await.unwrap();
+            seen.send(observed).await.unwrap();
         }
     });
     let processing = tokio::spawn(async move { process(&worker, processing_rx).await });
@@ -113,47 +185,36 @@ async fn async_question_goal_handoff_preserves_question_during_progress_http_bar
         .await
         .unwrap()
         .unwrap();
+    // HTTP no longer gates local state. Hold the real target lease so the
+    // observer-to-handoff boundary remains deterministic without weakening D1.
+    let handoff_lock = f.queue.target_lock("thread-b").unwrap();
+    let handoff_guard = handoff_lock.lock().await;
     control(&server, "test/goal-next-question").await;
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while let Some(event) = seen_rx.recv().await {
-            if let cdr_app_server::ResidentNotificationEvent::Notification { notification, .. } =
-                event
-                && notification.method == "item/completed"
-            {
-                break;
-            }
-        }
-    })
-    .await
-    .unwrap();
-    let before = queue::list(db).unwrap();
-    assert_eq!(before[0].turn_id.as_deref(), Some("original"));
-    assert!(before[0].goal_waiting);
-    let held: i64 = cdr_store::schema::open_initialized(db).unwrap().query_row(
-        "SELECT COUNT(*) FROM cdr_async_question_inbox WHERE thread_id='thread-b' AND turn_id='goal-next' AND candidate_job_id='origin' AND state='waiting'",[],|r|r.get(0)).unwrap();
+    // Deterministically journal both questions before processing the queued start.
+    wait_for_waiting_questions(db).await;
     assert_eq!(
-        held, 2,
-        "D1: both exact occurrences must already be durable before handoff"
+        queue::list(db).unwrap()[0].turn_id.as_deref(),
+        Some("original")
     );
+    drop(handoff_guard);
+    release_start.send(()).unwrap();
+    wait_for_completed_item(&mut seen_rx).await;
     let ids =
         [0, 1].map(|i| aq::occurrence_id("thread-b", "goal-next", "question-call", i).unwrap());
-    assert!(
-        ids.iter().all(|id| aq::get(db, id).is_err()),
-        "no bound UI before exact handoff"
+    // State handoff is now independent of the held progress POST, while
+    // same-channel question delivery must remain behind that exact receipt.
+    wait_for_observed_handoff(db, &ids).await;
+    let before = queue::list(db).unwrap();
+    assert_eq!(before[0].turn_id.as_deref(), Some("goal-next"));
+    assert!(!before[0].goal_waiting);
+    assert_eq!(before[0].job_id, "origin");
+    assert_eq!(
+        cdr_store::delivery_receipt::unknown_count(db).unwrap(),
+        1,
+        "question POST must not overtake the one pending Goal progress receipt"
     );
     release_progress.send(()).unwrap();
-    let delivered = tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            if ids
-                .iter()
-                .all(|id| aq::get(db, id).is_ok_and(|q| q.state == "open"))
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await;
+    let delivered = wait_for_open_questions(db, &ids).await;
     stop.send(true).unwrap();
     observed.await.unwrap();
     tap.await.unwrap();

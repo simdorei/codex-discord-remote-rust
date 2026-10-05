@@ -43,6 +43,7 @@ mod pro_busy_contract;
 #[cfg(test)]
 mod pro_pending_contract;
 mod processing_boundary;
+mod recovery_abandonment;
 pub mod reply_delivery;
 #[cfg(test)]
 mod reply_receipt_tests;
@@ -153,6 +154,11 @@ pub(crate) async fn process_admitted_gateway_message<B: TurnBackend>(
         None
     };
     if pending_reply_outcome(parts.processing_mode, pending_reply)? {
+        custody.finish()?;
+        return Ok(());
+    }
+    if let MessagePlan::Execute(CommandAction::DiscardRequest { job_id }) = &plan {
+        recovery_abandonment::propose(&message, job_id, parts.admission_permit, context).await?;
         custody.finish()?;
         return Ok(());
     }

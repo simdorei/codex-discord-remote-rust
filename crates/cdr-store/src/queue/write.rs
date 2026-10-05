@@ -2,8 +2,8 @@ mod attempt;
 mod enqueue;
 
 pub use attempt::{
-    begin_attempt, mark_running, mark_running_if_claimed, record_start_failure,
-    record_start_failure_if_claimed, try_begin_attempt,
+    begin_attempt, mark_running, mark_running_if_claimed, mark_running_with_resident_if_claimed,
+    record_start_failure, record_start_failure_if_claimed, try_begin_attempt,
 };
 pub use enqueue::{enqueue, enqueue_if_mirror_matches};
 pub(crate) use enqueue::{enqueue_in_transaction, ensure_mirror_matches};

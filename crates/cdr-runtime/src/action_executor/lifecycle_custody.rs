@@ -61,6 +61,15 @@ impl<B: TurnBackend> ActionExecutor<B> {
         self.settings_resolver()
             .validate_lifecycle(&binding, context.channel_id)?;
         match action {
+            CommandAction::Stop { .. } => self.stop_bound(context, &binding, Some(&record)).await,
+            CommandAction::Recover { .. } => {
+                let guard = self.claim_recovery_guard(context.channel_id, binding, &record)?;
+                self.recover_writer_bound(context, &guard).await
+            }
+            CommandAction::Repair { .. } => {
+                let guard = self.claim_recovery_guard(context.channel_id, binding, &record)?;
+                self.repair_tools_bound(guard).await
+            }
             CommandAction::Archive { reference } => {
                 self.archive_bound(context, reference.as_deref(), Some(&binding))
                     .await

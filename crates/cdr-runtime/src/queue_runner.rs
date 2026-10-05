@@ -12,9 +12,13 @@ mod completion;
 mod fork_handoff;
 mod prompt_intake_submission;
 mod recovery;
+mod recovery_readiness;
 mod retry;
 mod submission;
+mod target_lease;
 mod types;
+pub use recovery_readiness::RecoveryReadiness;
+pub(crate) use target_lease::TargetLease;
 mod unavailable_log;
 
 pub use fork_handoff::AppServerTarget;

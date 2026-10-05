@@ -6,7 +6,7 @@ mod schema;
 mod verification;
 
 pub use claim::{DeliveryGuard, acknowledgement_key, output_hold};
-pub(crate) use claim::{confirm_receipt_in, validate_claim_in};
+pub(crate) use claim::{confirm_receipt_in, output_hold_in, validate_claim_in};
 pub(crate) use intent::seed_in;
 pub(crate) use intent::{bind_running_in, promote_in};
 pub use intent::{get, get_by_ingress};

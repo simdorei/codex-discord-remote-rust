@@ -43,6 +43,27 @@ pub(super) fn reason_with_exclusions(
     allow_pre_commentary_schema: bool,
     excluded: &[String],
 ) -> Result<Option<&'static str>> {
+    if crate::async_resolution::cleanup_held_in(connection, channel, target)? {
+        return Ok(Some("unresolved async execution or recovery authorization"));
+    }
+    ordinary_reason_with_exclusions(
+        connection,
+        channel,
+        target,
+        confirmation,
+        allow_pre_commentary_schema,
+        excluded,
+    )
+}
+
+fn ordinary_reason_with_exclusions(
+    connection: &Connection,
+    channel: i64,
+    target: Option<&str>,
+    confirmation: Option<&str>,
+    allow_pre_commentary_schema: bool,
+    excluded: &[String],
+) -> Result<Option<&'static str>> {
     // Old installations predate this table. Missing table means no async records;
     // a malformed present table/query still fails closed.
     if connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='cdr_async_questions')", [], |r|r.get::<_,bool>(0))? && connection.query_row(

@@ -11,6 +11,8 @@ use cdr_store::queue::{
 use super::retry::unix_now;
 use super::{QueueCoordinator, QueueRunnerError, TurnBackend, TurnRecord, generation_i64};
 
+mod async_history;
+mod policy;
 mod state;
 mod target;
 
@@ -98,6 +100,22 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         Ok(report)
     }
 
+    /// Incremental completion lanes must not prune another target's backoff or
+    /// treat the first page as the entire cold recovery inventory.
+    async fn recover_target_incremental_locked(
+        &self,
+        target: &str,
+    ) -> Result<RecoveryReport, QueueRunnerError> {
+        self.repair_legacy_definite_fork_failures()?;
+        let generation = generation_i64(self.backend.generation())?;
+        let mut report = RecoveryReport::default();
+        self.observe_one_locked(target, generation, &mut report, true)
+            .await?;
+        self.mutate_one_locked(target, generation, &mut report)
+            .await?;
+        Ok(report)
+    }
+
     fn repair_legacy_definite_fork_failures(&self) -> Result<(), QueueRunnerError> {
         if !self.backend.requires_app_server_fork() {
             let retired = cdr_store::queue::retire_copy_only_handoffs(&self.db_path)?;
@@ -134,7 +152,8 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         for target in targets {
             let lock = self.target_lock(target)?;
             let _guard = lock.lock().await;
-            self.observe_one_locked(target, generation, report).await?;
+            self.observe_one_locked(target, generation, report, false)
+                .await?;
         }
         Ok(())
     }
@@ -243,5 +262,13 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             Some(TurnStatus::InProgress) => {}
             None => report.unresolved += 1,
         }
+    }
+}
+
+impl<B: TurnBackend> super::TargetLease<'_, B> {
+    pub(crate) async fn recover_incremental(&self) -> Result<RecoveryReport, QueueRunnerError> {
+        self.queue
+            .recover_target_incremental_locked(self.target())
+            .await
     }
 }

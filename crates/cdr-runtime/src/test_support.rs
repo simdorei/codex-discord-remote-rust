@@ -7,6 +7,8 @@ pub(crate) mod approval_http;
 #[path = "../tests/support/approval_owner.rs"]
 pub(crate) mod approval_owner;
 pub(crate) mod cleanup_refusal_transport;
+#[path = "../tests/support/completion_lane_http.rs"]
+pub(crate) mod completion_lane_http;
 #[path = "completion_worker/goal_mirror_http.rs"]
 pub(crate) mod http_gate;
 #[path = "../tests/support/mapped_slash.rs"]
@@ -19,3 +21,4 @@ pub(crate) mod pro_fixture;
 #[path = "../tests/support/pro_plugins.rs"]
 pub(crate) mod pro_plugins;
 pub(crate) use crate::soak::native_fixture;
+pub(crate) mod path_timing;

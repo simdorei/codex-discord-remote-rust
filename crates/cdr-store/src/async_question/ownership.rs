@@ -22,7 +22,7 @@ pub(super) fn running_matches(job: &StoredQueueJob, q: &Question) -> bool {
         && generation == q.generation
 }
 
-pub(super) fn running_owned_in(db: &Connection, q: &Question) -> Result<bool> {
+pub(super) fn sole_nonpending_owner_in(db: &Connection, q: &Question) -> Result<bool> {
     let ids = db
         .prepare(
             "SELECT job_id FROM codex_turn_queue WHERE target_thread_id=? AND state!='pending'",
@@ -32,8 +32,15 @@ pub(super) fn running_owned_in(db: &Connection, q: &Question) -> Result<bool> {
     let [id] = ids.as_slice() else {
         return Ok(false);
     };
-    if id != &q.origin_job_id {
+    Ok(id == &q.origin_job_id)
+}
+
+pub(super) fn running_owned_in(db: &Connection, q: &Question) -> Result<bool> {
+    if !sole_nonpending_owner_in(db, q)? {
         return Ok(false);
     }
-    Ok(running_matches(&crate::queue::select_job(db, id)?, q))
+    Ok(running_matches(
+        &crate::queue::select_job(db, &q.origin_job_id)?,
+        q,
+    ))
 }

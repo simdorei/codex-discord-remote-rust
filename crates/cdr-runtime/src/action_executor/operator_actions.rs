@@ -1,7 +1,7 @@
 use cdr_app_server::AppServerError;
 use cdr_app_server::requests::{interrupt_turn, steer_turn};
 
-use super::{ActionError, ActionExecutor, ActionResult, immediate};
+use super::{ActionContext, ActionError, ActionExecutor, ActionResult, immediate};
 use crate::action_executor::app_server_requests::resume_request;
 use crate::queue_runner::TurnBackend;
 
@@ -44,25 +44,17 @@ impl<B: TurnBackend> ActionExecutor<B> {
 
     pub(super) async fn stop_thread(
         &self,
-        channel_id: u64,
+        context: ActionContext,
         reference: Option<&str>,
     ) -> Result<ActionResult, ActionError> {
-        let thread = self.resolve_thread(channel_id, reference)?;
-        let server = self.server.as_ref().ok_or(ActionError::MissingAppServer)?;
-        let _control = self.control_lock(&thread.id).await?;
-        let (turn_id, generation) = if reference.is_some() {
-            self.verified_owned_turn(&thread.id, None).await?
-        } else {
-            self.verified_control_turn(channel_id, &thread.id, None)
-                .await?
+        let action = crate::command_plan::CommandAction::Stop {
+            reference: reference.map(str::to_owned),
         };
-        server
-            .execute(interrupt_turn(&thread.id, &turn_id), Some(generation))
-            .await?;
-        Ok(immediate(format!(
-            "Stop request submitted for {}.",
-            thread.id
-        )))
+        let binding = self
+            .settings_resolver()
+            .bind_lifecycle(&action, context.channel_id)?
+            .ok_or_else(|| ActionError::Invalid("stop target was not bound".into()))?;
+        self.stop_bound(context, &binding, None).await
     }
 
     pub(super) async fn approval(

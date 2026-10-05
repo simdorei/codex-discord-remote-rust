@@ -300,11 +300,30 @@ async fn async_choice_lost_start_response_survives_real_queue_recovery_without_a
         rpc.iter().filter(|v| v["method"] == "turn/start").count(),
         1
     );
-    assert!(!rpc.iter().any(|v| matches!(
-        v["method"].as_str(),
-        Some("thread/resume" | "thread/fork" | "thread/read")
-    )));
+    assert!(
+        !rpc.iter()
+            .any(|v| matches!(v["method"].as_str(), Some("thread/resume" | "thread/fork")))
+    );
+    let start = rpc
+        .iter()
+        .position(|v| v["method"] == "turn/start")
+        .unwrap();
+    assert_eq!(
+        rpc[..start]
+            .iter()
+            .filter(|v| v["method"] == "thread/read")
+            .count(),
+        2
+    );
+    assert!(
+        !rpc[start + 1..]
+            .iter()
+            .any(|v| v["method"] == "thread/read")
+    );
 }
+
+#[path = "async_baseline_tests.rs"]
+mod baseline;
 
 #[path = "async_integration_tests.rs"]
 mod integrated;

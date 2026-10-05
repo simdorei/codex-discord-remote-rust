@@ -252,9 +252,18 @@ async fn revision14_real_fifo_handles_backlog_from_the_original_turn() {
     f.configure(json!({"goal":"complete"})).await;
     let worker = f.worker();
     let (sender, pending) = tokio::sync::mpsc::channel(16);
+    let byte_budget = std::sync::Arc::new(tokio::sync::Semaphore::new(
+        crate::completion_worker::scheduler::lanes::EVENT_BYTES,
+    ));
     for event in events {
         worker.observe_terminal(&event).unwrap();
-        sender.send(event).await.unwrap();
+        sender
+            .send(
+                crate::completion_worker::scheduler::lanes::Envelope::charge(event, &byte_budget)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
     }
     drop(sender);
     // Exercise the actual production processor, including its initial recovery.

@@ -11,6 +11,10 @@ static READER: Semaphore = Semaphore::const_new(1);
 #[path = "context_connected_tests.rs"]
 mod connected_tests;
 
+#[cfg(test)]
+#[path = "context_isolation_tests.rs"]
+mod isolation_tests;
+
 pub async fn render(
     threads: Vec<ThreadInfo>,
     refresh: bool,

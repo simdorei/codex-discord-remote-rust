@@ -59,6 +59,7 @@ impl CompletionWorker {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) async fn recover_observed(&self) -> Result<(), CompletionWorkerError> {
         let mut first_error = None;
         for (thread, turn, generation, payload) in

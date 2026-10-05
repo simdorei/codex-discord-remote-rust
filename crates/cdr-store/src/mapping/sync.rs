@@ -70,11 +70,13 @@ fn commit_checked(
             actual_target_thread_id: None,
         });
     }
+    let creation = super::creation::before_mapping_in(&tx, update.thread_id)?;
     tx.execute("INSERT INTO mirror_threads (codex_thread_id, project_key, thread_title, discord_channel_id, discord_thread_id, updated_at)
         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(codex_thread_id) DO UPDATE SET
         project_key=excluded.project_key, thread_title=excluded.thread_title, discord_channel_id=excluded.discord_channel_id,
         discord_thread_id=excluded.discord_thread_id, updated_at=excluded.updated_at",
         params![update.thread_id, update.project_key, update.title, update.parent_id, update.channel_id, update.now])?;
+    super::creation::finish_in(&tx, update, expected, creation)?;
     tx.commit()?;
     Ok(())
 }

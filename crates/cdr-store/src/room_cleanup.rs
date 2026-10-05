@@ -24,6 +24,8 @@ fn begin_in(
     now: f64,
     excluded: &[String],
 ) -> Result<String> {
+    crate::mapping::creation::protect_cleanup_in(connection, channel, target)?;
+    crate::mapping::container_creation::protect_cleanup_in(connection, channel, target)?;
     let fenced: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE channel_id=?)",
         [channel],

@@ -11,10 +11,18 @@ use std::{
 };
 use twilight_model::channel::ChannelType;
 
+#[path = "support/action_target.rs"]
+mod action_target;
 #[path = "support/mirror_sync_cleanup_cases.rs"]
 mod cleanup_cases;
 #[path = "support/mirror_cleanup_races.rs"]
 mod cleanup_races;
+#[path = "support/mirror_container_creation.rs"]
+mod container_creation;
+#[path = "support/mirror_creation_outcome.rs"]
+mod creation_outcome;
+#[path = "support/mirror_deadline.rs"]
+mod deadline;
 #[path = "support/mirror_exact_cleanup.rs"]
 mod exact_cleanup;
 #[path = "support/mirror_missing_cleanup.rs"]
@@ -26,12 +34,20 @@ mod owned_cleanup;
 struct RemoteState {
     channels: BTreeMap<u64, MirrorChannel>,
     creates: usize,
+    deletes: usize,
+    lose_create_response: Option<ChannelType>,
+    pause_create: Option<(
+        ChannelType,
+        Arc<tokio::sync::Notify>,
+        Arc<tokio::sync::Notify>,
+    )>,
     fail_id: Option<u64>,
     foreign_ids: BTreeSet<u64>,
     fail_delete: Option<u64>,
     before_delete: Option<Arc<dyn Fn(u64) + Send + Sync>>,
     lose_delete_response: Option<u64>,
     pause_delete: Option<(u64, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
+    pause_delete_after: Option<(u64, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
     pause_channel: Option<(u64, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 #[derive(Default)]
@@ -57,6 +73,7 @@ impl MirrorTransport for Remote {
     }
     fn delete(&self, id: u64) -> MirrorFuture<'_, ()> {
         Box::pin(async move {
+            self.0.lock().unwrap().deletes += 1;
             let pause = self.0.lock().unwrap().pause_delete.clone();
             if let Some((paused_id, started, release)) = pause
                 && paused_id == id
@@ -64,17 +81,29 @@ impl MirrorTransport for Remote {
                 started.notify_one();
                 release.notified().await;
             }
-            let mut state = self.0.lock().unwrap();
-            if state.fail_delete == Some(id) {
-                return Err(MirrorSyncError::DeleteRejected(
-                    "HTTP 403: Missing Access".into(),
-                ));
+            let (lost, after) = {
+                let mut state = self.0.lock().unwrap();
+                if state.fail_delete == Some(id) {
+                    return Err(MirrorSyncError::DeleteRejected(
+                        "HTTP 403: Missing Access".into(),
+                    ));
+                }
+                if let Some(callback) = &state.before_delete {
+                    callback(id);
+                }
+                state.channels.remove(&id);
+                (
+                    state.lose_delete_response == Some(id),
+                    state.pause_delete_after.clone(),
+                )
+            };
+            if let Some((paused_id, started, release)) = after
+                && paused_id == id
+            {
+                started.notify_one();
+                release.notified().await;
             }
-            if let Some(callback) = &state.before_delete {
-                callback(id);
-            }
-            state.channels.remove(&id);
-            if state.lose_delete_response == Some(id) {
+            if lost {
                 return Err(MirrorSyncError::Discord("delete response lost".into()));
             }
             Ok(())
@@ -118,18 +147,34 @@ impl MirrorTransport for Remote {
         topic: Option<&'a str>,
     ) -> MirrorFuture<'a, MirrorChannel> {
         Box::pin(async move {
-            let mut state = self.0.lock().unwrap();
-            state.creates += 1;
-            let channel = MirrorChannel {
-                id: 1000 + state.creates as u64,
-                guild_id: Some(guild),
-                parent_id: parent,
-                kind,
-                name: name.into(),
-                topic: topic.map(str::to_owned),
-                archived: false,
+            let (channel, lost, pause) = {
+                let mut state = self.0.lock().unwrap();
+                state.creates += 1;
+                let channel = MirrorChannel {
+                    id: 1000 + state.creates as u64,
+                    guild_id: Some(guild),
+                    parent_id: parent,
+                    kind,
+                    name: name.into(),
+                    topic: topic.map(str::to_owned),
+                    archived: false,
+                };
+                state.channels.insert(channel.id, channel.clone());
+                (
+                    channel,
+                    state.lose_create_response == Some(kind),
+                    state.pause_create.clone(),
+                )
             };
-            state.channels.insert(channel.id, channel.clone());
+            if let Some((paused_kind, started, release)) = pause
+                && paused_kind == kind
+            {
+                started.notify_one();
+                release.notified().await;
+            }
+            if lost {
+                return Err(MirrorSyncError::Discord("create response lost".into()));
+            }
             Ok(channel)
         })
     }

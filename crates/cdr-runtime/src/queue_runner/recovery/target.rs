@@ -17,8 +17,10 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         target: &str,
         generation: i64,
         report: &mut RecoveryReport,
+        force_cold: bool,
     ) -> Result<(), QueueRunnerError> {
         if cdr_store::async_question::target_dispatch_held(&self.db_path, target)? {
+            self.observe_async_history_locked(target, report).await;
             return Ok(());
         }
         if cdr_store::dead_generation::target_is_held(&self.db_path, target)? {
@@ -39,7 +41,8 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             }
         };
         self.clear_unavailable_log(target)?;
-        let _ = self.reconcile_observed_jobs(target, generation, &jobs, &turns, report)?;
+        let _ =
+            self.reconcile_observed_jobs(target, generation, &jobs, &turns, report, force_cold)?;
         Ok(())
     }
 
@@ -120,8 +123,9 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         jobs: &[StoredQueueJob],
         turns: &[TurnRecord],
         report: &mut RecoveryReport,
+        force_cold: bool,
     ) -> Result<bool, QueueRunnerError> {
-        let cold = self.is_cold_target(target)?;
+        let cold = force_cold || self.is_cold_target(target)?;
         for job in jobs {
             match job.state {
                 QueueJobState::Starting => {

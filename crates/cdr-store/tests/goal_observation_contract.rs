@@ -107,7 +107,10 @@ fn old_schema_migrates_without_fabricating_turn_or_execution_generation() {
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "UPDATE codex_turn_queue SET execution_generation=NULL;
+            // These modern capture triggers do not exist in the legacy fixture.
+            "DROP TRIGGER cdr_async_obligation_question;
+         DROP TRIGGER cdr_async_obligation_queue_delete;
+         UPDATE codex_turn_queue SET execution_generation=NULL;
         ALTER TABLE codex_turn_queue DROP COLUMN turn_observation_generation;",
         )
         .unwrap();

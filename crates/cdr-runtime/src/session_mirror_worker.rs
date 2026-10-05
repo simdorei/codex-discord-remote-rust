@@ -1,3 +1,6 @@
+#[path = "session_mirror/background.rs"]
+mod background;
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;

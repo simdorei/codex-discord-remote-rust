@@ -4,6 +4,8 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("[cdr-rust:async-resolution-held:v1] {thread_id}: {reason}")]
+    AsyncResolutionHeld { thread_id: String, reason: String },
     #[error("room {channel} protected by {reason}")]
     CleanupProtected { channel: i64, reason: &'static str },
     #[error(

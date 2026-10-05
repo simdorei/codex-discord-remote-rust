@@ -1,5 +1,5 @@
 use super::{MirrorChannel, MirrorFuture, MirrorInventoryThread, MirrorSyncError, MirrorTransport};
-use std::sync::Arc;
+use std::{future::Future, sync::Arc, time::Duration};
 use twilight_http::{Client, error::ErrorType};
 use twilight_model::{
     channel::{Channel, ChannelType, thread::AutoArchiveDuration},
@@ -7,6 +7,8 @@ use twilight_model::{
 };
 
 pub struct DiscordMirrorTransport(Arc<Client>);
+
+const MIRROR_HTTP_DEADLINE: Duration = Duration::from_secs(10);
 
 #[path = "http_cleanup.rs"]
 mod cleanup;
@@ -24,11 +26,14 @@ impl MirrorTransport for DiscordMirrorTransport {
         guild: u64,
         parent: u64,
     ) -> MirrorFuture<'_, Vec<MirrorInventoryThread>> {
-        Box::pin(self.read_thread_inventory(guild, parent))
+        bounded(
+            "thread-inventory",
+            self.read_thread_inventory(guild, parent),
+        )
     }
 
     fn delete(&self, id: u64) -> MirrorFuture<'_, ()> {
-        Box::pin(async move {
+        bounded("room-delete", async move {
             match self.0.delete_channel(channel_id(id)?).await {
                 Ok(_) => Ok(()),
                 Err(error) if matches!(error.kind(), ErrorType::Response { status, .. } if status.get() == 404) => {
@@ -42,7 +47,7 @@ impl MirrorTransport for DiscordMirrorTransport {
         })
     }
     fn channels(&self, guild: u64) -> MirrorFuture<'_, Vec<MirrorChannel>> {
-        Box::pin(async move {
+        bounded("guild-channel-list", async move {
             let guild = Id::new_checked(guild).ok_or_else(|| invalid("zero guild id"))?;
             let channels = self
                 .0
@@ -57,7 +62,7 @@ impl MirrorTransport for DiscordMirrorTransport {
     }
 
     fn channel(&self, id: u64) -> MirrorFuture<'_, Option<MirrorChannel>> {
-        Box::pin(async move {
+        bounded("channel-read", async move {
             match self.0.channel(channel_id(id)?).await {
                 Ok(response) => Ok(Some(convert(
                     response
@@ -81,7 +86,7 @@ impl MirrorTransport for DiscordMirrorTransport {
         name: &'a str,
         topic: Option<&'a str>,
     ) -> MirrorFuture<'a, MirrorChannel> {
-        Box::pin(async move {
+        bounded("room-create", async move {
             let response = if kind == ChannelType::PublicThread {
                 let parent = channel_id(parent.ok_or_else(|| invalid("thread has no parent"))?)?;
                 self.0
@@ -116,7 +121,7 @@ impl MirrorTransport for DiscordMirrorTransport {
         topic: Option<&'a str>,
         archived: bool,
     ) -> MirrorFuture<'a, ()> {
-        Box::pin(async move {
+        bounded("room-update", async move {
             if channel.kind.is_thread() {
                 self.0
                     .update_thread(channel_id(channel.id)?)
@@ -134,6 +139,22 @@ impl MirrorTransport for DiscordMirrorTransport {
             Ok(())
         })
     }
+}
+
+fn bounded<'a, T: Send + 'a>(
+    phase: &'static str,
+    future: impl Future<Output = Result<T, MirrorSyncError>> + Send + 'a,
+) -> MirrorFuture<'a, T> {
+    Box::pin(async move {
+        tokio::time::timeout(MIRROR_HTTP_DEADLINE, future)
+            .await
+            .map_err(|_| {
+                let seconds = MIRROR_HTTP_DEADLINE.as_secs();
+                MirrorSyncError::Discord(format!(
+                    "phase={phase}; whole-operation deadline={seconds}s expired during HTTP/rate-limit/body wait; outcome unconfirmed; earlier sync changes may have completed"
+                ))
+            })?
+    })
 }
 
 fn convert(channel: Channel) -> MirrorChannel {

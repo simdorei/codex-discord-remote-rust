@@ -9,6 +9,124 @@ use crate::{RequestId, ServerRequestOccurrence};
 pub trait DeadGenerationFence: Send + Sync {
     fn persist(&self, work: &DeadGenerationWork) -> Result<(), crate::AppServerError>;
 
+    /// Return true only after committing this exact wire occurrence before bytes.
+    /// The default grants no new isolation capability to legacy implementations.
+    /// Called once before RPC preparation, never refreshed at the final writer.
+    fn request_origin(
+        &self,
+        _method: &str,
+        _params: &Value,
+    ) -> Result<Option<Value>, crate::AppServerError> {
+        Ok(None)
+    }
+
+    /// Existing implementations retain their original guard; no latest revision
+    /// is fabricated when an older adapter lacks origin support.
+    fn begin_mutation_with_origin(
+        &self,
+        owner: (&str, u64),
+        request: (&str, &RequestId),
+        method: &str,
+        params: &Value,
+        scoped: bool,
+        _origin: Option<&Value>,
+    ) -> Result<bool, crate::AppServerError> {
+        self.begin_mutation(owner, request, method, params, scoped)
+    }
+
+    fn begin_mutation(
+        &self,
+        _owner: (&str, u64),
+        _request: (&str, &RequestId),
+        _method: &str,
+        _params: &Value,
+        _scoped: bool,
+    ) -> Result<bool, crate::AppServerError> {
+        Ok(false)
+    }
+
+    /// Validate original queue authority in the same transaction as the wire
+    /// claim. A legacy fence must not silently discard this new authority.
+    fn begin_queue_mutation(
+        &self,
+        _owner: (&str, u64),
+        _request: (&str, &RequestId),
+        _method: &str,
+        _params: &Value,
+        _claim: &Value,
+    ) -> Result<bool, crate::AppServerError> {
+        Err(crate::AppServerError::MutationHeld {
+            message: "durable fence does not support claimed queue dispatch".into(),
+        })
+    }
+
+    /// Capture original response custody before any asynchronous writer wait.
+    fn response_authority(
+        &self,
+        _owner: (&str, u64),
+        _request: &crate::ServerRequest,
+    ) -> Result<Option<Value>, crate::AppServerError> {
+        Ok(None)
+    }
+
+    fn begin_response(
+        &self,
+        _owner: (&str, u64),
+        _request: &crate::ServerRequest,
+        _authority: &Value,
+        _payload: &Value,
+    ) -> Result<(), crate::AppServerError> {
+        Err(crate::AppServerError::MutationHeld {
+            message: "durable original response admission is unavailable".into(),
+        })
+    }
+
+    fn finish_response(
+        &self,
+        _owner: (&str, u64),
+        _request: &crate::ServerRequest,
+        _authority: &Value,
+        _payload: &Value,
+        _outcome: &str,
+    ) -> Result<(), crate::AppServerError> {
+        Err(crate::AppServerError::MutationHeld {
+            message: "durable original response completion is unavailable".into(),
+        })
+    }
+
+    fn begin_stop_mutation(
+        &self,
+        _owner: (&str, u64),
+        _request: (&str, &RequestId),
+        _params: &Value,
+        _claim: &Value,
+    ) -> Result<bool, crate::AppServerError> {
+        Err(crate::AppServerError::MutationHeld {
+            message: "durable fence does not support original stop control".into(),
+        })
+    }
+
+    fn finish_stop_mutation(
+        &self,
+        _owner: (&str, u64),
+        _request: (&str, &RequestId),
+        _outcome: &str,
+        _claim: &Value,
+    ) -> Result<(), crate::AppServerError> {
+        Err(crate::AppServerError::MutationHeld {
+            message: "durable stop completion is not supported".into(),
+        })
+    }
+
+    fn finish_mutation(
+        &self,
+        _owner: (&str, u64),
+        _request: (&str, &RequestId),
+        _outcome: &str,
+    ) -> Result<(), crate::AppServerError> {
+        Ok(())
+    }
+
     fn check_request(
         &self,
         _generation: u64,

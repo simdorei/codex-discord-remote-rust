@@ -10,6 +10,9 @@ use crate::{
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+mod response;
+pub(super) use response::{ResponseAttempt, ResponsePermit};
+
 pub(super) enum Prepared {
     Ready(Option<MutationPermit>),
     Completed(Value),
@@ -20,12 +23,38 @@ impl ResidentAppServer {
         &self,
         journal: Arc<dyn IdleReleaseJournal>,
     ) -> Result<(), AppServerError> {
-        self.target_gate.install(journal)
+        let tracked = journal.tracks_observations();
+        self.target_gate.install(journal)?;
+        if tracked {
+            self.state
+                .admit_response(self.generation())?
+                .client
+                .inner
+                .state
+                .lock()
+                .expect("runtime state lock")
+                .idle_ledger_required = true;
+        }
+        Ok(())
     }
 
     /// A gap only disqualifies optional release, never ordinary execution.
     pub fn mark_idle_observation_gap(&self) {
         self.target_gate.mark_gap();
+        if self
+            .target_gate
+            .journal()
+            .is_some_and(|journal| journal.tracks_observations())
+        {
+            self.target_gate.hold_unattributed_gap();
+        }
+        if let Some(journal) = self.target_gate.journal()
+            && journal.tracks_observations()
+            && let Err(error) =
+                journal.record_observation_gap(self.instance_id(), self.generation())
+        {
+            eprintln!("observation_gap_store_error error={error}; unsealed stream retained");
+        }
     }
 
     pub fn confirm_idle_observation(&self, generation: u64, notification: &crate::Notification) {
@@ -72,9 +101,24 @@ impl ResidentAppServer {
         params: &Value,
         generation: u64,
     ) -> Result<Prepared, AppServerError> {
+        self.prepare_mutation_checked(method, params, generation, None)
+            .await
+    }
+
+    pub(super) async fn prepare_mutation_checked(
+        &self,
+        method: &str,
+        params: &Value,
+        generation: u64,
+        check: Option<super::dispatch::DispatchCheck>,
+    ) -> Result<Prepared, AppServerError> {
+        if let Some(check) = &check {
+            check()?;
+        }
         if matches!(
             method,
             "thread/read"
+                | "thread/turns/list"
                 | "thread/goal/get"
                 | "thread/list"
                 | "thread/loaded/list"
@@ -101,7 +145,9 @@ impl ResidentAppServer {
                 } else {
                     json!({"threadId":token.thread_id})
                 };
-                let result = self.resubscribe_managed(permit, token, resume).await?;
+                let result = self
+                    .resubscribe_managed(permit, token, resume, check)
+                    .await?;
                 if method == "thread/resume" {
                     return Ok(Prepared::Completed(result));
                 }
@@ -146,19 +192,28 @@ impl ResidentAppServer {
         id: &RequestId,
         occurrence: ServerRequestOccurrence,
         generation: u64,
-    ) -> Result<Option<MutationPermit>, AppServerError> {
-        let params = {
+    ) -> Result<ResponsePermit, AppServerError> {
+        let original = {
             let state = client.inner.state.lock().expect("runtime state lock");
-            state
-                .server_response_candidate(id, occurrence)?
-                .params
-                .clone()
+            state.server_response_candidate(id, occurrence)?.clone()
         };
+        let authority = self
+            .dead_generation_fence
+            .as_ref()
+            .map(|fence| fence.response_authority((self.instance_id(), generation), &original))
+            .transpose()?
+            .flatten();
         match self
-            .prepare_mutation("server/response", &params, generation)
+            .prepare_mutation("server/response", &original.params, generation)
             .await?
         {
-            Prepared::Ready(permit) => Ok(permit),
+            // Preserve this exact occurrence's params across the target/writer
+            // waits. A final check must not silently become an unscoped one.
+            Prepared::Ready(permit) => Ok(ResponsePermit {
+                permit,
+                original,
+                authority,
+            }),
             Prepared::Completed(_) => Err(held("unexpected response admission")),
         }
     }

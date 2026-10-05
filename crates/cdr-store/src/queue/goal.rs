@@ -136,6 +136,9 @@ pub fn attach_goal_turn_observed_if_owned(
         "UPDATE codex_turn_queue SET turn_id=?, turn_observation_generation=?, goal_waiting=0, updated_at=? WHERE job_id=?",
         params![turn_id, observation_generation, now()?, expected.job_id],
     )?;
+    if changed == 1 {
+        crate::async_resolution::handoff_owned_in(&transaction, expected)?;
+    }
     transaction.commit()?;
     Ok(changed == 1)
 }

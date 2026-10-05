@@ -122,6 +122,8 @@ impl MessageCandidate {
             &self.frozen_plan,
             Ok(MessagePlan::Execute(
                 crate::command_plan::CommandAction::ForceRestartCodex
+                    | crate::command_plan::CommandAction::Recover { .. }
+                    | crate::command_plan::CommandAction::Repair { .. }
             ))
         )
     }
@@ -209,6 +211,22 @@ where
         mentioned_user_ids,
         required_plain_ask_user_ids: config.plain_ask_mention_user_ids.clone(),
     });
+    if let Ok(MessagePlan::Execute(crate::command_plan::CommandAction::DiscardRequest { job_id })) =
+        &frozen_plan
+    {
+        let target = cdr_store::async_resolution::abandonment::command_target(
+            database,
+            job_id,
+            stored_channel_id,
+            i64::try_from(user_id).map_err(|_| MessageAdmissionError::IntegerRange)?,
+        )?;
+        if routing_target.as_deref() != Some(target.as_str()) {
+            return Err(cdr_store::StoreError::Integrity(
+                "discard-request mapping changed during classification; no proposal created".into(),
+            )
+            .into());
+        }
+    }
     match frozen_plan {
         Ok(MessagePlan::Ignore(reason)) => Ok(MessageClassification::Ignore(IgnoredMessage {
             reason,

@@ -67,6 +67,8 @@ impl MessageCustody {
     }
 
     pub(super) fn begin(&mut self, target: Option<&str>) -> Result<(), StoreError> {
+        #[cfg(test)]
+        let _timing = crate::test_support::path_timing::PhaseTimer::new("custody.begin");
         if !begin_execution(&self.database, &self.key, "processing", target, now()?)? {
             return Err(StoreError::Integrity(
                 "message custody is no longer executable".into(),

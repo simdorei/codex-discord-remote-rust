@@ -39,7 +39,9 @@ pub fn persistent_component_claim_key(message_id: u64, component: &ComponentId) 
                 request_fingerprint,
             ));
         }
-        ComponentId::Busy { .. } => return None,
+        ComponentId::Busy { .. }
+        | ComponentId::RecoveryPublicationDecision { .. }
+        | ComponentId::RecoveryAbandonDecision { .. } => return None,
     };
     Some(hex::encode(Sha256::digest(
         format!("{kind}:{message_id}").as_bytes(),

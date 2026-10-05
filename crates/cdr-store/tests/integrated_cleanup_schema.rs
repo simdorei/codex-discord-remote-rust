@@ -95,6 +95,18 @@ fn old_feature_shapes_migrate_without_discarding_existing_work() {
         candidate(&db);
         reserve_policy::ensure(&db, "thread").unwrap();
         let connection = open_initialized(&db).unwrap();
+        // These guards did not exist in either historical parent. Remove their
+        // dependencies before manufacturing the old column/table shape, then
+        // require migration to recreate every guard below.
+        connection
+            .execute_batch(
+                "DROP TRIGGER cdr_async_obligation_question;
+             DROP TRIGGER cdr_async_obligation_queue_delete;
+             DROP TRIGGER cdr_async_source_seal_immutable;
+             DROP TRIGGER cdr_async_uncopied_origin_guard;
+             DROP TRIGGER cdr_async_obligation_attempt;",
+            )
+            .unwrap();
         connection.execute_batch("CREATE TABLE foreign_sentinel(value TEXT); INSERT INTO foreign_sentinel VALUES('keep'); ALTER TABLE codex_observed_completions DROP COLUMN resident_owner; ALTER TABLE cdr_async_questions DROP COLUMN preparation_json;").unwrap();
         if source == "reserve-parent" {
             connection.execute_batch("DROP TABLE cdr_async_questions; DROP TABLE cdr_async_question_inbox; DROP TABLE cdr_idle_release;").unwrap();
@@ -103,6 +115,20 @@ fn old_feature_shapes_migrate_without_discarding_existing_work() {
         }
         drop(connection);
         let upgraded = open_initialized(&db).unwrap();
+        let guards: i64 = upgraded
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name IN (
+             'cdr_async_obligation_question','cdr_async_obligation_queue_delete',
+             'cdr_async_source_seal_immutable','cdr_async_uncopied_origin_guard',
+             'cdr_async_obligation_attempt')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            guards, 5,
+            "{source}: migration must restore every safety guard"
+        );
         let count:i64=upgraded.query_row("SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ('cdr_idle_release','cdr_async_questions','cdr_async_question_inbox','codex_reserve_policy','codex_reserve_start_notices','codex_reserve_transition_notices','cdr_archived_cleanup_evidence')",[],|r|r.get(0)).unwrap();
         assert_eq!(count, 7, "{source}");
         assert_eq!(

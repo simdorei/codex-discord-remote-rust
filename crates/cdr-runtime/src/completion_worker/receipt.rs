@@ -39,6 +39,8 @@ pub(crate) async fn send_chunk_guarded(
     guard: Option<&cdr_store::new_reply::DeliveryGuard<'_>>,
 ) -> Result<(), CompletionWorkerError> {
     // Validate before recording an attempt: malformed content was never sent.
+    #[cfg(test)]
+    let mut timing = crate::test_support::path_timing::PhaseTimer::new("receipt");
     let request = idempotent_message_request_with_components(
         channel,
         &chunk.content,
@@ -70,6 +72,8 @@ pub(crate) async fn send_chunk_guarded(
             ReceiptState::RejectedBlocked(reason) => return Err(CompletionWorkerError::Delivery(format!("Discord delivery requires correction; no new request sent: {reason}"))),
             ReceiptState::New => {},
         }
+    #[cfg(test)]
+    timing.mark("before_http");
     let message = match async {
         let receipt = http.request::<Message>(request).await?.model().await?;
         Ok::<_, IdempotentMessageError>(receipt.id.to_string())
@@ -93,6 +97,8 @@ pub(crate) async fn send_chunk_guarded(
             )));
         }
     };
+    #[cfg(test)]
+    timing.mark("http_returned");
     if !delivery_receipt::confirm(db, &key, &message)? {
         return Err(CompletionWorkerError::Delivery("Discord accepted message but its receipt could not be committed; automatic resend held".into()));
     }

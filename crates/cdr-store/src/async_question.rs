@@ -24,6 +24,7 @@ pub use retention::{compact_terminal, retire_old_owner, supersede};
 pub(crate) use schema::{migrate_schema, schema_current};
 
 pub const DELIVERY_DOMAIN: &str = "async-question-v1";
+pub const ANSWER_PREFIX: &str = "The user answered exactly this earlier async question through Discord. Apply this selection only to this question; other questions remain unanswered.";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QuestionBody {
@@ -59,11 +60,27 @@ pub fn occurrence_id(thread: &str, turn: &str, item: &str, index: usize) -> Resu
     ))?)))
 }
 
+pub fn answer_prompt(q: &Question, option: usize) -> Result<String> {
+    let selected = q
+        .body
+        .options
+        .get(option)
+        .ok_or_else(|| invalid("invalid sealed answer option"))?;
+    let data = serde_json::json!({"thread_id":q.thread_id,"original_turn_id":q.turn_id,
+        "question_item_id":q.item_id,"question_index":q.body.index,"question_title":q.body.title,
+        "selected_option_index":option,"selected_option":selected});
+    Ok(format!("{ANSWER_PREFIX}\n{data}"))
+}
+
 pub fn get(path: &Path, id: &str) -> Result<Question> {
     read(&open_initialized(path)?, id)
 }
 
 pub fn target_dispatch_held(path: &Path, thread: &str) -> Result<bool> {
+    if crate::async_resolution::admission_held(path, thread)? {
+        return Ok(true);
+    }
+
     dispatch_held_in(&open_initialized(path)?, thread)
 }
 
@@ -71,7 +88,7 @@ pub(crate) fn dispatch_held_in(db: &Connection, thread: &str) -> Result<bool> {
     Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM cdr_async_questions WHERE thread_id=? AND dispatch_mode='start' AND state='dispatching')",[thread],|r|r.get(0))?)
 }
 
-fn read(db: &Connection, id: &str) -> Result<Question> {
+pub(crate) fn read(db: &Connection, id: &str) -> Result<Question> {
     let (mut q, payload): (Question, String) = db.query_row(
         "SELECT runtime_id,generation,thread_id,turn_id,item_id,origin_job_id,channel_id,owner_user_id,body,state,message_id,chosen,reply_job_id,error FROM cdr_async_questions WHERE id=?",
         [id], |r| Ok((Question {

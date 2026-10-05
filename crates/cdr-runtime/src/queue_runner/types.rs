@@ -151,6 +151,34 @@ pub trait TurnBackend: Send + Sync + 'static {
     }
     fn active_turn_id<'a>(&'a self, thread_id: &'a str) -> BoxBackendFuture<'a, Option<String>>;
     fn read_turns<'a>(&'a self, thread_id: &'a str) -> BoxBackendFuture<'a, Vec<TurnRecord>>;
+    /// Optional read-only historical evidence. Never falls back to resume/start.
+    fn read_async_history<'a>(
+        &'a self,
+        _thread_id: &'a str,
+        _originals: &'a [String],
+    ) -> BoxBackendFuture<'a, Option<serde_json::Value>> {
+        Box::pin(async { Ok(None) })
+    }
+    /// Separate authority read; absence of support never settles execution.
+    fn read_async_terminal<'a>(
+        &'a self,
+        _thread_id: &'a str,
+        _owners: &'a [String],
+    ) -> BoxBackendFuture<'a, Option<serde_json::Value>> {
+        Box::pin(async { Ok(None) })
+    }
+    /// Native connection-bound evidence; untyped legacy history is not a fallback.
+    fn read_recovery_prerequisites<'a>(
+        &'a self,
+        _thread_id: &'a str,
+        _owners: &'a [String],
+    ) -> BoxBackendFuture<'a, cdr_app_server::NativeRecoveryObservation> {
+        Box::pin(async {
+            Err(BackendFailure::definite(
+                "native recovery observation is unsupported",
+            ))
+        })
+    }
     fn resume_thread<'a>(&'a self, thread_id: &'a str) -> BoxBackendFuture<'a, ()>;
     fn fork_thread<'a>(&'a self, _thread_id: &'a str) -> BoxBackendFuture<'a, String> {
         Box::pin(async {
@@ -164,6 +192,15 @@ pub trait TurnBackend: Send + Sync + 'static {
         thread_id: &'a str,
         prompt: &'a str,
     ) -> BoxBackendFuture<'a, String>;
+
+    /// Carry the original durable claim across backend waits. Legacy backends
+    /// keep their existing API; resident backends validate it at the writer.
+    fn start_claimed_turn<'a>(
+        &'a self,
+        claimed: &'a cdr_store::queue::StoredQueueJob,
+    ) -> BoxBackendFuture<'a, String> {
+        self.start_turn(&claimed.target_thread_id, &claimed.prompt)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

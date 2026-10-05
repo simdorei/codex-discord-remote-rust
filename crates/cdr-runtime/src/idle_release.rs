@@ -12,10 +12,22 @@ use std::{
 pub(crate) fn install(server: &ResidentAppServer, path: &Path) -> Result<(), AppServerError> {
     // Validate schema/holds at cold start. Never clear an old owner's rows here.
     store::pending(path).map_err(error)?;
+    cdr_store::observation_gap::activate(
+        path,
+        &cdr_store::observation_gap::Scope {
+            owner_id: server.instance_id().to_owned(),
+            generation: i64::try_from(server.generation()).map_err(error)?,
+        },
+    )
+    .map_err(error)?;
     server.install_idle_release_journal(Arc::new(Journal(path.to_owned())))
 }
 
 struct Journal(PathBuf);
+
+#[cfg(test)]
+#[path = "idle_release/observation_gap_tests.rs"]
+mod observation_gap_tests;
 
 fn error(e: impl std::fmt::Display) -> AppServerError {
     AppServerError::IdleRelease {
@@ -52,6 +64,52 @@ fn intent(t: &IdleReleaseToken) -> Result<Intent, AppServerError> {
 }
 
 impl IdleReleaseJournal for Journal {
+    fn tracks_observations(&self) -> bool {
+        true
+    }
+    fn record_observation_gap(&self, owner: &str, generation: u64) -> Result<(), AppServerError> {
+        cdr_store::observation_gap::mark_unknown(
+            &self.0,
+            &cdr_store::observation_gap::Scope {
+                owner_id: owner.to_owned(),
+                generation: i64::try_from(generation).map_err(error)?,
+            },
+            "unscoped observation failure; no source range proof",
+        )
+        .map_err(error)
+    }
+    fn observe_source_upper(
+        &self,
+        owner: &str,
+        generation: u64,
+        upper: u64,
+    ) -> Result<(), AppServerError> {
+        cdr_store::observation_gap::discover(
+            &self.0,
+            &cdr_store::observation_gap::Scope {
+                owner_id: owner.to_owned(),
+                generation: i64::try_from(generation).map_err(error)?,
+            },
+            i64::try_from(upper).map_err(error)?,
+        )
+        .map_err(error)
+    }
+    fn observation_scope_verified(
+        &self,
+        owner: &str,
+        generation: u64,
+        through: u64,
+    ) -> Result<bool, AppServerError> {
+        cdr_store::observation_gap::scope_verified(
+            &self.0,
+            &cdr_store::observation_gap::Scope {
+                owner_id: owner.to_owned(),
+                generation: i64::try_from(generation).map_err(error)?,
+            },
+            i64::try_from(through).map_err(error)?,
+        )
+        .map_err(error)
+    }
     fn before_mutation(
         &self,
         owner: &str,
@@ -83,7 +141,7 @@ impl IdleReleaseJournal for Journal {
         Ok(())
     }
     fn verify(&self, t: &IdleReleaseToken, require_idle: bool) -> Result<(), AppServerError> {
-        store::verify(&self.0, &intent(t)?, require_idle).map_err(error)
+        store::verify_with_observations(&self.0, &intent(t)?, require_idle).map_err(error)
     }
     fn resume_required(&self, thread: &str) -> Result<bool, AppServerError> {
         if store::get(&self.0, thread)

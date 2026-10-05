@@ -20,6 +20,10 @@ mod busy;
 mod busy_preflight_tests;
 mod confirmation;
 mod failure;
+mod recovery_abandonment;
+mod recovery_publication;
+#[cfg(test)]
+mod recovery_publication_tests;
 mod response;
 mod standard;
 
@@ -50,20 +54,39 @@ pub struct PreparedComponentConfirmation {
 
 impl PreparedComponentConfirmation {
     pub async fn deliver(self, http: Arc<Client>) -> Result<(), ComponentWorkerError> {
-        deliver_confirmation_and_clear(
+        let delivery = deliver_confirmation_and_clear(
             http,
             &self.database,
             self.channel_id,
             self.source_message_id,
             &self.plan,
-        )
-        .await?;
+        );
+        if self.plan.domain == recovery_abandonment::CONFIRMATION_DOMAIN {
+            tokio::time::timeout(std::time::Duration::from_secs(10), delivery)
+                .await
+                .map_err(|_| {
+                    ComponentWorkerError::AbandonmentNotice(
+                        "notification timed out; its receipt must be reconciled".into(),
+                    )
+                })?
+                .map_err(|error| ComponentWorkerError::AbandonmentNotice(error.to_string()))?;
+        } else {
+            delivery.await?;
+        }
         Ok(())
     }
 }
 
 #[derive(Debug, Error)]
 pub enum ComponentWorkerError {
+    #[error("saved-request disposition held: {0}")]
+    Abandonment(String),
+    #[error(
+        "saved-request decision is recorded; notification incomplete, without request replay: {0}"
+    )]
+    AbandonmentNotice(String),
+    #[error("publication consent was not recorded: {0}")]
+    PublicationConsent(String),
     #[error("{0}")]
     AsyncQuestion(String),
     #[error("component interaction did not include its source Discord message")]
@@ -129,7 +152,11 @@ pub async fn handle_component_work<B: TurnBackend>(
     executor: &ActionExecutor<B>,
     server: &ResidentAppServer,
 ) -> Result<PreparedComponentConfirmation, ComponentWorkerError> {
-    let plan = if let ComponentId::AsyncChoice {
+    let plan = if matches!(component, ComponentId::RecoveryAbandonDecision { .. }) {
+        recovery_abandonment::handle(work, component, executor).await?
+    } else if matches!(component, ComponentId::RecoveryPublicationDecision { .. }) {
+        recovery_publication::handle(work, component, executor).await?
+    } else if let ComponentId::AsyncChoice {
         question_id,
         option,
     } = component

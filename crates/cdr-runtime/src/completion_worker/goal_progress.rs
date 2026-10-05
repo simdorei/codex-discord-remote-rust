@@ -36,6 +36,7 @@ impl CompletionWorker {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) async fn recover_goal_progress(&self) -> Result<(), CompletionWorkerError> {
         let mut first = None;
         for pending in goal_progress::pending(self.queue.db_path())? {

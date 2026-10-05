@@ -11,6 +11,82 @@ use super::{
 use crate::restart_readiness::drain::{AdmissionGate, DrainFenceKey};
 
 #[test]
+fn repair_uses_control_admission_and_deduplicates_during_closed_drain() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("mirror.sqlite");
+    let gate = AdmissionGate::new();
+    let fence = DrainFenceKey::new("runtime-a", "42|99", "repair").unwrap();
+    gate.seal(&fence).unwrap();
+    gate.close_controls(&fence).unwrap();
+    let now = UNIX_EPOCH + Duration::from_secs(800);
+    let prepare = || {
+        prepare_message_create_at_with_gate(
+            message(960, "!repair"),
+            None,
+            &config(),
+            &database,
+            now,
+            &gate,
+            true,
+        )
+        .unwrap_or_else(|_| panic!("repair classification failed"))
+    };
+    assert!(matches!(prepare(), PreparedMessage::Admitted(_, None)));
+    assert!(matches!(prepare(), PreparedMessage::Duplicate));
+}
+
+#[test]
+fn writer_recovery_ignores_closed_drain_but_preserves_authorization_and_deduplication() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("mirror.sqlite");
+    let gate = AdmissionGate::new();
+    let fence = DrainFenceKey::new("runtime-a", "42|99", "writer-recovery").unwrap();
+    gate.seal(&fence).unwrap();
+    gate.close_controls(&fence).unwrap();
+    let now = UNIX_EPOCH + Duration::from_secs(800);
+    let config = config();
+    let first = prepare_message_create_at_with_gate(
+        message(950, "!recover"),
+        None,
+        &config,
+        &database,
+        now,
+        &gate,
+        true,
+    )
+    .unwrap_or_else(|_| panic!("recovery classification failed"));
+    assert!(matches!(first, PreparedMessage::Admitted(_, None)));
+    assert!(matches!(
+        prepare_message_create_at_with_gate(
+            message(950, "!recover"),
+            None,
+            &config,
+            &database,
+            now,
+            &gate,
+            true
+        )
+        .unwrap_or_else(|_| panic!("recovery classification failed")),
+        PreparedMessage::Duplicate
+    ));
+    let mut forbidden = config.clone();
+    forbidden.allowed_user_ids = [99].into();
+    assert!(matches!(
+        prepare_message_create_at_with_gate(
+            message(951, "!recover"),
+            None,
+            &forbidden,
+            &database,
+            now,
+            &gate,
+            true
+        )
+        .unwrap_or_else(|_| panic!("recovery classification failed")),
+        PreparedMessage::Ignore("user_not_allowed", _, _)
+    ));
+}
+
+#[test]
 fn force_restart_ignores_closed_drain_but_keeps_auth_and_deduplication() {
     let temp = tempfile::tempdir().unwrap();
     let database = temp.path().join("mirror.sqlite");

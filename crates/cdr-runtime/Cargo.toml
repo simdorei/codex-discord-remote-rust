@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+test-writer-faults = ["cdr-app-server/test-writer-faults"]
+
 [dependencies]
 chrono.workspace = true
 cdr-app-server.workspace = true
@@ -41,6 +44,10 @@ path = "src/main.rs"
 [[bin]]
 name = "cdr-offline-soak"
 path = "src/bin/cdr-offline-soak.rs"
+
+[[test]]
+name = "stop_writer_fault_contract"
+required-features = ["test-writer-faults"]
 
 [lints]
 workspace = true

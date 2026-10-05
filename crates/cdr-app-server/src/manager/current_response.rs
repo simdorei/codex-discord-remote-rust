@@ -15,6 +15,12 @@ impl ResidentAppServer {
         let permit = self
             .response_permit(&admission.client, id, occurrence, admission.generation)
             .await?;
+        let attempt = super::target_mutation::ResponseAttempt::new(
+            self,
+            admission.generation,
+            permit,
+            crate::rpc::response_value(id, &result),
+        );
         let mut written = self.state.track_written_request(admission.generation);
         let result = admission
             .client
@@ -22,20 +28,14 @@ impl ResidentAppServer {
                 id,
                 occurrence,
                 result,
+                || attempt.begin(),
                 || {
-                    self.check_actual_mutation(
-                        permit.as_ref(),
-                        admission.generation,
-                        "server/response",
-                        &Value::Null,
-                    )
-                },
-                || {
+                    attempt.write_started();
                     written.confirm_write_started();
                 },
             )
             .await;
         written.finish(&result);
-        result
+        attempt.finish(result)
     }
 }

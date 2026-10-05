@@ -30,6 +30,8 @@ mod prompt_intake;
 mod queue_actions;
 mod queue_result;
 mod queue_submission;
+mod recovery_custody;
+mod repair_action;
 mod resume_action;
 mod retract_action;
 mod runner_target;
@@ -38,9 +40,12 @@ mod selection;
 mod service_actions;
 pub(crate) mod settings_action;
 mod settings_custody;
+mod stop_action;
+mod stop_worker;
 mod target_resolution;
 mod types;
 mod usage_format;
+mod writer_recovery_action;
 
 use format::{HELP, immediate};
 pub use types::{ActionContext, ActionError, ActionResult, ActionUi};
@@ -56,6 +61,8 @@ pub struct ActionExecutor<B: TurnBackend> {
     archive_delete_paths: ArchiveDeletePaths,
     prompt_preprocessor: Option<Arc<dyn PromptPreprocessor>>,
     mirror_sync: std::sync::OnceLock<crate::mirror_sync::MirrorSynchronizer>,
+    #[cfg(test)]
+    recovery_root: Option<PathBuf>,
 }
 
 impl<B: TurnBackend> ActionExecutor<B> {
@@ -90,6 +97,8 @@ impl<B: TurnBackend> ActionExecutor<B> {
             archive_delete_paths,
             prompt_preprocessor: None,
             mirror_sync: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            recovery_root: None,
         }
     }
 
@@ -205,6 +214,11 @@ impl<B: TurnBackend> ActionExecutor<B> {
             CommandAction::SavedRequest { request_id } => {
                 immediate(self.saved_request_message(channel_id, user_id, &request_id)?)
             }
+            CommandAction::DiscardRequest { .. } => {
+                return Err(ActionError::Invalid(
+                    "discard-request requires authenticated message custody and live normal admission".into(),
+                ));
+            }
             CommandAction::Doctor => return self.doctor().await,
             CommandAction::MirrorCheck => {
                 return self.inspect_mirror(channel_id, None, false).await;
@@ -222,7 +236,15 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 return self.open_thread(&reference, abort).await;
             }
             CommandAction::Stop { reference } => {
-                return self.stop_thread(channel_id, reference.as_deref()).await;
+                return self.stop_thread(context, reference.as_deref()).await;
+            }
+            CommandAction::Recover { reference } => {
+                return self.recover_writer(context, reference.as_deref()).await;
+            }
+            CommandAction::Repair { reference } => {
+                return self
+                    .repair_tools(context.channel_id, reference.as_deref())
+                    .await;
             }
             CommandAction::SettingsOptions { reference, field } => {
                 return self

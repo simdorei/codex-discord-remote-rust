@@ -21,6 +21,9 @@ async fn fixture(temp: &tempfile::TempDir) -> CompletionWorker {
     crate::idle_release::install(&server, worker.queue.db_path()).unwrap();
     worker.server = server;
     goal_handoff_tests::setup_running(&worker);
+    // That shared fixture inserts a legacy synthetic terminal. This protocol
+    // fixture must instead journal its actual native occurrence and resident.
+    cdr_store::observed_completion::finish(worker.queue.db_path(), "thread", "T1").unwrap();
     let mut notifications = worker.server.subscribe_notifications();
     worker
         .server
@@ -45,6 +48,30 @@ async fn fixture(temp: &tempfile::TempDir) -> CompletionWorker {
     } else {
         panic!("terminal witness missing");
     }
+    // A RAM acknowledgement alone is no longer a durable idle certificate.
+    // Use the original native window and production required-effect checks
+    // before consuming the Running owner in the completion transaction.
+    let scope = observation_gap::scope(&worker).unwrap();
+    let page = worker
+        .server
+        .observation_window(worker.server.generation(), 0, None)
+        .unwrap();
+    observation_gap::discover(&worker, &scope, &page).unwrap();
+    for event in &page.events {
+        observation_gap::certify_event(
+            &worker,
+            &scope,
+            event.sequence,
+            event.notification.as_ref().unwrap(),
+        )
+        .unwrap();
+    }
+    assert!(
+        worker
+            .server
+            .reconcile_idle_observation_prefix(worker.server.generation(), page.upper)
+            .unwrap()
+    );
     worker
         .queue
         .stage_turn_completion_on_generation("thread", "T1", "Final A", 1)

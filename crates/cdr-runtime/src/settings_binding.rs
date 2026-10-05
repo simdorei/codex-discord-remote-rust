@@ -65,7 +65,11 @@ impl SettingsTargetResolver {
         action: &CommandAction,
         channel: u64,
     ) -> Result<Option<SettingsBinding>, ActionError> {
-        let (CommandAction::Archive { reference } | CommandAction::Resume { reference }) = action
+        let (CommandAction::Archive { reference }
+        | CommandAction::Resume { reference }
+        | CommandAction::Recover { reference }
+        | CommandAction::Repair { reference }
+        | CommandAction::Stop { reference }) = action
         else {
             return Ok(None);
         };
@@ -129,6 +133,20 @@ impl SettingsTargetResolver {
         channel: u64,
     ) -> Result<(), ActionError> {
         self.validate_route(binding, channel, "lifecycle")
+    }
+
+    pub(crate) fn validate_selected_snapshot(
+        &self,
+        binding: &SettingsBinding,
+    ) -> Result<(), ActionError> {
+        if binding.route == SettingsRoute::Selected
+            && self.bridge.selected_thread_id()?.as_deref() != Some(binding.target.as_str())
+        {
+            return Err(ActionError::Invalid(
+                "selected target changed after admission; no replacement will be used".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn validate_route(

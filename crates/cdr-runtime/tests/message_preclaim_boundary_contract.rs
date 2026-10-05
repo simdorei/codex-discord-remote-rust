@@ -45,7 +45,12 @@ fn mpb_05_gateway_classifies_once_before_admission_and_never_reports_boundary_er
     assert_eq!(handler.matches("classify_gateway_message(").count(), 1);
     assert!(prepare.contains("map_err(MessageCreateBoundaryError::Admission)?"));
     assert!(!prepare.contains("report_processing_error("));
-    assert!(dispatch.contains("let(admitted,_admission_permit)=matchprepare()?"));
+    assert!(dispatch.contains("let(admitted,admission_permit)=matchprepare()?"));
+    let retained = position(
+        dispatch,
+        "letadmitted=admitted.retain_admission(admission_permit.as_ref());",
+    );
+    assert!(retained < position(dispatch, "process_with_error_report("));
 
     assert!(
         dispatch.contains("process_with_error_report(report_target,admitted,process,report).await")

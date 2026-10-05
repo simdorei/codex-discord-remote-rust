@@ -110,6 +110,30 @@ pub fn record_result(path: &Path, key: &str, outcome: &Value, now: f64) -> Resul
         return Err(StoreError::RequestCancelled(key.into()));
     }
     let mut outcome = outcome.clone();
+    let stop_receipt = if record.phase == "stop_accepted" {
+        Some(
+            record
+                .outcome
+                .as_ref()
+                .filter(|value| value.is_object())
+                .ok_or_else(|| {
+                    StoreError::Integrity("stop acceptance evidence is missing".into())
+                })?,
+        )
+    } else {
+        record
+            .outcome
+            .as_ref()
+            .and_then(|value| value.get("stop_receipt"))
+    };
+    if let Some(saved) = stop_receipt {
+        if !outcome.is_object() {
+            return Err(StoreError::Integrity(
+                "result must preserve stop acceptance evidence".into(),
+            ));
+        }
+        outcome["stop_receipt"] = saved.clone();
+    }
     for field in ["new_creation", "new_verification", "new_input"] {
         if let Some(saved) = record.outcome.as_ref().and_then(|value| value.get(field)) {
             if !outcome.is_object() {

@@ -207,6 +207,28 @@ impl Default for AdmissionGate {
     }
 }
 
+impl AdmissionPermit {
+    /// A recovery publication cannot race a maintenance seal. This is deliberately
+    /// stricter than ordinary control admission during a drain. Keep only a bounded
+    /// synchronous final commit inside; no DB acquisition, await or nested gate use.
+    pub(crate) fn with_unsealed<R>(&self, action: impl FnOnce() -> R) -> Result<R, DrainGateError> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| DrainGateError::LockPoisoned)?;
+        if state.sealed.is_some() {
+            return Err(DrainGateError::Sealed);
+        }
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action));
+        drop(state);
+        match outcome {
+            Ok(value) => Ok(value),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+}
+
 impl Clone for AdmissionPermit {
     fn clone(&self) -> Self {
         if let Ok(mut state) = self.inner.state.lock() {

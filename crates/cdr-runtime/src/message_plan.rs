@@ -59,13 +59,15 @@ pub fn plan_message(input: &IncomingMessage<'_>) -> Result<MessagePlan, MessageP
     }
 
     let content = input.content.trim();
-    if input.author_is_bot && cdr_discord::gateway::ingress::is_force_restart_message(content) {
+    if input.author_is_bot && cdr_discord::gateway::ingress::is_emergency_message(content) {
         return Ok(MessagePlan::Ignore("force_restart_requires_human"));
     }
     if let Some(command) = content.strip_prefix('!') {
-        return Ok(MessagePlan::Execute(prefix_to_command(plan_prefix(
-            command,
-        )?)?));
+        let action = prefix_to_command(plan_prefix(command)?)?;
+        if input.author_is_bot && matches!(action, CommandAction::DiscardRequest { .. }) {
+            return Ok(MessagePlan::Ignore("discard_request_requires_human"));
+        }
+        return Ok(MessagePlan::Execute(action));
     }
 
     let mut prompt = content.to_owned();
@@ -131,6 +133,7 @@ fn prefix_to_command(action: PrefixAction) -> Result<CommandAction, MessagePlanE
         PrefixAction::Usage { days } => CommandAction::Usage { days },
         PrefixAction::Runners => CommandAction::Runners,
         PrefixAction::SavedRequest { request_id } => CommandAction::SavedRequest { request_id },
+        PrefixAction::DiscardRequest { job_id } => CommandAction::DiscardRequest { job_id },
         PrefixAction::Retract { reference } => CommandAction::Retract { reference },
         PrefixAction::BridgeSync { limit } => CommandAction::BridgeSync {
             limit: limit.map(i64::from),
@@ -139,6 +142,8 @@ fn prefix_to_command(action: PrefixAction) -> Result<CommandAction, MessagePlanE
         PrefixAction::New { prompt } => CommandAction::New { prompt },
         PrefixAction::Open { reference, abort } => CommandAction::Open { reference, abort },
         PrefixAction::Stop { reference } => CommandAction::Stop { reference },
+        PrefixAction::Recover { reference } => CommandAction::Recover { reference },
+        PrefixAction::Repair { reference } => CommandAction::Repair { reference },
         PrefixAction::SettingsOptions { reference, field } => {
             CommandAction::SettingsOptions { reference, field }
         }

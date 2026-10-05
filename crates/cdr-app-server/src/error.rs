@@ -15,6 +15,10 @@ pub struct RpcErrorPayload {
 
 #[derive(Debug, Error)]
 pub enum AppServerError {
+    #[error("mutation execution held: {message}")]
+    MutationHeld { message: String },
+    #[error("app-server mutation {method} outcome remains unknown: {reason}")]
+    MutationOutcomeUnknown { method: String, reason: String },
     #[error("idle subscription release: {message}")]
     IdleRelease { message: String },
     #[error("dead app-server work could not be durably fenced: {message}")]

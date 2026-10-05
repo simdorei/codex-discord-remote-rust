@@ -83,10 +83,14 @@ pub(super) fn stage(
             "settings_binding":settings.binding,
             "request_rejection":settings.rejection,
         }),
-        target_thread_id: settings
-            .binding
-            .as_ref()
-            .map(|binding| binding.target.clone()),
+        target_thread_id: abandonment_target(database, request)?
+            .or(publication_target(database, request)?)
+            .or_else(|| {
+                settings
+                    .binding
+                    .as_ref()
+                    .map(|binding| binding.target.clone())
+            }),
         canonical_owner: Some(canonical_owner),
         now: now()?,
     };
@@ -115,6 +119,77 @@ pub(super) fn stage(
         },
     };
     from_admission(database, admission, busy.is_some())
+}
+
+fn publication_target(
+    database: &Path,
+    request: &StageRequest<'_>,
+) -> Result<Option<String>, StoreError> {
+    let RoutedWork::Component(ComponentId::RecoveryPublicationDecision {
+        proposal_id,
+        revision,
+        ..
+    }) = request.work
+    else {
+        return Ok(None);
+    };
+    let binding = cdr_store::async_resolution::publication::delivered_proposal(
+        database,
+        proposal_id,
+        *revision,
+    )?;
+    binding.require_actor(
+        to_i64(request.application_id, "application")?,
+        to_i64(request.channel_id, "channel")?,
+        to_i64(request.user_id, "user")?,
+        to_i64(
+            request.source_message_id.ok_or_else(|| {
+                StoreError::Integrity("publication component has no source message".into())
+            })?,
+            "source message",
+        )?,
+    )?;
+    Ok(Some(binding.proposal.thread_id))
+}
+
+fn abandonment_target(
+    database: &Path,
+    request: &StageRequest<'_>,
+) -> Result<Option<String>, StoreError> {
+    use cdr_discord::components::AbandonDecision;
+    use cdr_store::async_resolution::abandonment as store;
+    let RoutedWork::Component(ComponentId::RecoveryAbandonDecision {
+        proposal_id,
+        revision,
+        decision,
+    }) = request.work
+    else {
+        return Ok(None);
+    };
+    let decision = match decision {
+        AbandonDecision::AbandonOnly => store::Decision::AbandonOnly,
+        AbandonDecision::KeepHeld => store::Decision::KeepHeld,
+    };
+    let binding = store::authorize_decision(
+        database,
+        &store::DecisionRouteInput {
+            proposal_id,
+            revision: *revision,
+            decision,
+            interaction_id: to_i64(request.interaction_id, "interaction")?,
+            application_id: to_i64(request.application_id, "application")?,
+            channel_id: to_i64(request.channel_id, "channel")?,
+            owner_user_id: to_i64(request.user_id, "user")?,
+            source_message_id: to_i64(
+                request.source_message_id.ok_or_else(|| {
+                    StoreError::Integrity("abandonment component has no source message".into())
+                })?,
+                "source message",
+            )?,
+            now: now()?,
+        },
+    )?;
+    Ok(Some(binding.proposal.thread_id))
 }
 
 fn from_admission(

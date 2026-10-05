@@ -34,6 +34,14 @@ impl Args {
             "list-threads" => &["--limit"],
             "archive-thread" => &["--thread-id"],
             "inspect-new-first-reply" => &["--database", "--job-id"],
+            "recover-writer" | "recover-tools" => &[
+                "--thread-id",
+                "--channel-id",
+                "--owner-user-id",
+                "--dry-run",
+            ],
+            "inspect-async-recovery" => &["--database", "--thread-id", "--dry-run"],
+            "check-recovery-compatibility" => &["--database", "--env"],
             "send-attachment" => &[
                 "--channel-id",
                 "--thread-ref",

@@ -1,11 +1,14 @@
 use cdr_store::prompt_intake::{PromptIntakeClaim, promote_prompt_intake_to_queue};
 use cdr_store::queue::{
-    ExpectedMirrorMapping, NewQueueJob, QueueJobState, enqueue, enqueue_if_mirror_matches,
-    list_filtered,
+    ExpectedMirrorMapping, NewQueueJob, QueueJobState, StoredQueueJob, enqueue,
+    enqueue_if_mirror_matches, list_filtered,
 };
 use uuid::Uuid;
 
-use super::{QueueCoordinator, QueueRunnerError, Submission, TurnBackend, generation_i64, id_i64};
+use super::{
+    BackendFailure, BackendFailureKind, QueueCoordinator, QueueRunnerError, Submission,
+    TurnBackend, generation_i64, id_i64,
+};
 
 pub(super) struct SubmissionRequest<'a> {
     pub(super) job_id: &'a str,
@@ -150,15 +153,19 @@ impl<B: TurnBackend> QueueCoordinator<B> {
             enqueue(&self.db_path, new_job)?
         };
         if !enqueued.created {
-            return Ok(super::retry::replay_existing(enqueued.job));
+            return self.present_saved_submission(enqueued.job);
         }
         if needs_generation_recovery {
-            return Ok(Submission {
-                job_id: enqueued.job.job_id,
-                queued: true,
-                turn_id: None,
-                warning: None,
-            });
+            return self.with_target_hold(
+                request.target_thread_id,
+                Submission {
+                    job_id: enqueued.job.job_id,
+                    queued: true,
+                    turn_id: None,
+                    warning: None,
+                },
+                false,
+            );
         }
         let started = match self
             .start_next_locked(request.target_thread_id, generation)
@@ -176,7 +183,7 @@ impl<B: TurnBackend> QueueCoordinator<B> {
                 if let Some(job) = current
                     && !job.last_error.is_empty()
                 {
-                    return Ok(super::retry::replay_existing(job));
+                    return self.present_saved_submission(job);
                 }
                 return Err(failure.into());
             }
@@ -185,12 +192,71 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         let turn_id = started
             .filter(|job| job.job_id == enqueued.job.job_id)
             .and_then(|job| job.turn_id);
-        Ok(Submission {
-            job_id: enqueued.job.job_id,
-            queued: turn_id.is_none(),
-            turn_id,
-            warning: None,
-        })
+        self.with_target_hold(
+            request.target_thread_id,
+            Submission {
+                job_id: enqueued.job.job_id,
+                queued: turn_id.is_none(),
+                turn_id,
+                warning: None,
+            },
+            false,
+        )
+    }
+
+    fn present_saved_submission(
+        &self,
+        job: StoredQueueJob,
+    ) -> Result<Submission, QueueRunnerError> {
+        let state = job.state;
+        let target = job.target_thread_id.clone();
+        let submission = super::retry::replay_existing(job);
+        if matches!(state, QueueJobState::Pending | QueueJobState::Starting) {
+            self.with_target_hold(&target, submission, state == QueueJobState::Starting)
+        } else {
+            Ok(submission)
+        }
+    }
+
+    // A current admission hold is presentation, not another persisted job error.
+    // Reading it must not claim, retry, adopt, or permanently fence the saved job.
+    fn with_target_hold(
+        &self,
+        target: &str,
+        mut submission: Submission,
+        starting: bool,
+    ) -> Result<Submission, QueueRunnerError> {
+        if submission.turn_id.is_some()
+            || submission.warning.as_ref().is_some_and(|warning| {
+                matches!(
+                    warning.kind,
+                    BackendFailureKind::Quarantined
+                        | BackendFailureKind::ForkFenced
+                        | BackendFailureKind::StartingCandidatesHeld
+                        | BackendFailureKind::ExecutionHeld
+                )
+            })
+            || !cdr_store::async_question::target_dispatch_held(&self.db_path, target)?
+        {
+            return Ok(submission);
+        }
+        let ambiguous = starting
+            || submission
+                .warning
+                .as_ref()
+                .is_some_and(|warning| warning.ambiguous);
+        let previous = submission
+            .warning
+            .as_ref()
+            .map_or_else(String::new, |warning| {
+                format!("; saved warning: {}", warning.message)
+            });
+        let mut warning = BackendFailure::execution_held(format!(
+            "target async execution or recovery authorization remains unresolved; saved request and attempts are unchanged; no automatic replay while this target is held{previous}"
+        ));
+        warning.ambiguous = ambiguous;
+        submission.warning = Some(warning);
+        Ok(submission)
     }
 
     pub fn replay_submission_for_message(
@@ -198,10 +264,11 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         discord_message_id: u64,
     ) -> Result<Option<Submission>, QueueRunnerError> {
         let message_id = id_i64(discord_message_id)?;
-        Ok(list_filtered(&self.db_path, None, None)?
+        list_filtered(&self.db_path, None, None)?
             .into_iter()
             .find(|job| job.discord_message_id == Some(message_id))
-            .map(super::retry::replay_existing))
+            .map(|job| self.present_saved_submission(job))
+            .transpose()
     }
 
     pub fn replay_submission_for_job(
@@ -217,12 +284,14 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         &self,
         job_id: &str,
     ) -> Result<Option<(String, Submission)>, QueueRunnerError> {
-        Ok(list_filtered(&self.db_path, None, None)?
+        list_filtered(&self.db_path, None, None)?
             .into_iter()
             .find(|job| job.job_id == job_id)
             .map(|job| {
                 let target_thread_id = job.target_thread_id.clone();
-                (target_thread_id, super::retry::replay_existing(job))
-            }))
+                self.present_saved_submission(job)
+                    .map(|submission| (target_thread_id, submission))
+            })
+            .transpose()
     }
 }

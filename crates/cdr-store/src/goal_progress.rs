@@ -139,10 +139,12 @@ fn stage_inner(
         "UPDATE codex_turn_queue SET goal_waiting=1 WHERE job_id=?",
         [job_id],
     )?;
-    tx.execute(
-        "DELETE FROM codex_observed_completions WHERE thread_id=? AND turn_id=?",
-        params![job.target_thread_id, turn],
-    )?;
+    if !crate::async_resolution::retain_terminal_journal_in(&tx, &job.target_thread_id, turn)? {
+        tx.execute(
+            "DELETE FROM codex_observed_completions WHERE thread_id=? AND turn_id=?",
+            params![job.target_thread_id, turn],
+        )?;
+    }
     tx.execute(
         "DELETE FROM codex_observed_final_answers WHERE thread_id=? AND turn_id=?",
         params![job.target_thread_id, turn],
@@ -189,7 +191,12 @@ pub fn complete(path: &Path, p: &PendingProgress) -> Result<()> {
 }
 
 pub fn has_pending_job(path: &Path, job: &str, thread: &str) -> Result<bool> {
-    Ok(open_initialized(path)?.query_row(
+    let connection = open_initialized(path)?;
+    has_pending_job_in(&connection, job, thread)
+}
+
+pub(crate) fn has_pending_job_in(connection: &Connection, job: &str, thread: &str) -> Result<bool> {
+    Ok(connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM codex_goal_progress
         WHERE job_id=?1 OR (job_id IS NULL AND thread=?2))",
         params![job, thread],

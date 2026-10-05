@@ -33,19 +33,26 @@ function Read-CdrMaintenanceState([string]$Path) {
     if ($deadline -le $created -or ($deadline-$created).TotalMinutes -gt 30) {
         throw 'maintenance_deadline_invalid'
     }
+    if ($s.PSObject.Properties['DeploymentPolicy']) {
+        Assert-CdrStabilizationState $s
+    }
     return $s
 }
 
-function Get-CdrMaintenanceProgramPaths {
+function Get-CdrMaintenanceProgramPaths([string]$DeploymentPolicy = '') {
     @('codex-discord-rust-watchdog.ps1','codex-discord-rust-control.ps1','codex-discord-rust-drain.ps1',
         'scripts/CdrLaunchJournal.ps1','scripts/CdrDeploymentRecovery.ps1','scripts/CdrRestartTransaction.ps1',
-        'scripts/CdrForceRestart.ps1',
+        'scripts/CdrForceRestart.ps1','scripts/CdrMaintenanceCompatibility.ps1',
         'scripts/Invoke-CdrMaintenance.ps1','scripts/CdrMaintenanceState.ps1','scripts/CdrMaintenanceEngine.ps1',
         'scripts/CdrMaintenanceCommand.ps1','scripts/CdrMaintenanceDiagnostics.ps1','scripts/CdrMaintenanceActions.ps1','scripts/CdrMaintenanceLaunch.ps1','scripts/CdrMaintenanceNotification.ps1',
         'scripts/CdrMaintenanceSchedule.ps1','scripts/CdrMaintenanceBackup.ps1','scripts/CdrMaintenanceFailure.ps1',
         'scripts/CdrMaintenanceCompletion.ps1','scripts/CdrMaintenanceNotificationResult.ps1','scripts/CdrMaintenanceNoticeJournal.ps1',
         'scripts/CdrMaintenanceCompletionAudit.ps1',
         'codex-discord-tray.ps1','codex-discord-tray-runtime.ps1','codex-discord-tray-restart-runtime.ps1')
+    if ($DeploymentPolicy -ceq 'stabilization-held-v1') {
+        @('scripts/CdrAsyncRecoveryCompatibility.ps1','scripts/CdrRuntimeLaunchCompatibility.ps1',
+            'scripts/CdrInstallLaunchCompatibility.ps1','scripts/Register-CdrStabilization.ps1')
+    } elseif ($DeploymentPolicy) { throw 'maintenance_deployment_policy_unsupported' }
 }
 
 function Assert-CdrMaintenanceShutdownPolicy([string]$Policy) {
@@ -53,7 +60,8 @@ function Assert-CdrMaintenanceShutdownPolicy([string]$Policy) {
 }
 
 function Assert-CdrMaintenanceProgramPins($State) {
-    $expected = @(Get-CdrMaintenanceProgramPaths)
+    $policy = if ($State.PSObject.Properties['DeploymentPolicy']) { $State.DeploymentPolicy } else { '' }
+    $expected = @(Get-CdrMaintenanceProgramPaths $policy)
     if (@($State.ProgramPins).Count -ne $expected.Count) { throw 'maintenance_program_pins_missing' }
     foreach ($path in $expected) {
         $pins = @($State.ProgramPins | Where-Object { $_.Path -ceq $path })
@@ -108,5 +116,25 @@ function Assert-CdrCertifiedBaseline([string]$Hash) {
         if (-not $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or
             $proof.sha256 -notmatch '^[A-F0-9]{64}$' -or
             (Get-CdrArtifactHash $path) -cne $proof.sha256) { throw 'T1_evidence_pin_mismatch' }
+    }
+}
+
+# Held stabilization is a separate ticket, never an authority to dispose/release.
+function Assert-CdrStabilizationState($State) {
+    if ($State.DeploymentPolicy -cne 'stabilization-held-v1' -or
+        -not $State.PSObject.Properties['Compatibility']) {
+        throw 'maintenance_deployment_policy_unsupported'
+    }
+    $c = $State.Compatibility
+    if ($c.DatabasePath -cne (Join-Path $RepoRoot 'discord_mirror.sqlite') -or
+        $c.CapabilityPath -cne (Join-Path $State.Bundle 'capabilities.json') -or
+        $c.LaunchManifestPath -cne (Join-Path $State.Bundle 'launch-artifacts.json') -or
+        $c.CapabilityHash -cnotmatch '^[A-F0-9]{64}$' -or
+        $c.LaunchManifestHash -cnotmatch '^[A-F0-9]{64}$' -or
+        $c.IncidentThread -cne '01a06156-56cd-70b0-af02-2de7445ba4c7' -or
+        $c.OriginalJob -cne 'b3d5a1a3-5c3e-4764-967b-0cef767efde9' -or
+        $c.OriginalDisposition -cne 'held-no-replay-no-disposal-no-release' -or
+        $State.OperatorHash -cne $State.CandidateHash) {
+        throw 'maintenance_stabilization_scope_or_pins_invalid'
     }
 }

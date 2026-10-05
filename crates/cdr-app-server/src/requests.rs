@@ -9,6 +9,24 @@ pub struct AppRequest {
     pub timeout: Duration,
 }
 
+/// Only known observations may abandon a clean response wait without changing
+/// execution authority. Unknown methods and tool calls stay conservative.
+#[must_use]
+pub fn is_observational(method: &str) -> bool {
+    matches!(
+        method,
+        "account/rateLimits/read"
+            | "account/usage/read"
+            | "model/list"
+            | "thread/list"
+            | "thread/loaded/list"
+            | "thread/read"
+            | "thread/turns/list"
+            | "thread/goal/get"
+            | "mcpServerStatus/list"
+    )
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ThreadSettingsUpdate {
     pub model: Option<String>,

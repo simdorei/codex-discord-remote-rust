@@ -33,6 +33,10 @@ pub(crate) fn enqueue_in_transaction(
     new_job: NewQueueJob<'_>,
 ) -> Result<QueueEnqueueResult> {
     crate::idle_release::before_enqueue(transaction, new_job.target_thread_id)?;
+    crate::ingress::stop::unowned::require_unheld_origin_in(
+        transaction,
+        new_job.discord_message_id,
+    )?;
     if crate::async_question::dispatch_held_in(transaction, new_job.target_thread_id)? {
         return Err(StoreError::Integrity(
             "async question reply outcome is unconfirmed; target held without automatic retry"

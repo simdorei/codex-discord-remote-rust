@@ -1,5 +1,7 @@
 mod cancel_ingress;
 mod cancel_pending;
+mod cancel_recovery;
+pub use cancel_recovery::{RecoveryCancellation, cancel_for_recovery, cancel_for_recovery_checked};
 mod cancellation_schema;
 mod failure;
 pub use cancel_pending::{cancel_latest_pending, cancel_latest_pending_on_route};
@@ -9,6 +11,7 @@ mod generation;
 mod goal;
 mod managed_target;
 pub(crate) mod read;
+pub mod start_authority;
 mod starting_hold;
 mod write;
 
@@ -41,8 +44,9 @@ pub use starting_hold::{
 };
 pub use write::{
     begin_attempt, complete, discard_for_generation, discard_observed, enqueue,
-    enqueue_if_mirror_matches, flush, mark_running, mark_running_if_claimed, record_start_failure,
-    record_start_failure_if_claimed, retract, try_begin_attempt,
+    enqueue_if_mirror_matches, flush, mark_running, mark_running_if_claimed,
+    mark_running_with_resident_if_claimed, record_start_failure, record_start_failure_if_claimed,
+    retract, try_begin_attempt,
 };
 pub(crate) use write::{enqueue_in_transaction, ensure_mirror_matches};
 

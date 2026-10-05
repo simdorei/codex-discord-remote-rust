@@ -10,7 +10,20 @@ impl MirrorSynchronizer {
         room: u64,
         parent: u64,
     ) -> Result<(), MirrorSyncError> {
-        let _guard = self.lock.lock().await;
+        self.with_operation_deadline(
+            "exact_cleanup",
+            false,
+            self.retire_exact_absent_locked(thread_id, room, parent),
+        )
+        .await
+    }
+
+    async fn retire_exact_absent_locked(
+        &self,
+        thread_id: &str,
+        room: u64,
+        parent: u64,
+    ) -> Result<(), MirrorSyncError> {
         let started = now()?;
         let guild = self.guild_id.ok_or_else(|| {
             MirrorSyncError::Invalid("exact cleanup requires a pinned guild".into())

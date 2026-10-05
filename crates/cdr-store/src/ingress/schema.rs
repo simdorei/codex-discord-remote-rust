@@ -41,7 +41,7 @@ pub(crate) fn migrate_schema(connection: &Connection) -> Result<()> {
             created_at REAL NOT NULL
          );",
     )?;
-    Ok(())
+    super::stop::control::migrate_schema(connection)
 }
 
 pub(crate) fn schema_current(connection: &Connection) -> Result<bool> {
@@ -50,5 +50,5 @@ pub(crate) fn schema_current(connection: &Connection) -> Result<bool> {
          AND name IN ('discord_ingress_journal','discord_ingress_owner_receipts')",
         [],
         |row| row.get(0),
-    )?)
+    )? && super::stop::control::schema_current(connection)?)
 }

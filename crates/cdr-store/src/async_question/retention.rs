@@ -26,5 +26,5 @@ pub fn compact_terminal(path: &Path, now: f64) -> Result<usize> {
         return Err(super::invalid("invalid retention clock"));
     }
     open_initialized(path)?.execute("UPDATE cdr_async_question_inbox SET body='{\"index\":0,\"title\":\"\",\"options\":[]}' WHERE state='expired' AND created_at<?",[now-30.0*86400.0])?;
-    Ok(open_initialized(path)?.execute("UPDATE cdr_async_questions SET body='{\"index\":0,\"title\":\"\",\"options\":[]}',error='terminal question tombstone' WHERE state IN ('submitted','rejected','unsupported','expired') AND updated_at<? AND body!='{\"index\":0,\"title\":\"\",\"options\":[]}'",[now-30.0*86400.0])?)
+    Ok(open_initialized(path)?.execute("UPDATE cdr_async_questions SET body='{\"index\":0,\"title\":\"\",\"options\":[]}',error='terminal question tombstone' WHERE state IN ('submitted','rejected','closed_unknown','unsupported','expired') AND updated_at<? AND body!='{\"index\":0,\"title\":\"\",\"options\":[]}'",[now-30.0*86400.0])?)
 }

@@ -137,7 +137,7 @@ async fn preparing_click_ingress_retries_only_proven_no_dispatch() {
         "Steer (check) must reach original-turn validation, not be rejected by a stale display flag"
     );
     let work = receiver.recv().await.unwrap();
-    reject_preparing(&fixture, &work, http.clone()).await;
+    Box::pin(reject_preparing(&fixture, &work, http.clone())).await;
     let db = fixture.executor.mirror_db();
     make_active(&fixture).await;
     assert_eq!(

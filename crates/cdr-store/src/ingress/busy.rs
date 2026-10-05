@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use super::{IngressAdmission, NewIngress, admission::admit_in, read::get_in};
+use super::{IngressAdmission, NewIngress, admission::admit_recorded_in, read::get_in};
 use crate::claims::BusyChoice;
 use crate::{Result, StoreError};
 
@@ -57,7 +57,7 @@ pub fn admit_busy_interaction(
     frozen.target_thread_id.clone_from(&choice.target_thread_id);
     frozen.payload["busy_choice"] = serde_json::to_value(&choice)?;
     frozen.payload["busy_action"] = action.into();
-    let mut admission = admit_in(&transaction, &frozen)?;
+    let (mut admission, recorded) = admit_recorded_in(&transaction, &frozen)?;
     if admission.created
         && admission
             .record
@@ -79,6 +79,9 @@ pub fn admit_busy_interaction(
         admission.record = get_in(&transaction, &request.ingress_id)?;
     }
     admission.busy_choice = Some(choice);
+    if let Some(recorded) = recorded {
+        recorded.verify_in(&transaction)?;
+    }
     transaction.commit()?;
     Ok(admission)
 }

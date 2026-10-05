@@ -33,6 +33,22 @@ pub fn plan_prefix(command_line: &str) -> Result<PrefixAction, PrefixPlanError> 
         "stop" => PrefixAction::Stop {
             reference: optional(arg),
         },
+        "recover" | "복구" => {
+            if arg.split_whitespace().count() > 1 {
+                return Err(PrefixPlanError::Usage("Usage: !recover [ref]".into()));
+            }
+            PrefixAction::Recover {
+                reference: optional(arg),
+            }
+        }
+        "repair" | "도구복구" => {
+            if arg.split_whitespace().count() > 1 {
+                return Err(PrefixPlanError::Usage("Usage: !repair [ref]".into()));
+            }
+            PrefixAction::Repair {
+                reference: optional(arg),
+            }
+        }
         "settings" | "setting" => plan_settings(arg)?,
         "discover_codex" => PrefixAction::DiscoverCodex,
         "restart_codex" if arg.is_empty() => PrefixAction::RestartCodex,
@@ -64,6 +80,7 @@ pub fn plan_prefix(command_line: &str) -> Result<PrefixAction, PrefixPlanError> 
         "context" | "ctx" => plan_context(arg)?,
         "usage" | "quota" | "limit" => plan_usage(arg)?,
         "runners" | "queues" => plan_runners(arg)?,
+        "discard-request" => plan_discard(command_line, arg)?,
         "resources" | "system" => PrefixAction::Resources,
         "retract" | "unqueue" => PrefixAction::Retract {
             reference: optional(arg),
@@ -88,6 +105,17 @@ pub fn plan_prefix(command_line: &str) -> Result<PrefixAction, PrefixPlanError> 
         unknown => return Err(PrefixPlanError::Unknown(unknown.into())),
     };
     Ok(action)
+}
+
+fn plan_discard(command_line: &str, job: &str) -> Result<PrefixAction, PrefixPlanError> {
+    if command_line.split_whitespace().next() != Some("discard-request")
+        || uuid::Uuid::parse_str(job).map_or(true, |id| id.to_string() != job)
+    {
+        return Err(PrefixPlanError::Usage(
+            "Usage: !discard-request <exact canonical job UUID>".into(),
+        ));
+    }
+    Ok(PrefixAction::DiscardRequest { job_id: job.into() })
 }
 
 fn split_command(command_line: &str) -> (String, &str) {

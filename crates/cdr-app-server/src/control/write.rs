@@ -79,6 +79,15 @@ impl AppServerClient {
         let stdin = stdin_guard.as_mut().ok_or(AppServerError::Closed)?;
         let mut attempt = WriteAttemptGuard::new(&self.inner);
         write_started();
+        #[cfg(feature = "test-writer-faults")]
+        if let Some(fault) = crate::writer_fault_fixture::take_for(&value)? {
+            let prefix = fault.prefix_len(encoded.len())?;
+            stdin.write_all(&encoded[..prefix]).await?;
+            return Err(fault
+                .after_prefix(prefix, encoded.len(), value["id"].clone())
+                .await
+                .into());
+        }
         stdin.write_all(&encoded).await?;
         #[cfg(test)]
         if let Some(write_pause) = write_pause {

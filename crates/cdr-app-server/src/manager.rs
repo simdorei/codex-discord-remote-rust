@@ -21,6 +21,9 @@ mod death_tests;
 mod dispatch;
 mod events;
 mod idle_maintenance;
+mod observation;
+mod recovery_observation;
+pub use recovery_observation::NativeRecoveryObservation;
 mod lifecycle_changes;
 #[cfg(test)]
 #[path = "manager/replacement_failure_tests.rs"]

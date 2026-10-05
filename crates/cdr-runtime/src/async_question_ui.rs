@@ -69,6 +69,23 @@ pub(crate) async fn deliver_pending(
     generation: u64,
     http: &Client,
 ) -> Result<(), CompletionWorkerError> {
+    prepare_pending(db, runtime, generation)?;
+    let mut first = None;
+    for q in store::pending(db, runtime)? {
+        if let Err(error) = deliver_checked(db, generation, http, &q).await
+            && first.is_none()
+        {
+            first = Some(error);
+        }
+    }
+    first.map_or(Ok(()), Err)
+}
+
+pub(crate) fn prepare_pending(
+    db: &Path,
+    runtime: &str,
+    generation: u64,
+) -> Result<(), CompletionWorkerError> {
     let generation_i64 = i64::try_from(generation)
         .map_err(|_| CompletionWorkerError::Delivery("invalid question generation".into()))?;
     store::retire_old_owner(db, runtime, generation_i64)?;
@@ -80,27 +97,30 @@ pub(crate) async fn deliver_pending(
             .map_err(|e| CompletionWorkerError::Delivery(e.to_string()))?
             .as_secs_f64(),
     )?;
-    let mut first = None;
-    for q in store::pending(db, runtime)? {
-        if u64::try_from(q.generation).ok() != Some(generation) {
-            continue;
-        }
-        let result = async {
-            store::require_current_mapping(db, &q)?;
-            if store::owner_confirmed(db, &q)? {
-                deliver_one(db, http, &q).await?;
-            }
-            Ok::<_, CompletionWorkerError>(())
-        }
-        .await;
-        if let Err(error) = result {
-            store::record_error(db, &q.id, &error.to_string())?;
-            if first.is_none() {
-                first = Some(error);
-            }
-        }
+    Ok(())
+}
+
+pub(crate) async fn deliver_checked(
+    db: &Path,
+    generation: u64,
+    http: &Client,
+    q: &Question,
+) -> Result<(), CompletionWorkerError> {
+    if u64::try_from(q.generation).ok() != Some(generation) || q.state != "observed" {
+        return Ok(());
     }
-    first.map_or(Ok(()), Err)
+    let result = async {
+        store::require_current_mapping(db, q)?;
+        if store::owner_confirmed(db, q)? {
+            deliver_one(db, http, q).await?;
+        }
+        Ok::<_, CompletionWorkerError>(())
+    }
+    .await;
+    if let Err(error) = &result {
+        store::record_error(db, &q.id, &error.to_string())?;
+    }
+    result
 }
 
 pub(crate) async fn deliver_one(

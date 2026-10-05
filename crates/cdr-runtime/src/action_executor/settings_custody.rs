@@ -5,6 +5,12 @@ use crate::{
     settings_binding::{SettingsBinding, is_settings_mutation},
 };
 
+#[cfg(test)]
+mod origin_tests;
+
+#[cfg(test)]
+mod archive_tests;
+
 impl<B: TurnBackend> ActionExecutor<B> {
     pub(crate) async fn execute_with_ingress_context(
         &self,
@@ -12,9 +18,37 @@ impl<B: TurnBackend> ActionExecutor<B> {
         context: ActionContext,
         key: &str,
     ) -> Result<ActionResult, ActionError> {
+        let bound = is_settings_mutation(&action)
+            || matches!(
+                action,
+                CommandAction::Archive { .. }
+                    | CommandAction::Resume { .. }
+                    | CommandAction::Recover { .. }
+                    | CommandAction::Repair { .. }
+            );
+        let operation = Box::pin(self.execute_admitted_action(action, context, key));
+        if !bound {
+            return operation.await;
+        }
+        let record = cdr_store::ingress::get(&self.mirror_db, key)?
+            .ok_or_else(|| ActionError::Invalid("original admission record is missing".into()))?;
+        let frozen = cdr_store::ingress::stop::revision::origin_for_ingress(&record)?;
+        cdr_app_server::ResidentAppServer::with_stop_origin(frozen, operation).await
+    }
+
+    async fn execute_admitted_action(
+        &self,
+        action: CommandAction,
+        context: ActionContext,
+        key: &str,
+    ) -> Result<ActionResult, ActionError> {
         if matches!(
             action,
-            CommandAction::Archive { .. } | CommandAction::Resume { .. }
+            CommandAction::Archive { .. }
+                | CommandAction::Resume { .. }
+                | CommandAction::Recover { .. }
+                | CommandAction::Repair { .. }
+                | CommandAction::Stop { .. }
         ) {
             return self
                 .execute_lifecycle_with_ingress(action, context, key)

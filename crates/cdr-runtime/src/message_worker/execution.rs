@@ -59,6 +59,8 @@ pub(super) async fn execute_plan<B: TurnBackend>(
     plan: MessagePlan,
 ) -> Result<bool, MessageWorkerError> {
     let key = format!("message:{}", message.id);
+    #[cfg(test)]
+    let _timing = crate::test_support::path_timing::PhaseTimer::new("message.execute");
     let api = DiscordHttp::new(Arc::clone(&context.http), context.application_id);
     match plan {
         MessagePlan::Ignore(_) => unreachable!("ignore plans never cross durable admission"),

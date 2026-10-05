@@ -64,12 +64,12 @@ async fn reassigned_origin(after_admission: bool) {
 
 #[tokio::test]
 async fn new_origin_changed_between_classification_and_admission_starts_nothing() {
-    reassigned_origin(false).await;
+    Box::pin(reassigned_origin(false)).await;
 }
 
 #[tokio::test]
 async fn new_origin_changed_between_admission_and_context_freeze_starts_nothing() {
-    reassigned_origin(true).await;
+    Box::pin(reassigned_origin(true)).await;
 }
 
 #[tokio::test]

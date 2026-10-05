@@ -1,5 +1,6 @@
 function Assert-CdrMaintenanceArtifacts($State) {
     Assert-CdrMaintenanceProgramPins $State
+    if ($State.PSObject.Properties['DeploymentPolicy']) { Assert-CdrStabilizationArtifacts $State }
     if ((Get-CdrArtifactHash $EnvPath) -cne $State.EnvHash) { throw 'maintenance_environment_changed' }
     foreach ($pair in @(@('CandidatePath','CandidateHash'),@('OperatorPath','OperatorHash'))) {
         if ((Get-CdrArtifactHash $State.($pair[0])) -cne $State.($pair[1])) {
@@ -46,6 +47,10 @@ function Assert-CdrMaintenanceMarkers($State) {
 }
 
 function Invoke-CdrMaintenanceProbe($State, [string]$Mode) {
+    if ($State.PSObject.Properties['DeploymentPolicy']) {
+        Invoke-CdrStabilizationProbe $State $Mode
+        return
+    }
     if ((Get-CdrArtifactHash $State.OperatorPath) -cne $State.OperatorHash) { throw 'operator_hash_changed' }
     Invoke-CdrMaintenanceCommand $State $State.OperatorPath @($Mode,'--env',$EnvPath) 120
 }
@@ -121,6 +126,12 @@ function Invoke-CdrMaintenanceFullReadiness($State) {
     # Match the runtime's 45s startup + 8s close and reserve 5s for scheduling.
     if ($seconds -le 58) { throw 'maintenance_readiness_budget_insufficient; no child started' }
     $waitSeconds=[math]::Min(60,$seconds-58)
-    Invoke-CdrMaintenanceCommand $State $BinaryPath @('--restart-readiness','--restart-quiet-seconds','0',
-        '--restart-wait-timeout-seconds',[string]$waitSeconds,'--env',$EnvPath) $seconds
+    $readiness = {
+        Invoke-CdrMaintenanceCommand $State $BinaryPath @('--restart-readiness','--restart-quiet-seconds','0',
+            '--restart-wait-timeout-seconds',[string]$waitSeconds,'--env',$EnvPath) $seconds
+    }
+    if ($State.PSObject.Properties['DeploymentPolicy']) {
+        Assert-CdrStabilizationArmed $State
+        Invoke-CdrProductionCheckedLaunch -DeadlineUtc ([DateTimeOffset]::Parse($State.Deadline)) -Launch $readiness
+    } else { & $readiness }
 }

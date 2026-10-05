@@ -67,6 +67,11 @@ fn claim(id: &str, mode: aq::DispatchMode) -> aq::Claim<'_> {
         message: "1234",
         option: 1,
         mode,
+        baseline_turn_ids: if mode == aq::DispatchMode::Start {
+            vec!["older-ui-turn".into(), "original".into()]
+        } else {
+            Vec::new()
+        },
         prompt: "B=보류",
         now: 2.0,
     }
@@ -93,6 +98,7 @@ fn completed_reply_is_quarantined_until_exact_acceptance_commits() {
     let jobs = queue::list(&db).unwrap();
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].state, queue::QueueJobState::Quarantined);
+    assert_eq!(jobs[0].baseline_turn_ids, ["older-ui-turn", "original"]);
     assert_eq!(
         dispatch.reply_job_id.as_deref(),
         Some(jobs[0].job_id.as_str())
@@ -101,6 +107,7 @@ fn completed_reply_is_quarantined_until_exact_acceptance_commits() {
     let jobs = queue::list(&db).unwrap();
     assert_eq!(jobs[0].state, queue::QueueJobState::Running);
     assert_eq!(jobs[0].turn_id.as_deref(), Some("accepted-successor"));
+    assert_eq!(jobs[0].baseline_turn_ids, ["older-ui-turn", "original"]);
     assert_eq!(aq::get(&db, &id).unwrap().state, "submitted");
     assert!(aq::begin_dispatch(&db, &claim(&id, aq::DispatchMode::Start)).is_err());
 }
@@ -216,3 +223,30 @@ fn early_successor_question_waits_for_exact_reply_acceptance() {
 
 #[path = "support/integrated_async_store.rs"]
 mod integrated;
+
+#[test]
+fn async_start_requires_baseline_and_seals_it_before_dispatch() {
+    let (_dir, db, id) = fixture();
+    queue::complete(&db, "origin").unwrap();
+    for baseline in [
+        vec![],
+        vec!["other"],
+        vec!["original", "original"],
+        vec!["original", " "],
+    ] {
+        let mut c = claim(&id, aq::DispatchMode::Start);
+        c.baseline_turn_ids = baseline.into_iter().map(str::to_owned).collect();
+        assert!(aq::begin_dispatch(&db, &c).is_err());
+        assert!(queue::list(&db).unwrap().is_empty());
+        assert_eq!(aq::get(&db, &id).unwrap().state, "open");
+    }
+    aq::begin_dispatch(&db, &claim(&id, aq::DispatchMode::Start)).unwrap();
+    aq::validate_dispatch_guards(&db, "thread").unwrap();
+    open_initialized(&db)
+        .unwrap()
+        .execute("UPDATE codex_turn_queue SET baseline_turn_ids='[]'", [])
+        .unwrap();
+    assert!(aq::validate_dispatch_guards(&db, "thread").is_err());
+    assert!(aq::confirm_dispatch(&db, &id, "answer-turn").is_err());
+    assert_eq!(aq::get(&db, &id).unwrap().state, "dispatching");
+}

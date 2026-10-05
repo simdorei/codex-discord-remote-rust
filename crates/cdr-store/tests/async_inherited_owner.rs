@@ -87,6 +87,7 @@ fn claim(id: &str) -> aq::Claim<'_> {
         message: "1234",
         option: 0,
         mode: aq::DispatchMode::Steer,
+        baseline_turn_ids: Vec::new(),
         prompt: "only this answer",
         now: 3.0,
     }
@@ -263,6 +264,7 @@ fn completion_before_reconciliation_preserves_exact_current_question_ownership()
     bind(&db, &id);
     let mut c = claim(&id);
     c.mode = aq::DispatchMode::Start;
+    c.baseline_turn_ids = vec!["T1".into(), "T2".into()];
     aq::begin_dispatch(&db, &c).unwrap();
     aq::validate_dispatch_guards(&db, "thread").unwrap();
     aq::confirm_dispatch(&db, &id, "answer-turn").unwrap();

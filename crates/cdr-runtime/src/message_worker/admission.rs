@@ -10,6 +10,7 @@ use twilight_model::channel::Message;
 use super::classification::MessageCandidate;
 use super::custody::{self, MessageCustody};
 use crate::message_plan::{MessagePlan, MessagePlanError};
+use crate::restart_readiness::drain::AdmissionPermit;
 
 #[derive(Debug, Error)]
 pub enum MessageAdmissionError {
@@ -37,6 +38,7 @@ pub(crate) struct AdmittedMessage {
     frozen_plan: Result<MessagePlan, MessagePlanError>,
     processing_mode: MessageProcessingMode,
     custody: Box<MessageCustody>,
+    admission_permit: Option<AdmissionPermit>,
 }
 
 pub(super) struct ProcessingParts {
@@ -46,6 +48,7 @@ pub(super) struct ProcessingParts {
     pub frozen_plan: Result<MessagePlan, MessagePlanError>,
     pub processing_mode: MessageProcessingMode,
     pub custody: Box<MessageCustody>,
+    pub admission_permit: Option<AdmissionPermit>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,6 +58,11 @@ pub(super) enum MessageProcessingMode {
 }
 
 impl AdmittedMessage {
+    pub(crate) fn retain_admission(mut self, permit: Option<&AdmissionPermit>) -> Self {
+        self.admission_permit = permit.cloned();
+        self
+    }
+
     pub(crate) fn require_pending_reply(mut self) -> Result<Self, MessageAdmissionError> {
         record_processing_mode(
             &self.database,
@@ -99,6 +107,7 @@ impl AdmittedMessage {
             frozen_plan: admitted.frozen_plan,
             processing_mode: admitted.processing_mode,
             custody: admitted.custody,
+            admission_permit: admitted.admission_permit,
         })
     }
 }
@@ -172,6 +181,7 @@ pub(crate) fn admit_message_candidate_at(
         frozen_plan,
         processing_mode: MessageProcessingMode::Normal,
         custody,
+        admission_permit: None,
     }))
 }
 

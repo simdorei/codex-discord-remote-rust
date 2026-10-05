@@ -51,6 +51,9 @@ pub enum CommandAction {
     SavedRequest {
         request_id: String,
     },
+    DiscardRequest {
+        job_id: String,
+    },
     Retract {
         reference: Option<String>,
     },
@@ -68,6 +71,12 @@ pub enum CommandAction {
         abort: bool,
     },
     Stop {
+        reference: Option<String>,
+    },
+    Recover {
+        reference: Option<String>,
+    },
+    Repair {
         reference: Option<String>,
     },
     SettingsOptions {

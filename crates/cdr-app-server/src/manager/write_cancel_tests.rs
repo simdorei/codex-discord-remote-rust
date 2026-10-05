@@ -21,8 +21,16 @@ const CHILD_ENV: &str = "CDR_WRITE_PAUSE_CHILD";
 
 #[path = "write_cancel_tests/idle_gate.rs"]
 mod idle_gate;
+#[path = "write_cancel_tests/read_isolation.rs"]
+mod read_isolation;
+#[path = "write_cancel_tests/repair.rs"]
+mod repair;
 #[path = "write_cancel_tests/response.rs"]
 mod response;
+#[path = "write_cancel_tests/response_io.rs"]
+mod response_io;
+#[path = "write_cancel_tests/response_target.rs"]
+mod response_target;
 #[path = "write_cancel_tests/settings.rs"]
 mod settings;
 

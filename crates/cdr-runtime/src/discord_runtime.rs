@@ -201,6 +201,11 @@ pub async fn run(
         ),
     ));
     workers.push(spawn_unit_worker(
+        "stop-control",
+        worker_exit_notifier.clone(),
+        Arc::clone(&executor).run_stop_worker(completion_shutdown.subscribe()),
+    ));
+    workers.push(spawn_unit_worker(
         "prompt-intake-recovery",
         worker_exit_notifier.clone(),
         run_prompt_intake_recovery_worker_with_admission(

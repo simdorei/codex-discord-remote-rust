@@ -5,15 +5,8 @@ CREATE TABLE IF NOT EXISTS codex_archive_fences (
     phase TEXT NOT NULL CHECK(phase IN ('attempted','verified'))
 );
 
--- Keep the help and saved-request inspection path usable while work is held.
--- Only already-frozen, explicitly read-only commands are exempt, never prompts.
-CREATE VIEW IF NOT EXISTS cdr_archive_inspections_v1 AS
-SELECT ingress_id FROM discord_ingress_journal WHERE
-    (kind='message' AND json_extract(payload_json,'$.version')=1 AND (
-        json_extract(payload_json,'$.plan.Execute') IN ('Help','Runners','Doctor','Where','Identity','Resources')
-        OR json_type(payload_json,'$.plan.Execute.SavedRequest')='object'))
-    OR (kind='interaction' AND json_extract(payload_json,'$.version')=1
-        AND json_extract(payload_json,'$.work.Slash.name') IN ('help','runners','doctor','where'));
+-- Local inspection/disposition admission is installed by schema.rs.
+-- Queue and intake fences below never grant execution or replay permission.
 
 CREATE TRIGGER IF NOT EXISTS cdr_archive_admission_v1
 AFTER INSERT ON discord_ingress_journal

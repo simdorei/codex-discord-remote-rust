@@ -74,6 +74,10 @@ pub(crate) fn migrate_schema(connection: &Connection) -> Result<()> {
     storage::ensure_schema(connection)
 }
 
+pub(crate) fn get_in(connection: &Connection, job_id: &str) -> Result<Option<StoredPromptIntake>> {
+    storage::by_job(connection, job_id)
+}
+
 pub(crate) fn schema_current(connection: &Connection) -> Result<bool> {
     storage::schema_current(connection)
 }

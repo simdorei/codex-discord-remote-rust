@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cdr_store::queue::{
     QueueJobState, STARTING_CANDIDATE_HOLD_PREFIX, StoredQueueJob, UNRESOLVED_FORK_ERROR_PREFIX,
-    list_filtered, mark_running_if_claimed, record_preflight_failure,
+    list_filtered, mark_running_with_resident_if_claimed, record_preflight_failure,
     record_start_failure_if_claimed, try_begin_attempt,
 };
 
@@ -178,7 +178,10 @@ impl<B: TurnBackend> QueueCoordinator<B> {
         else {
             return Ok(None);
         };
-        let turn_id = match self.backend.start_turn(target_thread_id, &job.prompt).await {
+        // Freeze the resident before this exact claim is dispatched. Never
+        // borrow a replacement resident when a delayed ACK returns.
+        let resident = self.backend.resident_instance_id().map(str::to_owned);
+        let turn_id = match self.backend.start_claimed_turn(&claimed).await {
             Ok(turn_id) => turn_id,
             Err(error) => {
                 let failure_message =
@@ -207,7 +210,12 @@ impl<B: TurnBackend> QueueCoordinator<B> {
                 return Err(error.into());
             }
         };
-        let running = mark_running_if_claimed(&self.db_path, &claimed, &turn_id)?;
+        let running = mark_running_with_resident_if_claimed(
+            &self.db_path,
+            &claimed,
+            &turn_id,
+            resident.as_deref(),
+        )?;
         match running {
             Some(job) => Ok(Some(job)),
             None => Err(QueueRunnerError::AttemptClaimLost {

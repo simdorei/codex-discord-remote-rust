@@ -60,9 +60,13 @@ pub(crate) fn validate_identity_in(connection: &Connection, record: &NewReply) -
 
 pub fn output_hold(path: &Path, job: &str) -> Result<Option<String>> {
     let connection = open_initialized(path)?;
-    get_in(&connection, job)?
+    output_hold_in(&connection, job)
+}
+
+pub(crate) fn output_hold_in(connection: &Connection, job: &str) -> Result<Option<String>> {
+    get_in(connection, job)?
         .map(|record| {
-            validate_identity_in(&connection, &record)?;
+            validate_identity_in(connection, &record)?;
             Ok(readiness_hold(&record))
         })
         .transpose()

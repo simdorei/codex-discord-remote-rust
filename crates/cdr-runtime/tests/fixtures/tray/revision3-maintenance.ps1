@@ -3,6 +3,12 @@ $ErrorActionPreference='Stop'
 $env:V2_ROOT=$env:TRAY_CONTRACT_ROOT
 $env:V2_SOURCE=$env:TRAY_CONTRACT_SOURCE
 . (Join-Path $env:V2_SOURCE 'crates\cdr-runtime\tests\fixtures\maintenance\LOAD.ps1')
+[void][IO.Directory]::CreateDirectory((Join-Path $RepoRoot 'scripts'))
+foreach ($support in @('scripts/CdrMaintenanceCompatibility.ps1',
+    'scripts/CdrAsyncRecoveryCompatibility.ps1','scripts/CdrRuntimeLaunchCompatibility.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $env:V2_SOURCE $support) -Destination (Join-Path $RepoRoot $support)
+}
+. (Join-Path $RepoRoot 'scripts/CdrMaintenanceCompatibility.ps1')
 # The fixture owns every path, process and notification provider below.
 $state.NotifyChannel='1543277263418826775'
 $state.Phase='launch_ready'
@@ -66,6 +72,8 @@ function Start-CdrTrayForRuntime {
 '@
 [IO.File]::WriteAllText((Join-Path $RepoRoot 'codex-discord-tray-runtime.ps1'),$helper)
 $env:R3_FAULT=$Case
+$controlGuard=Enter-CdrControl -Root $RepoRoot -MaintenanceV2 -Purpose 'offline-tray-contract'
+try {
 if($Case -eq 'restart_intent') {
     function Wait-CdrReplacementReady {param($ExpectedIdentity)}
     $script:CdrTrayStartedIdentity=$identity
@@ -90,4 +98,5 @@ if($Case -eq 'restart_intent') {
     Invoke-CdrMaintenanceLaunch $receipt $StatePath
     if($receipt.TrayBootstrapIdentity -or $script:runtimeStarts -ne 1){throw 'reentry invented intent or relaunched'}
 }
+} finally { $controlGuard.Dispose() }
 Write-Output "PASS maintenance=$Case"

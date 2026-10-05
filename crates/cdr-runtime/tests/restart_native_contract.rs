@@ -19,6 +19,9 @@ fn fixture() -> tempfile::TempDir {
         "scripts/CdrLaunchJournal.ps1",
         "scripts/CdrRestartTransaction.ps1",
         "scripts/CdrForceRestart.ps1",
+        "scripts/CdrMaintenanceCompatibility.ps1",
+        "scripts/CdrAsyncRecoveryCompatibility.ps1",
+        "scripts/CdrRuntimeLaunchCompatibility.ps1",
     ] {
         fs::copy(repo.join(file), root.path().join(file)).unwrap();
     }

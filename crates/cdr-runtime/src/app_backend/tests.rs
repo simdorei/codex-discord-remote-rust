@@ -4,6 +4,30 @@ use super::{mutation_failure, resume_failure, start_failure};
 use crate::queue_runner::BackendFailureKind;
 
 #[test]
+fn durable_unknown_start_is_ambiguous_and_later_held_requests_are_not_retryable() {
+    let unknown = AppServerError::MutationOutcomeUnknown {
+        method: "turn/start".into(),
+        reason: "receipt commit failed".into(),
+    };
+    assert!(start_failure(&unknown).ambiguous);
+    assert!(mutation_failure(&unknown).ambiguous);
+    assert_eq!(
+        resume_failure(&unknown).kind,
+        BackendFailureKind::ExecutionHeld
+    );
+    let held = AppServerError::MutationHeld {
+        message: "old occurrence unresolved".into(),
+    };
+    for failure in [
+        start_failure(&held),
+        resume_failure(&held),
+        mutation_failure(&held),
+    ] {
+        assert_eq!(failure.kind, BackendFailureKind::ExecutionHeld);
+    }
+}
+
+#[test]
 fn turn_start_transport_closure_is_ambiguous_but_remote_rejection_is_definite() {
     let transport = start_failure(&AppServerError::TransportClosed {
         method: "turn/start".into(),

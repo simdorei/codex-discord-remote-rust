@@ -57,58 +57,68 @@ impl<B: TurnBackend> ActionExecutor<B> {
             .await?;
         self.load_archive_target(&thread.id, generation).await?;
         let children = super::archive_scope::descendants(server, &thread.id, generation).await?;
-        let mut child_guards = Vec::new();
-        for child in &children {
-            child_guards.push(self.control_lock(child).await?);
-            self.archive_preflight(0, Some(child), child, generation, own.as_deref())
-                .await?;
-            self.load_archive_target(child, generation).await?;
-        }
-        if super::archive_scope::descendants(server, &thread.id, generation).await? != children {
-            return Err(ActionError::Invalid(
-                "archive descendant scope changed; no archive was sent".into(),
-            ));
-        }
-        for child in &children {
-            self.archive_preflight(0, Some(child), child, generation, own.as_deref())
-                .await?;
-        }
-        self.archive_preflight(channel, reference, &thread.id, generation, own.as_deref())
-            .await?;
-        self.validate_lifecycle_binding(binding, channel)?;
-        let mut scope = children;
-        scope.insert(thread.id.clone());
-        // This transaction commits before awaiting the app-server writer. Late
-        // ingress is saved held; earlier ingress prevents this reservation.
-        let reservation =
-            cdr_store::archive_fence::reserve(&self.mirror_db, &scope, own.as_deref())?;
-        *archive_sent = true;
-        if let Err(error) = server
-            .execute(archive_thread(&thread.id), Some(generation))
-            .await
-        {
-            return Err(dispatch::failure(
-                &self.mirror_db,
-                &reservation,
-                &thread.id,
-                error,
-            ));
-        }
-        self.verify_archived(&scope).await?;
-        cdr_store::archive_fence::verified(&self.mirror_db, &reservation)?;
-        if self
-            .bridge_state
-            .selected_thread_id()?
-            .as_ref()
-            .is_some_and(|selected| scope.contains(selected))
-        {
-            self.bridge_state.set_selected_thread_id(None)?;
-        }
-        Ok(immediate(format!(
-            "Archived Codex thread {} ({} conversations, persisted state verified).",
-            thread.id,
-            scope.len()
-        )))
+        let frozen_children = children.clone();
+        cdr_app_server::ResidentAppServer::with_archive_stop_scope(
+            &thread.id,
+            &frozen_children,
+            async {
+                let mut child_guards = Vec::new();
+                for child in &children {
+                    child_guards.push(self.control_lock(child).await?);
+                    self.archive_preflight(0, Some(child), child, generation, own.as_deref())
+                        .await?;
+                    self.load_archive_target(child, generation).await?;
+                }
+                if super::archive_scope::descendants(server, &thread.id, generation).await?
+                    != children
+                {
+                    return Err(ActionError::Invalid(
+                        "archive descendant scope changed; no archive was sent".into(),
+                    ));
+                }
+                for child in &children {
+                    self.archive_preflight(0, Some(child), child, generation, own.as_deref())
+                        .await?;
+                }
+                self.archive_preflight(channel, reference, &thread.id, generation, own.as_deref())
+                    .await?;
+                self.validate_lifecycle_binding(binding, channel)?;
+                let mut scope = children;
+                scope.insert(thread.id.clone());
+                // This transaction commits before awaiting the app-server writer. Late
+                // ingress is saved held; earlier ingress prevents this reservation.
+                let reservation =
+                    cdr_store::archive_fence::reserve(&self.mirror_db, &scope, own.as_deref())?;
+                *archive_sent = true;
+                if let Err(error) = server
+                    .execute(archive_thread(&thread.id), Some(generation))
+                    .await
+                {
+                    return Err(dispatch::failure(
+                        &self.mirror_db,
+                        &reservation,
+                        &thread.id,
+                        error,
+                    ));
+                }
+                self.verify_archived(&scope).await?;
+                cdr_store::archive_fence::verified(&self.mirror_db, &reservation)?;
+                if self
+                    .bridge_state
+                    .selected_thread_id()?
+                    .as_ref()
+                    .is_some_and(|selected| scope.contains(selected))
+                {
+                    self.bridge_state.set_selected_thread_id(None)?;
+                }
+                Ok(immediate(format!(
+                    "Archived Codex thread {} ({} conversations, persisted state verified).",
+                    thread.id,
+                    scope.len()
+                )))
+            },
+        )
+        .await?
     }
 
     async fn load_archive_target(&self, thread: &str, generation: u64) -> Result<(), ActionError> {

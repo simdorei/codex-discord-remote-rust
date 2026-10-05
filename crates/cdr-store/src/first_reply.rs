@@ -1,12 +1,17 @@
 //! First visible reply barrier for a durably owned Discord request.
 use crate::{Result, schema::open_initialized};
-use rusqlite::OptionalExtension;
+use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 
 pub fn pending(path: &Path, job_id: &str) -> Result<Option<String>> {
+    let connection = open_initialized(path)?;
+    pending_in(&connection, job_id)
+}
+
+pub(crate) fn pending_in(connection: &Connection, job_id: &str) -> Result<Option<String>> {
     // A headless Action has no Discord first reply. Canonical duplicate clicks
     // must not close the barrier again after the original request was confirmed.
-    let row = open_initialized(path)?
+    let row = connection
         .query_row(
             "SELECT ingress_id,confirmation_delivered FROM discord_ingress_journal
          WHERE owner_kind='prompt' AND owner_id=? AND kind IN ('message','interaction')

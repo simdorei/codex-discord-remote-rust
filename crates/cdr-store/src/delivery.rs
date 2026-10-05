@@ -7,6 +7,9 @@ use crate::queue::select_job;
 use crate::schema::open_initialized;
 use crate::{Result, StoreError};
 
+mod preflight;
+pub use preflight::{FinalReadiness, final_preflight};
+
 const COLUMNS: &str = "delivery_id, job_id, target_thread_id, turn_id, channel_id, \
     content, attempt_count, last_error, created_at, updated_at";
 
@@ -103,6 +106,9 @@ fn stage_completion_inner(
     // The exact running job still exists in this transaction. Preserve question
     // ownership now; neither a deleted job nor a generationless outbox can do so.
     crate::async_question::reconcile_job_in(&transaction, &job.job_id)?;
+    if let Some(expected) = expected {
+        crate::async_resolution::settle_owned_in(&transaction, expected, owner)?;
+    }
     transaction.execute(
         "INSERT OR IGNORE INTO codex_delivery_outbox (delivery_id, job_id, \
          target_thread_id, turn_id, channel_id, content, created_at, updated_at) \
@@ -131,10 +137,16 @@ fn stage_completion_inner(
         "DELETE FROM codex_turn_queue WHERE job_id = ?",
         [&job.job_id],
     )?;
-    transaction.execute(
-        "DELETE FROM codex_observed_completions WHERE thread_id=? AND turn_id=?",
-        params![job.target_thread_id, turn_id],
-    )?;
+    if !crate::async_resolution::retain_terminal_journal_in(
+        &transaction,
+        &job.target_thread_id,
+        turn_id,
+    )? {
+        transaction.execute(
+            "DELETE FROM codex_observed_completions WHERE thread_id=? AND turn_id=?",
+            params![job.target_thread_id, turn_id],
+        )?;
+    }
     transaction.execute(
         "DELETE FROM codex_observed_final_answers WHERE thread_id=? AND turn_id=?",
         params![job.target_thread_id, turn_id],

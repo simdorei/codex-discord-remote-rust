@@ -12,7 +12,21 @@ impl MirrorSynchronizer {
         prompt: &str,
         cwd: Option<&str>,
     ) -> Result<u64, MirrorSyncError> {
-        let _guard = self.lock.lock().await;
+        self.with_operation_deadline(
+            "new_thread",
+            false,
+            self.link_new_thread_locked(origin, thread, prompt, cwd),
+        )
+        .await
+    }
+
+    async fn link_new_thread_locked(
+        &self,
+        origin: u64,
+        thread: &str,
+        prompt: &str,
+        cwd: Option<&str>,
+    ) -> Result<u64, MirrorSyncError> {
         let origin = self.remote.channel(origin).await?.ok_or_else(|| {
             MirrorSyncError::Invalid("new-thread origin channel is unavailable".into())
         })?;

@@ -82,7 +82,16 @@ pub fn pending(path: &Path) -> Result<Vec<PendingCommentary>> {
 
 /// `before=None` checks all progress, as required before a final reply.
 pub fn has_pending(path: &Path, job: &str, before: Option<i64>) -> Result<bool> {
-    Ok(open_initialized(path)?.query_row(
+    let connection = open_initialized(path)?;
+    has_pending_in(&connection, job, before)
+}
+
+pub(crate) fn has_pending_in(
+    connection: &Connection,
+    job: &str,
+    before: Option<i64>,
+) -> Result<bool> {
+    Ok(connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM codex_commentary_outbox
         WHERE job_id=?1 AND (?2 IS NULL OR sequence<?2))",
         params![job, before],

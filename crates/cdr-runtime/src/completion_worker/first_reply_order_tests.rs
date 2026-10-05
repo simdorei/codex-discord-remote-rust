@@ -96,6 +96,7 @@ async fn verify_order(output: Output, lose_echo: bool) {
     );
     let original = worker(&fixture);
     let early = early_output(&original, output).await;
+    assert_final_first_reply_accounting(db, output, &early);
     let pending_before_echo = pending_count(db);
     if lose_echo {
         drop(first_reply);
@@ -248,6 +249,7 @@ async fn explicit_saved_final_recovery_posts_once_without_reopening_acceptance_o
     })
     .unwrap();
     let frozen = delivery::list_pending(db).unwrap().remove(0);
+    changed_grant_evidence_blocks_actual_http(&worker(&fixture), &frozen).await;
     let expected = cdr_discord::text::split_delivery_chunks(&frozen.content, true);
     worker(&fixture).deliver_pending().await.unwrap();
     worker(&fixture).deliver_pending().await.unwrap();
@@ -336,4 +338,217 @@ async fn confirmed_echo_wakes_actual_processor_without_waiting_for_thirty_second
         "confirmed first reply did not wake actual outbox processor"
     );
     assert_eq!(posts.len(), 2);
+}
+
+fn assert_final_first_reply_accounting(
+    db: &std::path::Path,
+    output: Output,
+    early: &Result<Result<(), CompletionWorkerError>, tokio::time::error::Elapsed>,
+) {
+    if matches!(output, Output::Final) {
+        assert!(matches!(early.as_ref().unwrap(),
+            Err(CompletionWorkerError::Delivery(reason)) if reason ==
+            "output saved; first reply is not confirmed for message:801. No output POST attempted; inspect the saved request if its reply failed"));
+        assert_eq!(delivery::list_pending(db).unwrap()[0].attempt_count, 1);
+    }
+}
+
+async fn changed_grant_evidence_blocks_actual_http(
+    worker: &CompletionWorker,
+    pending: &delivery::StoredDelivery,
+) {
+    let db = worker.queue.db_path();
+    assert_eq!(
+        delivery::final_preflight(db, pending).unwrap(),
+        delivery::FinalReadiness::Ready
+    );
+    let connection = rusqlite::Connection::open(db).unwrap();
+    connection
+        .execute(
+            "UPDATE discord_ingress_journal SET owner_user_id=4 WHERE ingress_id='message:801'",
+            [],
+        )
+        .unwrap();
+    let chunks = cdr_discord::text::split_delivery_chunks(&pending.content, true);
+    let error = super::receipt::send_chunk_guarded(
+        db,
+        &worker.http,
+        twilight_model::id::Id::new(42),
+        &super::delivery_identity::IdempotentChunk {
+            domain: "completion/v1",
+            logical_key: pending.delivery_id.clone(),
+            chunk_index: 0,
+            content: chunks[0].clone(),
+        },
+        &[],
+        Some(&cdr_store::new_reply::DeliveryGuard {
+            job_id: &pending.job_id,
+            thread_id: &pending.target_thread_id,
+            turn_id: &pending.turn_id,
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        CompletionWorkerError::Store(cdr_store::StoreError::Integrity(_))
+    ));
+    assert_eq!(cdr_store::delivery_receipt::unknown_count(db).unwrap(), 0);
+    // Restore only the disposable fixture, then the caller proves one normal POST per chunk.
+    connection
+        .execute(
+            "UPDATE discord_ingress_journal SET owner_user_id=3 WHERE ingress_id='message:801'",
+            [],
+        )
+        .unwrap();
+}
+
+fn saved_new_final(db: &std::path::Path) -> delivery::StoredDelivery {
+    let connection = rusqlite::Connection::open(db).unwrap();
+    let identity = cdr_store::new_reply::Identity {
+        ingress_id: "message:802".into(),
+        job_id: "held-new".into(),
+        thread_id: "thread-b".into(),
+        cwd: "C:/fixture".into(),
+        state_db: db.display().to_string(),
+        channel_id: 42,
+        origin_channel_id: 42,
+        event_id: Some(802),
+        kind: ingress::IngressKind::Message,
+        creation_generation: 1,
+        prompt_sha256: cdr_store::final_recovery::sha256("input"),
+        acknowledgement: "Ready".into(),
+    };
+    let outcome = serde_json::json!({
+        "new_creation":{"version":1,"cwd":identity.cwd},
+        "new_verification":{"thread_id":identity.thread_id,"channel_id":42,
+            "prompt_sha256":identity.prompt_sha256}
+    });
+    connection.execute("INSERT INTO discord_ingress_journal
+        (ingress_id,kind,event_id,channel_id,owner_user_id,payload_json,state,phase,
+        target_thread_id,owner_kind,owner_id,outcome_json,confirmation_delivered,created_at,updated_at)
+        VALUES ('message:802','message',802,42,3,'{}','owned','durable_prompt',
+        'thread-b','prompt','held-new',?,0,1,1)", [outcome.to_string()]).unwrap();
+    connection
+        .execute(
+            "INSERT INTO codex_new_first_replies
+        (job_id,ingress_id,identity_json,turn_id,accepted_at,last_error)
+        VALUES ('held-new','message:802',?,'new-turn',1,'checking')",
+            [serde_json::to_string(&identity).unwrap()],
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO codex_delivery_outbox
+        (delivery_id,job_id,target_thread_id,turn_id,channel_id,content,created_at,updated_at)
+        VALUES ('held-new','held-new','thread-b','new-turn',42,'Saved new answer',1,1)",
+        )
+        .unwrap();
+    delivery::list_pending(db).unwrap().remove(0)
+}
+
+fn confirm_new_final(db: &std::path::Path) {
+    use cdr_store::{delivery_receipt, new_reply};
+    let record = new_reply::get(db, "held-new").unwrap().unwrap();
+    assert!(
+        new_reply::checkpoint(
+            db,
+            &record,
+            new_reply::CheckpointUpdate {
+                scan: &serde_json::json!({}),
+                verified: true,
+                error: "",
+                now: 2.0,
+            }
+        )
+        .unwrap()
+    );
+    let record = new_reply::get(db, "held-new").unwrap().unwrap();
+    let key = new_reply::acknowledgement_key(&record).unwrap();
+    delivery_receipt::begin(
+        db,
+        &key,
+        &cdr_store::final_recovery::sha256(&record.identity.acknowledgement),
+    )
+    .unwrap();
+    delivery_receipt::confirm(db, &key, "901").unwrap();
+}
+
+#[tokio::test]
+async fn new_hold_skips_failure_record_but_changed_identity_records_error_without_post() {
+    let temp = tempfile::tempdir().unwrap();
+    let http = crate::test_support::approval_http::start().await;
+    let fixture = MessageFixture::new(
+        &temp,
+        Arc::new(
+            Client::builder()
+                .proxy(http.address.clone(), true)
+                .ratelimiter(None)
+                .build(),
+        ),
+    )
+    .await;
+    let db = fixture.queue.db_path();
+    let pending = saved_new_final(db);
+    let worker = worker(&fixture);
+    let reason = cdr_store::new_reply::output_hold(db, "held-new")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delivery::final_preflight(db, &pending).unwrap(),
+        delivery::FinalReadiness::Held(reason.clone())
+    );
+    assert!(matches!(worker.deliver_one(&pending).await.unwrap_err(),
+        CompletionWorkerError::Held(actual) if actual == reason));
+    assert_eq!(delivery::list_pending(db).unwrap()[0].attempt_count, 0);
+    confirm_new_final(db);
+    assert_eq!(
+        delivery::final_preflight(db, &pending).unwrap(),
+        delivery::FinalReadiness::Ready
+    );
+    cdr_store::mapping::update_discord_thread_id(db, "thread-b", 43, 3.0).unwrap();
+    let guard = cdr_store::new_reply::DeliveryGuard {
+        job_id: &pending.job_id,
+        thread_id: &pending.target_thread_id,
+        turn_id: &pending.turn_id,
+    };
+    let error = super::receipt::send_chunk_guarded(
+        db,
+        &worker.http,
+        twilight_model::id::Id::new(42),
+        &super::delivery_identity::IdempotentChunk {
+            domain: "completion/v1",
+            logical_key: pending.delivery_id.clone(),
+            chunk_index: 0,
+            content: pending.content.clone(),
+        },
+        &[],
+        Some(&guard),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        CompletionWorkerError::Store(cdr_store::StoreError::Integrity(_))
+    ));
+    assert_eq!(cdr_store::delivery_receipt::unknown_count(db).unwrap(), 0);
+    assert!(matches!(
+        worker.deliver_one(&pending).await.unwrap_err(),
+        CompletionWorkerError::Store(cdr_store::StoreError::Integrity(_))
+    ));
+    assert_eq!(delivery::list_pending(db).unwrap()[0].attempt_count, 1);
+    assert!(cdr_store::queue::list(db).unwrap().is_empty());
+    fixture.server.close().await.unwrap();
+    http.stop.send(()).unwrap();
+    assert!(
+        http.task.await.unwrap().is_empty(),
+        "no HTTP POST is authorized"
+    );
+    assert_eq!(
+        app_fixture::rpc_log(&temp.path().join("rpc.jsonl"))
+            .iter()
+            .filter(|r| r["method"] == "turn/start")
+            .count(),
+        0
+    );
 }

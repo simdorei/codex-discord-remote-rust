@@ -54,9 +54,10 @@ pub(super) fn submission_result(
             };
         }
         if warning.kind == BackendFailureKind::ExecutionHeld {
+            let outcome = held_start_outcome(warning.ambiguous);
             return ActionResult {
                 text: format!(
-                    "Codex request was not replayed{source}\nthread_id: {thread_id}\njob_id: {}\nstatus: request requires explicit recovery; no automatic replay\nreason: {}\nsafety: no request replay was attempted",
+                    "Codex request was not replayed{source}\nthread_id: {thread_id}\njob_id: {}\nstatus: request is held pending resolution; no automatic replay{outcome}\nreason: {}\nsafety: no request replay was attempted",
                     submission.job_id, warning.message
                 ),
                 waits_for_final: false,
@@ -119,6 +120,17 @@ pub(super) fn request_echo(raw_prompt: &str) -> String {
     }
     preview
 }
+
+fn held_start_outcome(ambiguous: bool) -> &'static str {
+    if ambiguous {
+        "\nstart_outcome: this saved request may already have reached Codex; outcome remains unknown"
+    } else {
+        ""
+    }
+}
+
+#[cfg(test)]
+mod held_submission_tests;
 
 #[cfg(test)]
 mod tests {

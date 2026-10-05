@@ -289,3 +289,42 @@ fn warning_deadline_survives_restart_and_stale_scan_cannot_commit() {
         queue::QueueJobState::Running
     );
 }
+
+#[test]
+fn final_preflight_preserves_new_verification_ack_and_mapping_guards() {
+    let f = Fixture::new();
+    f.accept();
+    let pending = delivery::stage_queue_completion(&f.db, "job", "Final\nanswer", 9.0).unwrap();
+    assert!(matches!(
+        delivery::final_preflight(&f.db, &pending).unwrap(),
+        delivery::FinalReadiness::Held(_)
+    ));
+    f.verify();
+    assert!(matches!(
+        delivery::final_preflight(&f.db, &pending).unwrap(),
+        delivery::FinalReadiness::Held(_)
+    ));
+    f.ack();
+    assert_eq!(
+        delivery::final_preflight(&f.db, &pending).unwrap(),
+        delivery::FinalReadiness::Ready
+    );
+    cdr_store::mapping::update_discord_thread_id(&f.db, "new-thread", 101, 10.0).unwrap();
+    assert!(delivery::final_preflight(&f.db, &pending).is_err());
+    let key = json!([100, "completion/v1", pending.delivery_id, 0]).to_string();
+    assert!(
+        delivery_receipt::begin_guarded(
+            &f.db,
+            &key,
+            &hash(&pending.content),
+            Some(&DeliveryGuard {
+                job_id: "job",
+                thread_id: "new-thread",
+                turn_id: "first-turn",
+            }),
+        )
+        .is_err()
+    );
+    assert_eq!(delivery_receipt::unknown_count(&f.db).unwrap(), 0);
+    assert_eq!(delivery::list_pending(&f.db).unwrap(), [pending]);
+}

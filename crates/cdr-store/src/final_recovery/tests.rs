@@ -66,10 +66,19 @@ fn claim(path: &Path, r: &Request, index: usize, hash: &str) -> Result<receipt::
 fn final_grant_freezes_only_the_saved_result_and_deduplicates_after_reconstruction() {
     let (_dir, path, r) = fixture();
     assert!(crate::first_reply::pending(&path, "job").unwrap().is_some());
+    let before = crate::delivery::list_pending(&path).unwrap().remove(0);
+    assert_eq!(
+        crate::delivery::final_preflight(&path, &before).unwrap(),
+        crate::delivery::FinalReadiness::FirstReply("message:11".into())
+    );
     authorize(&path, &r, render).unwrap();
     authorize(&path, &r, render).unwrap();
     let pending = crate::delivery::list_pending(&path).unwrap().remove(0);
     assert!(pending.content.starts_with(EXPLANATION));
+    assert_eq!(
+        crate::delivery::final_preflight(&path, &pending).unwrap(),
+        crate::delivery::FinalReadiness::Ready
+    );
     assert!(authorized(&path, &pending).unwrap());
     assert_eq!(
         crate::first_reply::pending(&path, "job")
@@ -137,6 +146,7 @@ fn grant_transaction_rolls_back_the_explanation_and_actual_claim_rechecks_eviden
     assert!(authorized(&path, &pending).unwrap());
     db.execute("UPDATE discord_ingress_journal SET owner_user_id=4", [])
         .unwrap();
+    assert!(crate::delivery::final_preflight(&path, &pending).is_err());
     assert!(claim(&path, &r, 0, &sha256(&pending.content)).is_err());
     assert_eq!(receipt::unknown_count(&path).unwrap(), 0);
 }

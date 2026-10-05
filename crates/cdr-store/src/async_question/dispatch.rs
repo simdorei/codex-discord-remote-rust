@@ -20,6 +20,8 @@ pub struct Claim<'a> {
     pub message: &'a str,
     pub option: usize,
     pub mode: DispatchMode,
+    /// Exact-thread history observed before a Start; unused for a Steer.
+    pub baseline_turn_ids: Vec<String>,
     pub prompt: &'a str,
     pub now: f64,
 }
@@ -52,6 +54,18 @@ pub fn begin_dispatch(path: &Path, c: &Claim<'_>) -> Result<Question> {
         .filter(|job| job.target_thread_id == q.thread_id)
         .collect::<Vec<_>>();
     let reply_job = if c.mode == DispatchMode::Start {
+        if !c.baseline_turn_ids.contains(&q.turn_id)
+            || c.baseline_turn_ids.iter().any(|id| id.trim().is_empty())
+            || c.baseline_turn_ids
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != c.baseline_turn_ids.len()
+        {
+            return Err(invalid(
+                "async answer requires a complete, unique pre-start baseline",
+            ));
+        }
         if !jobs.is_empty() {
             return Err(invalid(
                 "original final delivery or later work is still pending; no new turn started",
@@ -76,13 +90,14 @@ pub fn begin_dispatch(path: &Path, c: &Claim<'_>) -> Result<Question> {
         // Reuse the existing backward-compatible quarantine encoding. This job
         // must never enter generic Starting recovery or automatic retry/adoption.
         tx.execute(
-            "UPDATE codex_turn_queue SET state='running',turn_id=?,last_error=? WHERE job_id=?",
+            "UPDATE codex_turn_queue SET state='running',turn_id=?,last_error=?,baseline_turn_ids=? WHERE job_id=?",
             params![
                 format!("{}async:{}", crate::queue::QUARANTINED_TURN_PREFIX, q.id),
                 format!(
                     "{}async question answer dispatch unconfirmed; no automatic retry",
                     crate::queue::QUARANTINED_ERROR_PREFIX
                 ),
+                serde_json::to_string(&c.baseline_turn_ids)?,
                 job_id
             ],
         )?;

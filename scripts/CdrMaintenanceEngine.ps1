@@ -109,6 +109,9 @@ function Invoke-CdrMaintenanceEngine([string]$StatePath, [string]$ExpectedOperat
                 }
                 'candidate_installed' {
                     Assert-CdrMaintenanceNoRuntime $state
+                    if ($state.PSObject.Properties['DeploymentPolicy']) {
+                        Enable-CdrMaintenanceCompatibility $state
+                    }
                     # Durable BEFORE the operator can initialize or mutate any DB.
                     Set-CdrMaintenancePhase $state $StatePath 'mutation_started'
                 }

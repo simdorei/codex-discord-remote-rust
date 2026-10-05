@@ -9,7 +9,7 @@ use cdr_runtime::startup::{StartupArgs, config_summary, help_text, load_environm
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    match run().await {
+    match Box::pin(run()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err((code, error)) => {
             eprintln!("ERROR: {error}");

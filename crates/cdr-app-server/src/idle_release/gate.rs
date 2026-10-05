@@ -1,8 +1,11 @@
 use super::{ExclusivePermit, IdleReleaseJournal, IdleReleaseToken, held};
 use crate::AppServerError;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+#[cfg(test)]
+mod observation_tests;
 
 #[derive(Default)]
 struct State {
@@ -14,7 +17,7 @@ struct State {
 #[derive(Default)]
 pub(crate) struct TargetGate {
     state: Mutex<State>,
-    observation_gap: AtomicBool,
+    observation_gap: AtomicU64,
 }
 
 pub(crate) enum MutationAdmission {
@@ -119,10 +122,34 @@ impl TargetGate {
     }
 
     pub(crate) fn mark_gap(&self) {
-        self.observation_gap.store(true, Ordering::Release);
+        let _ = self
+            .observation_gap
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                Some(value.saturating_add(1 + (value & 1)))
+            });
     }
+    // An unattributed loss has no source interval that a later prefix can prove.
+    // Latch before its DB write; even an in-flight/failed write must keep idle held.
+    pub(crate) fn hold_unattributed_gap(&self) {
+        self.observation_gap.store(u64::MAX, Ordering::Release);
+    }
+
     pub(crate) fn observations_verified(&self) -> bool {
-        !self.observation_gap.load(Ordering::Acquire)
+        self.gap_epoch() & 1 == 0
+    }
+    pub(crate) fn gap_epoch(&self) -> u64 {
+        self.observation_gap.load(Ordering::Acquire)
+    }
+    pub(crate) fn clear_gap(&self, expected: u64) -> bool {
+        if expected == u64::MAX {
+            return false;
+        }
+        if expected & 1 == 0 {
+            return self.gap_epoch() == expected;
+        }
+        self.observation_gap
+            .compare_exchange(expected, expected + 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 }
 

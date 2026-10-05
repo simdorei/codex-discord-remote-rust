@@ -5,13 +5,16 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 mod args;
+mod async_recovery;
 pub mod attachment;
 pub mod env_file;
 mod first_reply;
 mod manual_reserve;
+mod recovery_capability;
 pub mod setup;
 mod store;
 pub mod threads;
+mod writer_recovery;
 
 use args::Args;
 
@@ -19,16 +22,19 @@ pub async fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<String
     let args = Args::parse(arguments)?;
     let root = args.root()?;
     match args.command.as_str() {
-        "setup-discord" => setup::run(&args, &root).await,
-        "send-attachment" => attachment::run(&args, &root).await,
-        "list-threads" | "archive-thread" => threads::run(&args, &root).await,
+        "setup-discord" => Box::pin(setup::run(&args, &root)).await,
+        "send-attachment" => Box::pin(attachment::run(&args, &root)).await,
+        "list-threads" | "archive-thread" => Box::pin(threads::run(&args, &root)).await,
         "configure-install" => configure_install(&args, &root),
         "discover-codex" => discover_codex(&args, &root),
         "verify-plugin-inventory" => verify_inventory(&args, &root),
         "retire-automatic-reserve" | "authorize-saved-final" => manual_reserve::run(&args, &root),
         "backup-store" => store::backup(&root),
         "active-queue-count" => store::active_count(&root),
+        "recover-writer" | "recover-tools" => Box::pin(writer_recovery::run(&args, &root)).await,
         "inspect-new-first-reply" => first_reply::run(&args, &root),
+        "inspect-async-recovery" => async_recovery::run(&args, &root),
+        "check-recovery-compatibility" => recovery_capability::run(&args, &root),
         unknown => Err(format!("unknown admin command: {unknown}")),
     }
 }

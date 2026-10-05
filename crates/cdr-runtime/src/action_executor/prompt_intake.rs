@@ -122,16 +122,20 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 Ok(result)
             }
             Err(error) => {
-                if cdr_store::dead_generation::target_is_held(
-                    &self.mirror_db,
-                    &claim.intake.target_thread_id,
-                )? || matches!(
-                    &error,
-                    ActionError::Store(cdr_store::StoreError::DeadGenerationTargetHeld(_))
-                        | ActionError::Queue(crate::queue_runner::QueueRunnerError::Store(
-                            cdr_store::StoreError::DeadGenerationTargetHeld(_)
-                        ))
-                ) {
+                if cdr_store::execution_hold::reason(&self.mirror_db, &claim.intake.job_id)?
+                    .is_some()
+                    || cdr_store::dead_generation::target_is_held(
+                        &self.mirror_db,
+                        &claim.intake.target_thread_id,
+                    )?
+                    || matches!(
+                        &error,
+                        ActionError::Store(cdr_store::StoreError::DeadGenerationTargetHeld(_))
+                            | ActionError::Queue(crate::queue_runner::QueueRunnerError::Store(
+                                cdr_store::StoreError::DeadGenerationTargetHeld(_)
+                            ))
+                    )
+                {
                     return Err(ActionError::Invalid(format!(
                         "request {} is preserved under a manual hold and will not be retried automatically: {error}",
                         claim.intake.job_id
@@ -163,6 +167,16 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 &submission,
                 &intake.raw_prompt,
             ));
+        }
+        if cdr_store::execution_hold::reason(&self.mirror_db, &intake.job_id)?.is_some() {
+            return Ok(ActionResult {
+                text: format!(
+                    "request {} is preserved under a manual hold and will not be retried automatically\nthread_id: {}",
+                    intake.job_id, intake.target_thread_id
+                ),
+                waits_for_final: false,
+                ui: None,
+            });
         }
         let current = canonicalize_prompt_intake_target(&self.mirror_db, &intake.job_id)?;
         let Some(current) = current else {

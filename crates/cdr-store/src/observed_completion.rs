@@ -1,6 +1,6 @@
 //! Terminal observations are durable before history lookup or Discord I/O.
 use crate::{Result, schema::open_initialized};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, TransactionBehavior, params};
 use std::path::Path;
 
 pub(crate) fn migrate_schema(connection: &Connection) -> Result<()> {
@@ -40,7 +40,17 @@ pub fn record(
     generation: i64,
     payload: &str,
 ) -> Result<bool> {
-    Ok(open_initialized(path)?.execute(
+    record_in(&open_initialized(path)?, thread, turn, generation, payload)
+}
+
+fn record_in(
+    connection: &Connection,
+    thread: &str,
+    turn: &str,
+    generation: i64,
+    payload: &str,
+) -> Result<bool> {
+    Ok(connection.execute(
         "INSERT OR IGNORE INTO codex_observed_completions
         (thread_id,turn_id,generation,payload)
         SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM codex_turn_queue
@@ -78,6 +88,10 @@ pub fn pending_with_generation(path: &Path) -> Result<Vec<(String, String, i64, 
 }
 
 pub fn finish(path: &Path, thread: &str, turn: &str) -> Result<()> {
+    if crate::async_resolution::retain_terminal_journal(path, thread, turn)? {
+        return Ok(());
+    }
+
     open_initialized(path)?.execute(
         "DELETE FROM codex_observed_completions WHERE thread_id=? AND turn_id=?",
         params![thread, turn],
@@ -104,13 +118,30 @@ pub fn record_for_resident(
     payload: &str,
     resident: &str,
 ) -> Result<bool> {
+    crate::async_resolution::record_terminal_notification(
+        path, thread, turn, generation, resident, payload,
+    )?;
+
     if resident.is_empty() {
         return Err(crate::StoreError::Integrity(
             "empty completion resident".into(),
         ));
     }
-    let inserted = record(path, thread, turn, generation, payload)?;
-    open_initialized(path)?.execute(
+    let mut db = open_initialized(path)?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if !crate::async_resolution::journal_observation_allowed_in(
+        &tx, thread, turn, generation, resident, payload,
+    )? {
+        return Ok(false);
+    }
+    let inserted = record_in(&tx, thread, turn, generation, payload)?;
+    crate::ingress::stop::control::record_terminal_in(
+        &tx, thread, turn, generation, resident, payload,
+    )?;
+    crate::mutation_attempt::response::record_terminal_in(
+        &tx, thread, turn, generation, resident, payload,
+    )?;
+    tx.execute(
         "UPDATE codex_observed_completions SET resident_owner=?1
         WHERE thread_id=?2 AND turn_id=?3 AND generation=?4 AND payload=?5
         AND resident_owner IS NULL
@@ -118,6 +149,7 @@ pub fn record_for_resident(
           AND COALESCE(turn_observation_generation,app_server_generation)=?4 AND state='running')",
         params![resident, thread, turn, generation, payload],
     )?;
+    tx.commit()?;
     Ok(inserted)
 }
 

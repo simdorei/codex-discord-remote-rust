@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{MissedTickBehavior, interval};
 
+use super::scheduler::lanes::{EVENT_BYTES, Envelope};
 use super::{CompletionWorker, CompletionWorkerError};
 use cdr_app_server::ResidentNotificationEvent;
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{Semaphore, broadcast, mpsc, watch};
 
 pub(super) async fn run(
     worker: Arc<CompletionWorker>,
@@ -19,6 +20,12 @@ pub(super) async fn run(
     let mut tasks = tokio::task::JoinSet::new();
     let processing = Arc::clone(&worker);
     tasks.spawn(async move { process(&processing, pending).await });
+    if worker.server.observation_tracking_enabled() {
+        tasks.spawn(super::observation_gap::run(
+            Arc::clone(&worker),
+            shutdown.clone(),
+        ));
+    }
     tasks.spawn(super::idle_release::run(
         Arc::clone(&worker),
         shutdown.clone(),
@@ -43,9 +50,14 @@ pub(super) async fn run(
 async fn observe(
     worker: Arc<CompletionWorker>,
     mut receiver: broadcast::Receiver<ResidentNotificationEvent>,
-    sender: mpsc::Sender<ResidentNotificationEvent>,
+    sender: mpsc::Sender<Envelope>,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let byte_budget = Arc::new(Semaphore::new(EVENT_BYTES));
+    if worker.server.observation_tracking_enabled() {
+        super::source_driver::observe(worker, receiver, sender, byte_budget, shutdown).await;
+        return;
+    }
     loop {
         tokio::select! {
             biased;
@@ -101,6 +113,15 @@ async fn observe(
                         } else {
                             worker.server.mark_idle_observation_gap();
                         }
+                        if matches!(&event, ResidentNotificationEvent::Notification { notification, .. }
+                            if cdr_app_server::extract_thread_id(&notification.params).is_none()) {
+                            continue;
+                        }
+                        let Some(event) = Envelope::charge(event,&byte_budget) else {
+                            worker.server.mark_idle_observation_gap();
+                            eprintln!("completion_event_budget_gap; durable evidence retained");
+                            continue;
+                        };
                         if let Err(error) = sender.try_send(event) {
                             worker.server.mark_idle_observation_gap();
                             eprintln!("completion_processing_queue_gap error={error}; durable terminals retained; readonly reconciliation required");
@@ -117,37 +138,8 @@ async fn observe(
     }
 }
 
-pub(super) async fn process(
-    worker: &CompletionWorker,
-    mut pending: mpsc::Receiver<ResidentNotificationEvent>,
-) {
-    CompletionWorker::report(worker.recover_observed().await);
-    CompletionWorker::report(worker.recover_goal_progress().await);
-    CompletionWorker::report(worker.recover().await);
-    CompletionWorker::report(worker.deliver_questions().await);
-    let mut retry = interval(Duration::from_secs(30));
-    retry.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    retry.tick().await;
-    loop {
-        tokio::select! {
-            () = worker.queue.wait_for_delivery_ready() => {
-                CompletionWorker::report(worker.deliver_questions().await);
-                CompletionWorker::report(worker.deliver_pending_commentary().await);
-                CompletionWorker::report(worker.recover_goal_progress().await);
-                CompletionWorker::report(worker.deliver_pending().await);
-            },
-            event = pending.recv() => match event {
-                Some(event) => CompletionWorker::report(worker.handle(event).await),
-                None => return,
-            },
-            _ = retry.tick() => {
-                CompletionWorker::report(worker.deliver_questions().await);
-                CompletionWorker::report(worker.recover_observed().await);
-                CompletionWorker::report(worker.recover_goal_progress().await);
-                CompletionWorker::report(worker.recover().await);
-            }
-        }
-    }
+pub(super) async fn process(worker: &CompletionWorker, pending: mpsc::Receiver<Envelope>) {
+    super::scheduler::run(worker, pending).await;
 }
 
 // Scoped futures: no detached heartbeat can outlive its owning worker.

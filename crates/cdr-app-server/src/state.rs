@@ -8,6 +8,7 @@ const MAX_NOTIFICATIONS: usize = 1_000;
 
 mod dead_generation;
 mod idle_observation;
+mod observation_window;
 mod server_requests;
 mod settings;
 
@@ -34,6 +35,8 @@ pub struct LifecycleSnapshot {
 }
 
 #[derive(Debug, Default)]
+// Lifecycle, source overflow and optional ledger installation are independent facts.
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct RuntimeState {
     pub generation: u64,
     pub initialized: bool,
@@ -42,6 +45,9 @@ pub(crate) struct RuntimeState {
     active_turns: HashMap<String, String>,
     notifications: VecDeque<Notification>,
     notification_revision: u64,
+    notification_sequence_exhausted: bool,
+    pub(crate) idle_ledger_required: bool,
+    idle_ledger_revision: Option<u64>,
     idle_observed_revision: u64,
     idle_observation_gap: bool,
     pub(crate) process_exit_confirmed: bool,
@@ -67,7 +73,11 @@ impl RuntimeState {
     }
 
     pub(crate) fn record_notification(&mut self, notification: Notification) {
-        self.notification_revision = self.notification_revision.saturating_add(1);
+        if let Some(next) = self.notification_revision.checked_add(1) {
+            self.notification_revision = next;
+        } else {
+            self.notification_sequence_exhausted = true;
+        }
         if notification.method == "turn/started" {
             if let (Some(thread_id), Some(turn_id)) = (
                 extract_thread_id(&notification.params),

@@ -53,6 +53,12 @@ pub(super) async fn build_executor(
         backend,
         admission,
     ));
+    if let Err(error) = queue.install_reviewed_recovery_policy().await {
+        eprintln!(
+            "rust_incident_policy_install_held target={} error={error}; unrelated targets remain admitted",
+            cdr_store::async_resolution::REVIEWED_INCIDENT_THREAD
+        );
+    }
     let bridge_state = Arc::new(BridgeState::new(paths.bridge_state.clone()));
     let recovery = queue.recover().await;
     // Exact-ID routing must not replay historical ownership transfers on startup.

@@ -2,9 +2,11 @@
 
 pub mod archive_fence;
 pub mod async_question;
+pub mod async_resolution;
 pub mod backup;
 pub mod claims;
 pub mod commentary_outbox;
+pub mod completion_work;
 pub mod control_binding;
 pub mod dead_generation;
 pub mod delivery;
@@ -19,7 +21,9 @@ pub mod idle_release;
 pub mod ingress;
 pub mod mapping;
 pub mod mirror;
+pub mod mutation_attempt;
 pub mod new_reply;
+pub mod observation_gap;
 pub mod observed_completion;
 pub mod observed_final_answer;
 pub mod processed;

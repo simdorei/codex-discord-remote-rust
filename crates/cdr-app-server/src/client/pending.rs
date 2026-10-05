@@ -1,4 +1,4 @@
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -6,7 +6,17 @@ use tokio::sync::oneshot;
 use tokio::time::sleep;
 
 use super::{AdmissionPermit, Inner};
-use crate::{RequestId, RpcErrorPayload};
+use crate::{AppServerError, RequestId, RpcErrorPayload};
+
+const MAX_PENDING_RESPONSES: usize = 1_024;
+
+struct DeadlineGuard(tokio::task::AbortHandle);
+
+impl Drop for DeadlineGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 pub(crate) enum PendingOutcome {
     Response(Result<Value, RpcErrorPayload>),
@@ -17,8 +27,11 @@ pub(crate) enum PendingOutcome {
 pub(crate) struct PendingResponse {
     sender: oneshot::Sender<PendingOutcome>,
     _permit: AdmissionPermit,
+    occurrence: uuid::Uuid,
+    deadline: Option<DeadlineGuard>,
 }
 
+#[cfg(test)]
 pub(crate) fn insert(
     inner: &Inner,
     id: RequestId,
@@ -37,6 +50,81 @@ pub(crate) fn take(inner: &Inner, id: &RequestId) -> Option<PendingResponse> {
     }
 }
 
+fn take_occurrence(
+    inner: &Inner,
+    id: &RequestId,
+    occurrence: uuid::Uuid,
+) -> Option<PendingResponse> {
+    let mut entries = inner.pending.lock().expect("pending response lock");
+    if entries
+        .get(id)
+        .is_some_and(|entry| entry.occurrence == occurrence)
+    {
+        entries.remove(id)
+    } else {
+        None
+    }
+}
+
+pub(crate) struct PendingRegistration {
+    inner: Weak<Inner>,
+    id: RequestId,
+    occurrence: uuid::Uuid,
+    remove_on_drop: bool,
+}
+
+impl PendingRegistration {
+    pub(crate) fn finish(&mut self) {
+        self.remove_on_drop = true;
+    }
+}
+
+impl Drop for PendingRegistration {
+    fn drop(&mut self) {
+        if self.remove_on_drop
+            && let Some(inner) = self.inner.upgrade()
+        {
+            drop(take_occurrence(&inner, &self.id, self.occurrence));
+        }
+    }
+}
+
+pub(crate) fn register(
+    inner: &Arc<Inner>,
+    id: RequestId,
+    pending: PendingResponse,
+    wait: Duration,
+    observational: bool,
+) -> Result<PendingRegistration, AppServerError> {
+    let occurrence = pending.occurrence;
+    {
+        let mut entries = inner.pending.lock().expect("pending response lock");
+        if entries.len() >= MAX_PENDING_RESPONSES {
+            return Err(AppServerError::InvalidReply {
+                message: format!(
+                    "pending response capacity ({MAX_PENDING_RESPONSES}) reached before dispatch"
+                ),
+            });
+        }
+        if entries.contains_key(&id) {
+            return Err(AppServerError::InvalidReply {
+                message: "pending response id is already registered; original request retained"
+                    .into(),
+            });
+        }
+        entries.insert(id.clone(), pending);
+    }
+    spawn_deadline(Arc::downgrade(inner), id.clone(), wait);
+    Ok(PendingRegistration {
+        inner: Arc::downgrade(inner),
+        id,
+        occurrence,
+        // Mutation cancellation keeps its existing response lease until a
+        // response/deadline or transport closure. Read cancellation needs none.
+        remove_on_drop: observational,
+    })
+}
+
 impl PendingResponse {
     pub(crate) fn new(permit: AdmissionPermit) -> (Self, oneshot::Receiver<PendingOutcome>) {
         let (sender, receiver) = oneshot::channel();
@@ -44,6 +132,8 @@ impl PendingResponse {
             Self {
                 sender,
                 _permit: permit,
+                occurrence: uuid::Uuid::new_v4(),
+                deadline: None,
             },
             receiver,
         )
@@ -63,17 +153,40 @@ impl PendingResponse {
 }
 
 pub(crate) fn spawn_deadline(inner: Weak<Inner>, id: RequestId, wait: Duration) {
-    tokio::spawn(async move {
+    let Some(owner) = inner.upgrade() else {
+        return;
+    };
+    let occurrence = {
+        let entries = owner.pending.lock().expect("pending response lock");
+        let Some(pending) = entries.get(&id) else {
+            return;
+        };
+        pending.occurrence
+    };
+    let deadline_id = id.clone();
+    let task = tokio::spawn(async move {
         sleep(wait).await;
         let Some(inner) = inner.upgrade() else {
             return;
         };
-        let pending = take(&inner, &id);
+        let pending = take_occurrence(&inner, &id, occurrence);
         if let Some(pending) = pending {
             pending.expire();
         }
     });
+    let deadline = DeadlineGuard(task.abort_handle());
+    drop(task);
+    let mut entries = owner.pending.lock().expect("pending response lock");
+    if let Some(pending) = entries
+        .get_mut(&deadline_id)
+        .filter(|entry| entry.occurrence == occurrence)
+    {
+        pending.deadline = Some(deadline);
+    }
 }
+
+#[cfg(test)]
+mod read_isolation_tests;
 
 #[cfg(test)]
 mod tests {
@@ -91,7 +204,7 @@ mod tests {
     use crate::state::RuntimeState;
     use crate::{AppServerError, RequestId};
 
-    fn test_client() -> AppServerClient {
+    pub(super) fn test_client() -> AppServerClient {
         let (notifications, _) = broadcast::channel(1);
         let (server_requests, _) = broadcast::channel(1);
         AppServerClient {

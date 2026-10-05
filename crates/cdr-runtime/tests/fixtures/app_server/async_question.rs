@@ -9,6 +9,8 @@ pub(super) fn run() -> Result {
     let mut stale_on_second = false;
     let mut drop_reply = false;
     let mut goal = false;
+    let mut goal_complete = false;
+    let mut history_kind = String::new();
     serve(Path::new(&log), Logging::Requests, |request| {
         let params = &request["params"];
         let result = match method(&request) {
@@ -36,6 +38,24 @@ pub(super) fn run() -> Result {
                 goal = true;
                 json!({})
             }
+            "test/goal-complete" => {
+                goal = true;
+                goal_complete = true;
+                json!({})
+            }
+            "test/history-kind" => {
+                params["kind"]
+                    .as_str()
+                    .unwrap()
+                    .clone_into(&mut history_kind);
+                json!({})
+            }
+            "test/complete-answer" => {
+                assert_eq!(latest, "answer-turn");
+                active = false;
+                turn("thread-b", &latest, true)?;
+                json!({})
+            }
             "test/goal-next-question" => {
                 active = true;
                 latest = "goal-next".into();
@@ -48,23 +68,10 @@ pub(super) fn run() -> Result {
                 json!({})
             }
             "thread/turns/list" => {
-                assert_eq!(params["threadId"], "thread-b");
-                assert_eq!(params["sortDirection"], "desc");
-                assert_eq!(params["limit"], 1);
-                reads += 1;
-                if stale_on_second && reads >= 2 {
-                    latest = "newer".into();
-                }
-                json!({"data":[{"id":latest,"status":if active {"inProgress"} else {"completed"},"items":[]}],"nextCursor":null})
+                turn_history(params, active, &mut latest, &mut reads, stale_on_second)
             }
-            "thread/goal/get" => {
-                if goal {
-                    json!({"goal":{"threadId":"thread-b","status":"active"}})
-                } else {
-                    json!({"goal":null})
-                }
-            }
-            "thread/read" => thread_snapshot(goal, &latest, active),
+            "thread/goal/get" => goal_snapshot(goal, goal_complete),
+            "thread/read" => history_snapshot(goal, &latest, active, &history_kind),
             "turn/steer" => {
                 assert!(active);
                 assert_eq!(params["threadId"], "thread-b");
@@ -96,6 +103,31 @@ pub(super) fn run() -> Result {
     })
 }
 
+fn turn_history(
+    params: &serde_json::Value,
+    active: bool,
+    latest: &mut String,
+    reads: &mut usize,
+    stale_on_second: bool,
+) -> serde_json::Value {
+    assert_eq!(params["threadId"], "thread-b");
+    assert_eq!(params["sortDirection"], "desc");
+    assert_eq!(params["limit"], 1);
+    *reads += 1;
+    if stale_on_second && *reads >= 2 {
+        *latest = "newer".into();
+    }
+    json!({"data":[{"id":latest,"status":if active {"inProgress"} else {"completed"},"items":[]}],"nextCursor":null})
+}
+
+fn goal_snapshot(goal: bool, complete: bool) -> serde_json::Value {
+    if goal {
+        json!({"goal":{"threadId":"thread-b","status":if complete {"complete"} else {"active"}}})
+    } else {
+        json!({"goal":null})
+    }
+}
+
 fn thread_snapshot(goal: bool, latest: &str, active: bool) -> serde_json::Value {
     let items = if goal {
         vec![json!({"type":"agentMessage","text":"진행 시험","phase":"final_answer"})]
@@ -109,6 +141,32 @@ fn thread_snapshot(goal: bool, latest: &str, active: bool) -> serde_json::Value 
         turns.insert(0, json!({"id":"original","status":"completed","items":[{"type":"agentMessage","text":"진행 시험","phase":"final_answer"}]}));
     }
     json!({"thread":{"id":"thread-b","turns":turns}})
+}
+
+fn history_snapshot(goal: bool, latest: &str, active: bool, kind: &str) -> serde_json::Value {
+    let mut result = thread_snapshot(goal, latest, active);
+    let turns = result["thread"]["turns"].as_array_mut().unwrap();
+    match kind {
+        "prior" | "successor" => {
+            turns.insert(
+                0,
+                json!({"id":"older-ui-turn","status":"completed","items":[]}),
+            );
+            if kind == "successor" {
+                turns.push(json!({"id":"unobserved-successor","status":"completed","items":[]}));
+            }
+        }
+        "duplicate" => turns.push(turns[0].clone()),
+        "missing-original" => turns.retain(|turn| turn["id"] != "original"),
+        "active" => turns.push(json!({"id":"other-active","status":"inProgress","items":[]})),
+        _ => {}
+    }
+    if kind == "wrong-thread" {
+        result["thread"]["id"] = json!("other-thread");
+    } else if kind == "missing-turns" {
+        result["thread"].as_object_mut().unwrap().remove("turns");
+    }
+    result
 }
 
 pub(super) fn emit_question(turn_id: &str) -> Result {

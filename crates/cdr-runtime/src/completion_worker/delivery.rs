@@ -4,7 +4,9 @@ use cdr_app_server::goal::ThreadGoalStatus;
 use cdr_app_server::outcomes::{TurnCompletion, TurnStatus};
 use cdr_discord::delivery::DeliveryPolicy;
 use cdr_store::StoreError;
-use cdr_store::delivery::{StoredDelivery, complete, list_pending, record_failure};
+use cdr_store::delivery::{
+    FinalReadiness, StoredDelivery, complete, final_preflight, list_pending, record_failure,
+};
 use twilight_model::id::{Id, marker::ChannelMarker};
 
 use super::delivery_identity::{CompletionDeliveryIdentity, deliver_idempotent_chunks};
@@ -35,25 +37,24 @@ impl CompletionWorker {
         pending: &StoredDelivery,
     ) -> Result<(), CompletionWorkerError> {
         let result = async {
-            if cdr_store::final_recovery::authorized(self.queue.db_path(), pending)? {
-                if let Some(reason) =
-                    cdr_store::new_reply::output_hold(self.queue.db_path(), &pending.job_id)?
-                {
-                    return Err(CompletionWorkerError::Held(reason));
-                }
-                // The final-only grant validates original error evidence and all earlier progress.
-                // Shared commentary and goal-progress first-reply barriers remain unchanged.
-            } else {
-                self.ensure_delivery_order(&pending.job_id, None)?;
-            }
-            if cdr_store::goal_progress::has_pending_job(
-                self.queue.db_path(),
-                &pending.job_id,
-                &pending.target_thread_id,
-            )? {
-                return Err(CompletionWorkerError::Delivery(
-                    "final saved behind undelivered goal progress; no final POST attempted".into(),
-                ));
+            match final_preflight(self.queue.db_path(), pending)? {
+                FinalReadiness::Ready => {},
+                FinalReadiness::Held(reason) => return Err(CompletionWorkerError::Held(reason)),
+                FinalReadiness::FirstReply(request) => {
+                    return Err(CompletionWorkerError::Delivery(format!(
+                        "output saved; first reply is not confirmed for {request}. No output POST attempted; inspect the saved request if its reply failed"
+                    )));
+                },
+                FinalReadiness::Commentary => {
+                    return Err(CompletionWorkerError::Delivery(
+                        "output saved behind earlier undelivered progress; no output POST attempted".into(),
+                    ));
+                },
+                FinalReadiness::GoalProgress => {
+                    return Err(CompletionWorkerError::Delivery(
+                        "final saved behind undelivered goal progress; no final POST attempted".into(),
+                    ));
+                },
             }
             let channel_id = i64_channel(pending.channel_id)?;
             let identity = CompletionDeliveryIdentity::outbox(&pending.delivery_id);

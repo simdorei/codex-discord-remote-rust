@@ -8,6 +8,13 @@ use uuid::Uuid;
 
 use crate::{Result, StoreError};
 
+mod catalog_cache;
+pub(crate) mod checked_read;
+#[cfg(debug_assertions)]
+mod open_profile;
+#[cfg(test)]
+mod snapshot_tests;
+
 pub const LATEST_STORE_SCHEMA_VERSION: i64 = 2;
 pub const STORE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const BACKUP_DIRECTORY: &str = ".codex-discord-backups";
@@ -26,11 +33,57 @@ const V1_SCHEMA: [&str; 11] = [
     "CREATE INDEX IF NOT EXISTS codex_turn_queue_target_order ON codex_turn_queue(target_thread_id, created_at, job_id)",
 ];
 
+#[cfg_attr(debug_assertions, track_caller)]
 pub fn open_initialized(path: &Path) -> Result<Connection> {
+    #[cfg(debug_assertions)]
+    let mut profile = open_profile::Span::new(std::panic::Location::caller());
     let mut connection = Connection::open(path)?;
     connection.busy_timeout(STORE_BUSY_TIMEOUT)?;
-    let _ = initialize(&mut connection, path)?;
+    #[cfg(debug_assertions)]
+    profile.mark(open_profile::Phase::Connection);
+    #[cfg(test)]
+    checked_read::test_support::boundary(
+        checked_read::test_support::Boundary::Opened,
+        &connection,
+    )?;
+    let before = catalog_cache::signature(&connection)?;
+    #[cfg(test)]
+    checked_read::test_support::boundary(
+        checked_read::test_support::Boundary::Catalog,
+        &connection,
+    )?;
+    #[cfg(debug_assertions)]
+    profile.mark(open_profile::Phase::Catalog);
+    #[cfg(test)]
+    snapshot_tests::boundary(snapshot_tests::Boundary::InitialCatalog);
+    let cached = catalog_cache::contains(&before);
+    #[cfg(debug_assertions)]
+    profile.mark(open_profile::Phase::Cache);
+    if !cached {
+        #[cfg(debug_assertions)]
+        profile.miss();
+        let _ = initialize(&mut connection, path)?;
+        #[cfg(test)]
+        snapshot_tests::boundary(snapshot_tests::Boundary::Initialized);
+        remember_verified_catalog(&mut connection)?;
+    }
     Ok(connection)
+}
+
+fn remember_verified_catalog(connection: &mut Connection) -> Result<()> {
+    // The exact key, supported version and every structural predicate must be
+    // witnessed in one read snapshot. Never publish an earlier catalog key.
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+    let signature = catalog_cache::signature(&transaction)?;
+    #[cfg(test)]
+    snapshot_tests::boundary(snapshot_tests::Boundary::FinalCatalog);
+    let valid = schema_version(&transaction)? == LATEST_STORE_SCHEMA_VERSION
+        && rust_extensions_current(&transaction)?;
+    transaction.commit()?;
+    if valid {
+        catalog_cache::remember(signature);
+    }
+    Ok(())
 }
 
 pub fn initialize(connection: &mut Connection, path: &Path) -> Result<Option<PathBuf>> {
@@ -103,6 +156,8 @@ fn migrate_rust_extensions(connection: &Connection) -> Result<()> {
     crate::observed_final_answer::migrate_schema(connection)?;
     crate::async_question::migrate_schema(connection)?;
     crate::idle_release::migrate_schema(connection)?;
+    crate::observation_gap::migrate_schema(connection)?;
+    crate::mutation_attempt::migrate_schema(connection)?;
     crate::control_binding::migrate_schema(connection)?;
     crate::claims::migrate_schema(connection)?;
     crate::delivery_receipt::migrate_schema(connection)?;
@@ -118,10 +173,17 @@ fn migrate_rust_extensions(connection: &Connection) -> Result<()> {
     crate::new_reply::migrate_schema(connection)?;
     crate::queue::migrate_cancellation_schema(connection)?;
     crate::room_cleanup::migrate_schema(connection)?;
+    crate::mapping::creation::migrate_schema(connection)?;
+    crate::mapping::container_creation::migrate_schema(connection)?;
     crate::archive_fence::migrate_schema(connection)?;
     crate::reserve_policy::migrate_schema(connection)?;
     crate::execution_hold::migrate_schema(connection)?;
     crate::final_recovery::migrate_schema(connection)?;
+    crate::async_resolution::migrate_schema(connection)?;
+    crate::async_resolution::publication::migrate_schema(connection)?;
+    crate::async_resolution::abandonment::migrate_schema(connection)?;
+    crate::async_resolution::admission_order::migrate_schema(connection)?;
+    crate::mutation_attempt::response::migrate_schema(connection)?;
     crate::reserve_retirement::migrate_schema(connection)
 }
 
@@ -157,6 +219,8 @@ fn rust_extensions_current(connection: &Connection) -> Result<bool> {
         && crate::observed_final_answer::schema_current(connection)?
         && crate::async_question::schema_current(connection)?
         && crate::idle_release::schema_current(connection)?
+        && crate::observation_gap::schema_current(connection)?
+        && crate::mutation_attempt::schema_current(connection)?
         && crate::goal_progress::schema_current(connection)?
         && crate::control_binding::schema_current(connection)?
         && crate::claims::schema_current(connection)?
@@ -168,11 +232,18 @@ fn rust_extensions_current(connection: &Connection) -> Result<bool> {
         && crate::new_reply::schema_current(connection)?
         && crate::queue::cancellation_schema_current(connection)?
         && crate::room_cleanup::schema_current(connection)?
+        && crate::mapping::creation::schema_current(connection)?
+        && crate::mapping::container_creation::schema_current(connection)?
         && crate::mirror::schema_current(connection)?
         && crate::archive_fence::schema_current(connection)?
         && crate::reserve_policy::schema_current(connection)?
         && crate::execution_hold::schema_current(connection)?
         && crate::final_recovery::schema_current(connection)?
+        && crate::async_resolution::schema_current(connection)?
+        && crate::async_resolution::publication::schema_current(connection)?
+        && crate::async_resolution::abandonment::schema_current(connection)?
+        && crate::async_resolution::admission_order::schema_current(connection)?
+        && crate::mutation_attempt::response::schema_current(connection)?
         && crate::reserve_retirement::schema_current(connection)?)
 }
 

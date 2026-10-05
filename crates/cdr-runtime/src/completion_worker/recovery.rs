@@ -4,15 +4,26 @@ use cdr_app_server::goal::ThreadGoalStatus;
 use cdr_app_server::outcomes::{TurnStatus, parse_thread_turn_states};
 use cdr_store::queue::{QueueJobState, StoredQueueJob, list};
 
-use super::{CompletionWorker, CompletionWorkerError};
+use super::{CompletionWorker, CompletionWorkerError, Processing};
 use crate::completion_worker::history_request::full_history_request;
 use crate::queue_recovery_transport::stabilize_after_queue_recovery;
 
 impl CompletionWorker {
+    #[cfg(test)]
     pub(super) async fn finish_waiting_goal(
         &self,
         generation: u64,
         thread_id: &str,
+    ) -> Result<(), CompletionWorkerError> {
+        self.finish_waiting_goal_mode(generation, thread_id, Processing::Inline)
+            .await
+    }
+
+    pub(super) async fn finish_waiting_goal_mode(
+        &self,
+        generation: u64,
+        thread_id: &str,
+        mode: Processing<'_>,
     ) -> Result<(), CompletionWorkerError> {
         let Some(job) = list(self.queue.db_path())?.into_iter().find(|job| {
             job.state == QueueJobState::Running
@@ -21,20 +32,33 @@ impl CompletionWorker {
         }) else {
             return Ok(());
         };
-        self.finish_waiting_goal_owned(generation, &job).await
+        self.finish_waiting_goal_owned_mode(generation, &job, mode)
+            .await
     }
 
+    #[cfg(test)]
     pub(super) async fn finish_waiting_goal_owned(
         &self,
         generation: u64,
         expected: &StoredQueueJob,
     ) -> Result<(), CompletionWorkerError> {
+        self.finish_waiting_goal_owned_mode(generation, expected, Processing::Inline)
+            .await
+    }
+
+    async fn finish_waiting_goal_owned_mode(
+        &self,
+        generation: u64,
+        expected: &StoredQueueJob,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
         let completion = self.waiting_goal_completion(generation, expected).await?;
-        self.finish_with_owner(
+        self.finish_with_owner_mode(
             generation,
             expected.completion_evidence_generation(),
             &completion,
             Some(expected),
+            mode,
         )
         .await
     }
@@ -241,11 +265,21 @@ impl CompletionWorker {
         generation: u64,
         job: StoredQueueJob,
     ) -> Result<(), CompletionWorkerError> {
+        self.recover_job_mode(generation, job, Processing::Inline)
+            .await
+    }
+
+    async fn recover_job_mode(
+        &self,
+        generation: u64,
+        job: StoredQueueJob,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
         if job.goal_waiting {
-            return self.recover_goal_waiting(generation, &job).await;
+            return self.recover_goal_waiting_mode(generation, &job, mode).await;
         }
         let Some(turn_id) = job.turn_id.as_deref() else {
-            self.attach_active(&job).await?;
+            self.attach_active_mode(&job, mode).await?;
             return Ok(());
         };
         let result = self
@@ -259,30 +293,82 @@ impl CompletionWorker {
         if let Some(completion) = states.get(turn_id)
             && completion.status != TurnStatus::InProgress
         {
-            self.finish_with_owner(
+            self.finish_with_owner_mode(
                 generation,
                 job.completion_evidence_generation(),
                 completion,
                 Some(&job),
+                mode,
             )
             .await?;
         }
         Ok(())
     }
 
-    async fn recover_goal_waiting(
+    async fn recover_goal_waiting_mode(
         &self,
         generation: u64,
         job: &StoredQueueJob,
+        mode: Processing<'_>,
     ) -> Result<(), CompletionWorkerError> {
         let thread_id = &job.target_thread_id;
-        if self.attach_active(job).await? {
+        if self.attach_active_mode(job, mode).await? {
             return Ok(());
         }
         if self.goal_status(generation, thread_id).await? != Some(ThreadGoalStatus::Active) {
-            self.finish_waiting_goal_owned(generation, job).await?;
+            self.finish_waiting_goal_owned_mode(generation, job, mode)
+                .await?;
         }
         Ok(())
+    }
+
+    /// Exactly one scheduler target owns recovery and live state transitions.
+    pub(super) async fn recover_lane(
+        &self,
+        target: &str,
+        mode: Processing<'_>,
+    ) -> Result<(), CompletionWorkerError> {
+        let (_permit, draining) = match self.queue.enter_background_recovery() {
+            Ok(Some((permit, draining))) => (Some(permit), draining),
+            Ok(None) => (None, false),
+            Err(crate::queue_runner::QueueRunnerError::RestartDrain(
+                crate::restart_readiness::drain::DrainGateError::Sealed,
+            )) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        if !draining {
+            let report = mode
+                .admission()
+                .expect("recovery admission")
+                .lease
+                .recover_incremental()
+                .await?;
+            if report.read_unavailable_targets.contains(target) {
+                return Ok(());
+            }
+        }
+        let generation = self.server.generation();
+        let jobs = cdr_store::queue::list_filtered(self.queue.db_path(), Some(target), None)?
+            .into_iter()
+            .filter(|j| j.state == QueueJobState::Running);
+        attempt_all_recoveries(jobs, |job| self.recover_job_mode(generation, job, mode)).await
+    }
+
+    async fn attach_active_mode(
+        &self,
+        job: &StoredQueueJob,
+        mode: Processing<'_>,
+    ) -> Result<bool, CompletionWorkerError> {
+        let Some(admission) = mode.admission() else {
+            return self.attach_active(job).await;
+        };
+        let generation = self.server.generation();
+        let Some(active) = self.server.active_turn_id(&job.target_thread_id).await? else {
+            return Ok(false);
+        };
+        Ok(admission
+            .lease
+            .goal_turn_started_observed(&active, generation, Some(job))?)
     }
 
     async fn attach_active(&self, job: &StoredQueueJob) -> Result<bool, CompletionWorkerError> {

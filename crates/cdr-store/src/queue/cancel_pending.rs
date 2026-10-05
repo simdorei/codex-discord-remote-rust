@@ -110,7 +110,11 @@ fn candidates(db: &Connection, target: &str, channel: i64, owner: i64) -> Result
     let mut query = db.prepare(
         "SELECT job_id,kind,discord_message_id,eligible FROM (
         SELECT job_id,'queue' AS kind,discord_message_id,created_at,
-            state='pending' AND attempt_count=0 AND turn_id IS NULL AS eligible
+            state='pending' AND turn_id IS NULL AND (attempt_count=0 OR (
+                execution_generation IS NULL AND turn_observation_generation IS NULL
+                AND goal_waiting=0 AND baseline_turn_ids='[]'
+                AND last_error='app-server returned error -32600 for thread/resume: thread '
+                    || target_thread_id || ' already has an active writer')) AS eligible
         FROM codex_turn_queue WHERE target_thread_id=?1 AND channel_id=?2 AND owner_user_id=?3
         UNION ALL
         SELECT job_id,'intake',discord_message_id,created_at,1

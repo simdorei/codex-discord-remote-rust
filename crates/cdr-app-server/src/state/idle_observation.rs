@@ -4,6 +4,9 @@ use crate::Notification;
 impl RuntimeState {
     /// Match the next exact queued notification, never the current/latest revision.
     pub(crate) fn confirm_idle_observation(&mut self, notification: &Notification) -> bool {
+        if self.notification_sequence_exhausted {
+            return false;
+        }
         let first = self
             .notification_revision
             .saturating_sub(self.notifications.len() as u64)
@@ -23,7 +26,13 @@ impl RuntimeState {
     }
 
     pub(crate) fn idle_observations_caught_up(&self) -> bool {
-        !self.idle_observation_gap && self.idle_observed_revision == self.notification_revision
+        !self.notification_sequence_exhausted
+            && if self.idle_ledger_required {
+                self.idle_ledger_revision == Some(self.notification_revision)
+            } else {
+                !self.idle_observation_gap
+                    && self.idle_observed_revision == self.notification_revision
+            }
     }
 
     pub(crate) fn witnessed_idle_terminal(&self, thread: &str, turn: &str) -> bool {

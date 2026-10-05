@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::watch;
@@ -47,6 +48,7 @@ pub(super) struct WrittenRequestGuard<'a> {
     generation: u64,
     write_started: bool,
     complete: bool,
+    isolated_flush: Option<Arc<AtomicBool>>,
 }
 
 pub(super) struct ResidentStateSnapshot {
@@ -133,12 +135,49 @@ impl ResidentState {
         })
     }
 
+    /// Lock order matches replacement: resident, then the exact client lifecycle.
+    /// The callback must be a bounded synchronous publication, never DB acquisition
+    /// or an RPC. Catching here prevents a callback panic from poisoning either gate.
+    pub(super) fn with_recovery_current<R>(
+        &self,
+        expected: &AppServerClient,
+        generation: u64,
+        action: impl FnOnce() -> R,
+    ) -> Result<R, AppServerError> {
+        let state = self.inner.lock().map_err(|_| AppServerError::Closed)?;
+        let same_client = state
+            .client
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(&current.inner, &expected.inner));
+        if state.generation != generation
+            || !same_client
+            || !state.accepting
+            || state.close_state != ResidentCloseState::Open
+            || state.quarantined
+            || state.restart_pending
+        {
+            return Err(AppServerError::MutationHeld {
+                message: "recovery observation connection is no longer current and open".into(),
+            });
+        }
+        let outcome = expected
+            .inner
+            .lifecycle
+            .with_open(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(action)))?;
+        drop(state);
+        match outcome {
+            Ok(value) => Ok(value),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+
     pub(super) fn track_written_request(&self, generation: u64) -> WrittenRequestGuard<'_> {
         WrittenRequestGuard {
             state: self,
             generation,
             write_started: false,
             complete: false,
+            isolated_flush: None,
         }
     }
 
@@ -167,6 +206,18 @@ impl ResidentState {
 }
 
 impl WrittenRequestGuard<'_> {
+    pub(super) fn isolate_after_flush(&mut self) -> Arc<AtomicBool> {
+        let flushed = Arc::new(AtomicBool::new(false));
+        self.isolated_flush = Some(Arc::clone(&flushed));
+        flushed
+    }
+
+    pub(super) fn is_isolated(&self) -> bool {
+        self.isolated_flush
+            .as_ref()
+            .is_some_and(|v| v.load(Ordering::Acquire))
+    }
+
     pub(super) fn confirm_write_started(&mut self) {
         self.write_started = true;
     }
@@ -193,7 +244,7 @@ impl WrittenRequestGuard<'_> {
 
 impl Drop for WrittenRequestGuard<'_> {
     fn drop(&mut self) {
-        if self.write_started && !self.complete {
+        if self.write_started && !self.complete && !self.is_isolated() {
             self.state.mark_cancelled(self.generation);
         }
     }

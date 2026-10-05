@@ -129,15 +129,39 @@ impl AppServerClient {
         write_started: impl FnOnce(),
         write_complete: impl FnOnce(),
     ) -> Result<Value, AppServerError> {
+        self.request_admitted_with_identity_checks(
+            method,
+            params,
+            wait,
+            |_| preflight(),
+            write_started,
+            write_complete,
+        )
+        .await
+    }
+
+    pub(crate) async fn request_admitted_with_identity_checks(
+        &self,
+        method: &str,
+        params: Value,
+        wait: Duration,
+        preflight: impl FnOnce(&RequestId) -> Result<(), AppServerError>,
+        write_started: impl FnOnce(),
+        write_complete: impl FnOnce(),
+    ) -> Result<Value, AppServerError> {
         if self.inner.closed.load(Ordering::Acquire) {
             return Err(AppServerError::Closed);
         }
         let id = RequestId::String(Uuid::new_v4().to_string());
         let response_permit = self.admit_operation()?;
         let (pending, receiver) = PendingResponse::new(response_permit);
-        let displaced = pending::insert(&self.inner, id.clone(), pending);
-        drop(displaced);
-        pending::spawn_deadline(Arc::downgrade(&self.inner), id.clone(), wait);
+        let mut registration = pending::register(
+            &self.inner,
+            id.clone(),
+            pending,
+            wait,
+            crate::requests::is_observational(method),
+        )?;
         let deadline = tokio::time::Instant::now() + wait;
         if let Err(error) = self
             .write_with_preflight(
@@ -149,18 +173,25 @@ impl AppServerClient {
                             timeout_ms: wait.as_millis(),
                         });
                     }
-                    preflight()
+                    preflight(&id)?;
+                    // A synchronous durable commit may have consumed the budget.
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(AppServerError::Timeout {
+                            method: method.into(),
+                            timeout_ms: wait.as_millis(),
+                        });
+                    }
+                    Ok(())
                 },
                 write_started,
             )
             .await
         {
-            let removed = pending::take(&self.inner, &id);
-            drop(removed);
+            registration.finish();
             return Err(error);
         }
         write_complete();
-        match receiver.await {
+        let result = match receiver.await {
             Ok(PendingOutcome::Response(Ok(result))) => Ok(result),
             Ok(PendingOutcome::Response(Err(error))) => Err(AppServerError::Remote {
                 method: method.to_owned(),
@@ -181,7 +212,9 @@ impl AppServerClient {
                 method: method.to_owned(),
                 timeout_ms: wait.as_millis(),
             }),
-        }
+        };
+        registration.finish();
+        result
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), AppServerError> {

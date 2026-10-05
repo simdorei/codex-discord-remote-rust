@@ -116,17 +116,23 @@ async fn stop_and_archive_surface_original_owner_conflict_without_forking() {
     let (executor, bridge) = executor(&temp, Arc::clone(&backend), Arc::clone(&server));
     bridge.set_selected_thread_id(Some("thread-a")).unwrap();
 
-    let error = executor
+    // Stop accepts bounded intent without acquiring or inventing an active writer.
+    let stopped = executor
         .execute(CommandAction::Stop { reference: None }, 10, 20)
         .await
-        .unwrap_err();
+        .unwrap();
+    assert!(stopped.text.contains("Stop accepted for thread-a."));
+    assert!(stopped.text.contains("Execution end is not confirmed"));
     assert!(
-        matches!(error, ActionError::Invalid(message) if message.contains("no currently owned active turn is confirmed"))
+        stopped
+            .text
+            .contains("original requests will not be replayed automatically")
     );
     assert!(
-        !rpc_log(&log)
-            .iter()
-            .any(|value| value["method"] == "thread/resume"),
+        !rpc_log(&log).iter().any(|value| matches!(
+            value["method"].as_str(),
+            Some("thread/resume" | "thread/fork" | "turn/start" | "turn/interrupt")
+        )),
         "stop must not acquire ownership merely to guess whether it is idle"
     );
     let error = executor

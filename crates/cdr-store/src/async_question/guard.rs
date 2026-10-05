@@ -84,12 +84,32 @@ pub(super) fn verify_identity_in(db: &Connection, q: &Question) -> Result<()> {
 pub fn validate_dispatch_guards(path: &Path, thread: &str) -> Result<()> {
     let mut db = open_initialized(path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Deferred)?;
+    crate::async_resolution::guard_mutation_in(&tx, thread)?;
+    // An ACK settles the answer, not its current execution. Include only live
+    // obligations; historical submitted questions must not strand later work.
     let ids = tx
-        .prepare("SELECT id FROM cdr_async_questions WHERE thread_id=? AND state='dispatching'")?
+        .prepare(
+            "SELECT q.id FROM cdr_async_questions q WHERE q.thread_id=? AND
+            (q.state='dispatching' OR EXISTS(
+                SELECT 1 FROM cdr_async_unsettled_obligations o
+                WHERE o.thread_id=q.thread_id AND o.question_id=q.id))",
+        )?
         .query_map([thread], |r| r.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for id in ids {
         let q = read(&tx, &id)?;
+        // Only the general CURRENT-execution guard recognizes this certificate.
+        // Original answer dispatch/confirmation still calls verify_identity_in.
+        if crate::async_resolution::certified_successor_in(&tx, thread, &id)? {
+            // A handoff replaces the original turn, not common target safety.
+            validate_mapping(&tx, &q)?;
+            if !super::ownership::sole_nonpending_owner_in(&tx, &q)? {
+                return Err(invalid(
+                    "async successor current execution ownership is not unique",
+                ));
+            }
+            continue;
+        }
         verify_identity_in(&tx, &q)?;
     }
     Ok(())

@@ -45,6 +45,7 @@ pub(crate) fn link_prompt_owner_by_key(
     }
     let ingress = get_in(connection, key)?
         .ok_or_else(|| StoreError::Integrity(format!("missing ingress handoff: {key}")))?;
+    super::stop::unowned::require_unheld_key_in(connection, key)?;
     let new_room = super::new_execution_prompt(&ingress)? == Some(intake.raw_prompt.as_str())
         && ingress.target_thread_id.as_deref() == Some(intake.target_thread_id.as_str())
         && matches!(ingress.phase.as_str(), "thread/created" | "durable_prompt")

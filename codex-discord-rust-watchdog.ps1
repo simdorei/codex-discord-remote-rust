@@ -60,6 +60,7 @@ if (-not (Test-Path -LiteralPath $DrainSupportPath -PathType Leaf)) {
 . (Join-Path $RepoRoot 'scripts/CdrLaunchJournal.ps1')
 . (Join-Path $RepoRoot 'scripts/CdrRestartTransaction.ps1')
 . (Join-Path $RepoRoot 'scripts/CdrForceRestart.ps1')
+. (Join-Path $RepoRoot 'scripts/CdrMaintenanceCompatibility.ps1')
 
 if (
     $HealthCpuPercent -ne 95 -or
@@ -319,6 +320,7 @@ function Start-RustRuntime {
         $resumeValue = if ($ResumeRemoteMcp) { '1' } else { $null }
         [Environment]::SetEnvironmentVariable($resumeName, $resumeValue, 'Process')
         if ([DateTimeOffset]::UtcNow -ge $DeadlineUtc) { throw 'maintenance_deadline_exceeded_before_launch' }
+        Invoke-CdrProductionCheckedLaunch -DeadlineUtc $DeadlineUtc -Launch {
         Set-CdrLaunchStarting
         if ([DateTimeOffset]::UtcNow -ge $DeadlineUtc) { throw 'maintenance_deadline_exceeded_before_process_start' }
         $process = Start-Process -FilePath $BinaryPath `
@@ -349,6 +351,7 @@ function Start-RustRuntime {
             Start-Sleep -Milliseconds 250
         }
         throw "Rust runtime did not publish its verified lock marker within 15 seconds: pid=$($process.Id)"
+        }
     } finally {
         [Environment]::SetEnvironmentVariable($resumeName, $previousResume, 'Process')
     }

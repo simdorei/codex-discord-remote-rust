@@ -56,6 +56,8 @@ pub fn component_claim_identity(
     component: &ComponentId,
 ) -> Option<String> {
     match component {
+        ComponentId::RecoveryPublicationDecision { .. }
+        | ComponentId::RecoveryAbandonDecision { .. } => None,
         ComponentId::AsyncChoice { question_id, .. } => Some(question_id.clone()),
         ComponentId::Busy { choice_id, .. } => Some(choice_id.clone()),
         ComponentId::Approval { .. }
@@ -68,6 +70,28 @@ pub fn component_claim_identity(
 
 fn component_identity(component: &ComponentId) -> String {
     match component {
+        ComponentId::RecoveryAbandonDecision {
+            proposal_id,
+            revision,
+            decision,
+        } => {
+            let mut identity = String::from("abandonment-decision-v1;");
+            push_field(&mut identity, "proposal", proposal_id);
+            push_field(&mut identity, "revision", &revision.to_string());
+            push_field(&mut identity, "decision", &format!("{decision:?}"));
+            identity
+        }
+        ComponentId::RecoveryPublicationDecision {
+            proposal_id,
+            revision,
+            decision,
+        } => {
+            let mut identity = String::from("publication-intent-v1;");
+            push_field(&mut identity, "proposal", proposal_id);
+            push_field(&mut identity, "revision", &revision.to_string());
+            push_field(&mut identity, "decision", &format!("{decision:?}"));
+            identity
+        }
         ComponentId::AsyncChoice {
             question_id,
             option,
