@@ -26,7 +26,7 @@ pub fn final_preflight(path: &Path, pending: &StoredDelivery) -> Result<FinalRea
     Ok(readiness)
 }
 
-fn read(connection: &Connection, pending: &StoredDelivery) -> Result<FinalReadiness> {
+pub(super) fn read(connection: &Connection, pending: &StoredDelivery) -> Result<FinalReadiness> {
     let explicit_grant = crate::final_recovery::authorized_in(connection, pending)?;
     if let Some(reason) = crate::new_reply::output_hold_in(connection, &pending.job_id)? {
         return Ok(FinalReadiness::Held(reason));

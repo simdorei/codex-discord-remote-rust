@@ -371,3 +371,187 @@ fn final_preflight_does_not_repair_a_missing_required_table() {
     );
     assert_eq!(crate::delivery::select(&db, "job").unwrap(), pending);
 }
+
+fn confirmed_chunk(path: &Path, pending: &StoredDelivery, index: usize, content: &str) {
+    let key = serde_json::json!([
+        pending.channel_id,
+        "completion/v1",
+        pending.delivery_id,
+        index
+    ])
+    .to_string();
+    let guard = crate::new_reply::DeliveryGuard {
+        job_id: &pending.job_id,
+        thread_id: &pending.target_thread_id,
+        turn_id: &pending.turn_id,
+    };
+    assert_eq!(
+        crate::delivery_receipt::begin_guarded(
+            path,
+            &key,
+            &crate::final_recovery::sha256(content),
+            Some(&guard)
+        )
+        .unwrap(),
+        crate::delivery_receipt::ReceiptState::New
+    );
+    assert!(crate::delivery_receipt::confirm(path, &key, &format!("message-{index}")).unwrap());
+}
+
+fn receipt_snapshot(path: &Path) -> String {
+    Connection::open(path).unwrap().query_row(
+        "SELECT json_group_array(json_array(receipt_key,content_hash,message_id,retryable,blocked_reason))
+         FROM (SELECT * FROM codex_delivery_receipts ORDER BY receipt_key)",
+        [], |row| row.get(0),
+    ).unwrap()
+}
+
+#[test]
+fn confirmed_cleanup_preserves_every_preflight_barrier_and_receipt() {
+    for barrier in CASES {
+        let (_temp, path, pending) = fixture();
+        confirmed_chunk(&path, &pending, 0, &pending.content);
+        seed(&path, barrier);
+        let before = receipt_snapshot(&path);
+        let cleaned = crate::delivery::complete_confirmed(
+            &path,
+            &pending,
+            std::slice::from_ref(&pending.content),
+        )
+        .unwrap();
+        assert_eq!(cleaned, matches!(barrier, Barrier::Ready), "{barrier:?}");
+        let remaining = crate::delivery::list_pending(&path).unwrap();
+        assert_eq!(remaining, if cleaned { vec![] } else { vec![pending] });
+        assert_eq!(receipt_snapshot(&path), before);
+    }
+}
+
+#[test]
+fn confirmed_cleanup_requires_every_chunk_and_rolls_back_tentative_claims() {
+    for state in [
+        "missing",
+        "unknown",
+        "conflict",
+        "blocked",
+        "retryable",
+        "confirmed",
+    ] {
+        let (_temp, path, pending) = fixture();
+        let chunks = vec![pending.content.clone(), "second chunk".into()];
+        confirmed_chunk(&path, &pending, 0, &chunks[0]);
+        let key = serde_json::json!([42, "completion/v1", "job", 1]).to_string();
+        if state != "missing" {
+            let content = if state == "conflict" {
+                "other content"
+            } else {
+                &chunks[1]
+            };
+            crate::delivery_receipt::begin(&path, &key, &crate::final_recovery::sha256(content))
+                .unwrap();
+            match state {
+                "conflict" | "confirmed" => {
+                    crate::delivery_receipt::confirm(&path, &key, "second").unwrap();
+                }
+                "blocked" => {
+                    crate::delivery_receipt::block_rejected(&path, &key, "permission denied")
+                        .unwrap();
+                }
+                "retryable" => {
+                    crate::delivery_receipt::release_rejected(&path, &key).unwrap();
+                }
+                _ => {}
+            }
+        }
+        let before = receipt_snapshot(&path);
+        let cleaned = crate::delivery::complete_confirmed(&path, &pending, &chunks).unwrap();
+        assert_eq!(cleaned, state == "confirmed", "{state}");
+        assert_eq!(receipt_snapshot(&path), before, "{state}");
+        assert_eq!(
+            crate::delivery::list_pending(&path).unwrap().is_empty(),
+            cleaned
+        );
+    }
+}
+
+#[test]
+fn confirmed_cleanup_rejects_stale_payload_or_identity_and_empty_manifests() {
+    let (_temp, path, pending) = fixture();
+    confirmed_chunk(&path, &pending, 0, &pending.content);
+    let chunks = vec![pending.content.clone()];
+    assert!(!crate::delivery::complete_confirmed(&path, &pending, &[]).unwrap());
+    for field in ["content", "job", "thread", "turn", "channel"] {
+        let mut stale = pending.clone();
+        match field {
+            "content" => stale.content.push('!'),
+            "job" => stale.job_id.push('!'),
+            "thread" => stale.target_thread_id.push('!'),
+            "turn" => stale.turn_id.push('!'),
+            _ => stale.channel_id += 1,
+        }
+        assert!(!crate::delivery::complete_confirmed(&path, &stale, &chunks).unwrap());
+        assert_eq!(
+            crate::delivery::list_pending(&path).unwrap().as_slice(),
+            std::slice::from_ref(&pending)
+        );
+    }
+}
+
+#[test]
+fn confirmed_cleanup_revalidates_recovery_evidence_under_its_writer() {
+    for changed in [false, true] {
+        let (_temp, path, pending) = fixture();
+        let pending = grant(&path, &pending);
+        confirmed_chunk(&path, &pending, 0, &pending.content);
+        if changed {
+            Connection::open(&path).unwrap().execute(
+                "UPDATE codex_delivery_receipts SET message_id='changed' WHERE json_extract(receipt_key,'$[1]')='message/error/v1'", [],
+            ).unwrap();
+        }
+        let result = crate::delivery::complete_confirmed(
+            &path,
+            &pending,
+            std::slice::from_ref(&pending.content),
+        );
+        if changed {
+            assert!(result.is_err());
+            assert_eq!(crate::delivery::list_pending(&path).unwrap(), [pending]);
+        } else {
+            assert!(result.unwrap());
+            assert!(crate::delivery::list_pending(&path).unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn confirmed_cleanup_never_creates_or_repairs_a_database() {
+    let (temp, path, pending) = fixture();
+    let chunks = vec![pending.content.clone()];
+    let missing = temp.path().join("missing.sqlite");
+    assert!(crate::delivery::complete_confirmed(&missing, &pending, &chunks).is_err());
+    assert!(!missing.exists());
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("DROP TABLE codex_goal_progress").unwrap();
+    assert!(crate::delivery::complete_confirmed(&path, &pending, &chunks).is_err());
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name='codex_goal_progress'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    for version in [0, schema::LATEST_STORE_SCHEMA_VERSION + 1] {
+        db.pragma_update(None, "user_version", version).unwrap();
+        assert!(
+            matches!(crate::delivery::complete_confirmed(&path, &pending, &chunks),
+            Err(StoreError::UnsupportedVersion { found, .. }) if found == version)
+        );
+        assert_eq!(
+            db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                .unwrap(),
+            version
+        );
+    }
+    assert_eq!(crate::delivery::select(&db, "job").unwrap(), pending);
+}

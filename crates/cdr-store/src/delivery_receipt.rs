@@ -52,9 +52,22 @@ pub fn begin_guarded(
 ) -> Result<ReceiptState> {
     let mut connection = open_initialized(path)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    crate::final_recovery::validate_claim_in(&transaction, key, content_hash, guard)?;
+    let state = begin_guarded_in(&transaction, key, content_hash, guard)?;
+    if !matches!(state, ReceiptState::Held(_)) {
+        transaction.commit()?;
+    }
+    Ok(state)
+}
+
+pub(crate) fn begin_guarded_in(
+    transaction: &rusqlite::Transaction<'_>,
+    key: &str,
+    content_hash: &str,
+    guard: Option<&crate::new_reply::DeliveryGuard<'_>>,
+) -> Result<ReceiptState> {
+    crate::final_recovery::validate_claim_in(transaction, key, content_hash, guard)?;
     if let Some(reason) =
-        crate::new_reply::validate_claim_in(&transaction, key, content_hash, guard)?
+        crate::new_reply::validate_claim_in(transaction, key, content_hash, guard)?
     {
         return Ok(ReceiptState::Held(reason));
     }
@@ -76,10 +89,9 @@ pub fn begin_guarded(
             [key],
         )? == 1;
     if message.is_some() && hash == content_hash {
-        crate::new_reply::confirm_receipt_in(&transaction, key)?;
+        crate::new_reply::confirm_receipt_in(transaction, key)?;
     }
-    crate::new_reply::notice_claimed_in(&transaction, key)?;
-    transaction.commit()?;
+    crate::new_reply::notice_claimed_in(transaction, key)?;
     Ok(if hash != content_hash {
         ReceiptState::ContentConflict
     } else if inserted || claimed_retry {
