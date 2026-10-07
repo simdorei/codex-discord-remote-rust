@@ -5,6 +5,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{Result, schema::open_initialized};
 
+#[cfg(test)]
+mod current_tests;
 mod payload;
 mod round;
 pub use payload::{Payload, load};
@@ -121,7 +123,16 @@ impl Source {
     }
 
     fn query(self) -> String {
+        self.query_for_channel(false)
+    }
+
+    fn query_for_channel(self, channel_scoped: bool) -> String {
         let lane = if self.is_state() { "target" } else { "channel" };
+        let input = if channel_scoped && self == Self::Final {
+            format!("{} WHERE channel_id=?6", self.select())
+        } else {
+            self.select().to_owned()
+        };
         // One head per source/lane. Different domains are NOT ordered by invented timestamps.
         format!(
             "WITH scope AS (SELECT ?1 runtime,?2 generation), source_input AS ({}),
@@ -137,7 +148,7 @@ impl Source {
                length(CAST(target AS BLOB))+length(CAST(turn AS BLOB))<={MAX_METADATA_BYTES}),
              candidates AS (SELECT * FROM heads h WHERE NOT EXISTS(
                 SELECT 1 FROM unavailable r WHERE {}))",
-            self.select(),self.held_receipt_match()
+            input,self.held_receipt_match()
         )
     }
 }
@@ -347,6 +358,28 @@ fn current(
     runtime: &str,
     generation: i64,
 ) -> Result<Option<Entry>> {
+    if entry.source == Source::Final {
+        // Keep every row in this channel before ranking. Filtering by delivery
+        // identity here would incorrectly promote a later row past its head.
+        return Ok(db
+            .query_row(
+                &format!(
+                    "{} SELECT stamp,ordinal,sort_id,id,target,turn,channel,bytes FROM candidates
+                 WHERE id=?3 AND target=?4 AND turn=?5",
+                    entry.source.query_for_channel(true)
+                ),
+                params![
+                    runtime,
+                    generation,
+                    entry.id,
+                    entry.target,
+                    entry.turn,
+                    entry.channel
+                ],
+                |r| Entry::read(entry.source, r),
+            )
+            .optional()?);
+    }
     Ok(db
         .query_row(
             &format!(
