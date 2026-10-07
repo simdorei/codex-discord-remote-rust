@@ -29,6 +29,8 @@ pub async fn run<S: BuildHasher>(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command.spawn()?;
     let process_id = child
         .id()
@@ -87,6 +89,25 @@ enum ProcessStop {
 }
 
 async fn terminate_tree(child: &mut tokio::process::Child) -> Result<(), ProcessError> {
+    #[cfg(unix)]
+    if let Some(process_id) = child.id() {
+        // The group is created by spawn, so cancellation cannot signal our own
+        // group. Kill descendants before waiting for their inherited pipes.
+        let status = Command::new("/bin/kill")
+            .args(["-KILL", "--", &format!("-{process_id}")])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status()
+            .await?;
+        if !status.success() && child.try_wait()?.is_none() {
+            return Err(ProcessError::Cleanup(format!(
+                "could not terminate owned process group {process_id}"
+            )));
+        }
+    }
     child.kill().await?;
     let _ = child.wait().await?;
     Ok(())
