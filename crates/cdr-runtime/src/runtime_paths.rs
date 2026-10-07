@@ -67,6 +67,10 @@ pub enum RuntimePathError {
     UserHomeMissing,
     #[error("configured CODEX_EXE does not exist or is not a file: {0}")]
     ConfiguredExecutableMissing(PathBuf),
+    #[error(
+        "Codex installation is incomplete: missing {0}; no usable fallback was found; set CODEX_EXE to codex.exe in a complete Codex installation containing its matching codex-code-mode-host.exe"
+    )]
+    CodeModeHostMissing(PathBuf),
     #[error("Codex resolves only to a WindowsApps alias; configure the real CODEX_EXE")]
     WindowsAppsAliasOnly,
     #[error("no usable Codex executable was found")]

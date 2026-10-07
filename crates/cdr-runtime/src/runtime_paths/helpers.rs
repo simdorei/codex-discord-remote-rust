@@ -23,23 +23,36 @@ pub(super) fn resolve_executable(
     codex_home: &Path,
     inputs: &PathInputs,
 ) -> Result<(PathBuf, PathSource), RuntimePathError> {
+    let mut missing_host = None;
+    let mut usable = |candidate, source| match validate_executable(candidate, source) {
+        Ok(resolved) => Some(resolved),
+        Err(error) => {
+            missing_host.get_or_insert(error);
+            None
+        }
+    };
     if let Some(raw) = env_path(env, "CODEX_EXE") {
         let configured = clean_executable(raw);
         if !configured.is_empty() {
             let candidate = expand_home(configured, &inputs.user_home);
-            return if is_file(&candidate) {
-                Ok((candidate, PathSource::Environment))
-            } else {
-                Err(RuntimePathError::ConfiguredExecutableMissing(candidate))
-            };
+            if !is_file(&candidate) {
+                return Err(RuntimePathError::ConfiguredExecutableMissing(candidate));
+            }
+            if let Some(resolved) = usable(candidate, PathSource::Environment) {
+                return Ok(resolved);
+            }
         }
     }
-    if let Some(candidate) = newest_existing(&inputs.local_app_candidates) {
-        return Ok((candidate, PathSource::LocalAppBin));
+    for candidate in newest_existing(&inputs.local_app_candidates) {
+        if let Some(resolved) = usable(candidate, PathSource::LocalAppBin) {
+            return Ok(resolved);
+        }
     }
     let sandbox = codex_home.join(".sandbox-bin").join(executable_name());
-    if is_file(&sandbox) {
-        return Ok((sandbox, PathSource::SandboxBin));
+    if is_file(&sandbox)
+        && let Some(resolved) = usable(sandbox, PathSource::SandboxBin)
+    {
+        return Ok(resolved);
     }
     let mut saw_windowsapps = false;
     for candidate in &inputs.path_candidates {
@@ -48,15 +61,36 @@ pub(super) fn resolve_executable(
         }
         if is_windowsapps(candidate) {
             saw_windowsapps = true;
-        } else {
-            return Ok((candidate.clone(), PathSource::Path));
+        } else if let Some(resolved) = usable(candidate.clone(), PathSource::Path) {
+            return Ok(resolved);
         }
     }
-    if saw_windowsapps {
+    if let Some(error) = missing_host {
+        Err(error)
+    } else if saw_windowsapps {
         Err(RuntimePathError::WindowsAppsAliasOnly)
     } else {
         Err(RuntimePathError::ExecutableNotFound)
     }
+}
+
+fn validate_executable(
+    candidate: PathBuf,
+    source: PathSource,
+) -> Result<(PathBuf, PathSource), RuntimePathError> {
+    let normalized = candidate
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_lowercase();
+    if cfg!(windows)
+        && (normalized.contains("/openai/codex/bin/") || normalized.contains("/.sandbox-bin/"))
+    {
+        let host = candidate.with_file_name("codex-code-mode-host.exe");
+        if !is_file(&host) {
+            return Err(RuntimePathError::CodeModeHostMissing(host));
+        }
+    }
+    Ok((candidate, source))
 }
 
 pub(super) fn latest_state_db(codex_home: &Path) -> PathBuf {
@@ -84,14 +118,14 @@ pub(super) fn latest_state_db(codex_home: &Path) -> PathBuf {
         .unwrap_or_else(|| codex_home.join("state_5.sqlite"))
 }
 
-fn newest_existing(candidates: &[PathBuf]) -> Option<PathBuf> {
+fn newest_existing(candidates: &[PathBuf]) -> impl Iterator<Item = PathBuf> {
     let mut candidates = candidates
         .iter()
         .filter(|path| is_file(path))
         .cloned()
         .collect::<Vec<_>>();
     candidates.sort_by_key(|path| (modified(path), path.clone()));
-    candidates.pop()
+    candidates.into_iter().rev()
 }
 
 fn modified(path: &Path) -> SystemTime {
