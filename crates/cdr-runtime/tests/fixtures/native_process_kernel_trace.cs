@@ -101,6 +101,8 @@ public sealed class CdrKernelApi : ICdrKernelApi, ICdrKernelFlushApi {
         this.sessionName=sessionName; this.rawTimestamp=rawTimestamp;
     }
     public readonly Guid SessionGuid = Guid.NewGuid();
+    public uint ClockContext { get { return rawTimestamp ? 1U : 2U; } }
+    public uint TraceMode { get { return rawTimestamp ? 0x10001100U : 0x10000100U; } }
     public uint Start(out ulong handle) {
         if (!CdrKernelNative.AbiValid()) throw new PlatformNotSupportedException("ETW fixture requires the x64 Windows ABI");
         int bytes = 120 + (sessionName.Length + 1) * 2;
@@ -108,7 +110,7 @@ public sealed class CdrKernelApi : ICdrKernelApi, ICdrKernelFlushApi {
         Marshal.Copy(new byte[bytes], 0, properties, bytes);
         var value = new CdrKernelNative.Properties();
         value.Wnode.BufferSize = (uint)bytes; value.Wnode.Guid = SessionGuid;
-        value.Wnode.ClientContext = 1; value.Wnode.Flags = 0x00020000;
+        value.Wnode.ClientContext = ClockContext; value.Wnode.Flags = 0x00020000;
         value.BufferSize = 64; value.MinimumBuffers = 0; value.MaximumBuffers = 0;
         value.LogFileMode = 0x02000100; // SYSTEM_LOGGER | REAL_TIME, never NT Kernel Logger.
         value.FlushTimer = 1; value.EnableFlags = 1; // PROCESS only.
@@ -121,7 +123,7 @@ public sealed class CdrKernelApi : ICdrKernelApi, ICdrKernelFlushApi {
         var logfile = new CdrKernelNative.Logfile();
         logfile.LoggerName = name;
         // Without RAW_TIMESTAMP, ProcessTrace supplies UTC FILETIME for identity matching.
-        logfile.ProcessTraceMode = rawTimestamp ? 0x10001100U : 0x10000100U;
+        logfile.ProcessTraceMode = TraceMode;
         logfile.EventRecordCallback = Marshal.GetFunctionPointerForDelegate(callback);
         ulong handle = CdrKernelNative.OpenTraceW(ref logfile);
         if (handle == ulong.MaxValue) throw new InvalidOperationException("OpenTraceW status=" + Marshal.GetLastWin32Error());

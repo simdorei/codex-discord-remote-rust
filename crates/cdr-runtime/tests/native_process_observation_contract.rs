@@ -511,6 +511,8 @@ $delayed=@($events | Where-Object {$_.SourceEventArgs.NewEvent.ProcessID -ne 60}
 if((Get-CdrObservedProcessState -Events $delayed @arguments).ready){throw 'undelivered ETW command lifecycle passed'}
 $late=$delayed+@($events | Where-Object {$_.SourceEventArgs.NewEvent.ProcessID -eq 60})
 if(-not (Get-CdrObservedProcessState -Events $late @arguments).ready){throw 'valid late-delivered ETW events were rejected'}
+$command.created_tick=88; $command.exited_tick=100
+if((Get-CdrObservedProcessState -Events $events @arguments).ready){throw 'start 85 ticks before OS creation passed'}
 $command.created_tick=7; $command.exited_tick=9
 if((Get-CdrObservedProcessState -Events $events @arguments).ready){throw 'same PID/name from a different creation lifetime passed'}
 ";
@@ -519,6 +521,35 @@ if((Get-CdrObservedProcessState -Events $events @arguments).ready){throw 'same P
         .env(
             "CDR_OBSERVER",
             root.join("scripts/CdrNativeProcessObservation.psm1"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn utc_identity_clock_is_system_time_and_raw_diagnostic_clock_remains_qpc() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r"
+$ErrorActionPreference='Stop'
+Add-Type -Path $env:CDR_KERNEL_SOURCE
+$raw=[CdrKernelApi]::new()
+$utc=[CdrKernelApi]::new('CDR-QA-ClockContract',$false)
+try {
+    if($raw.ClockContext -ne 1 -or $raw.TraceMode -ne 0x10001100){throw 'raw QPC configuration changed'}
+    if($utc.ClockContext -ne 2 -or $utc.TraceMode -ne 0x10000100){throw 'UTC identity configuration is not system time'}
+} finally {$raw.Dispose();$utc.Dispose()}
+";
+    let output = Command::new("powershell.exe")
+        .env_remove("PSModulePath")
+        .args(["-NoProfile", "-Command", script])
+        .env(
+            "CDR_KERNEL_SOURCE",
+            root.join("crates/cdr-runtime/tests/fixtures/native_process_kernel_trace.cs"),
         )
         .output()
         .unwrap();
