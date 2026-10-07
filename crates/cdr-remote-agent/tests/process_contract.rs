@@ -114,16 +114,20 @@ async fn proc2_timeout_kills_the_owned_process_tree_and_keeps_diagnostics() {
     #[cfg(not(windows))]
     let command = fixture_command(
         "",
-        "printf %s started; printf %s timeout-error >&2; exec sleep 30",
+        "printf %s started; printf %s timeout-error >&2; sleep 30 & wait",
     );
-    let outcome = run_bounded_process(
-        &command,
-        Path::new("."),
-        &safe_environment(),
-        Duration::from_millis(750),
-        128,
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        run_bounded_process(
+            &command,
+            Path::new("."),
+            &safe_environment(),
+            Duration::from_millis(750),
+            128,
+        ),
     )
     .await
+    .expect("owned descendants must not hold the output pipes open")
     .expect("timeout is an outcome");
     assert_eq!(outcome.completion, ProcessCompletion::TimedOut);
     assert_eq!(outcome.exit_code, None);
@@ -131,4 +135,56 @@ async fn proc2_timeout_kills_the_owned_process_tree_and_keeps_diagnostics() {
     assert_eq!(outcome.stderr, b"timeout-error");
     assert_eq!(outcome.stdout_bytes, 7);
     assert_eq!(outcome.stderr_bytes, 13);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn proc3_cancellation_closes_descendant_pipes_and_preserves_unrelated_processes() {
+    use cdr_remote_agent::commands::run_bounded_process_cancellable;
+    use tokio::{process::Command, sync::watch};
+
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("ready");
+    let command = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        "sleep 30 & printf %s started; printf %s ready > \"$1\"; wait".into(),
+        "cdr-process-fixture".into(),
+        marker.to_string_lossy().into_owned(),
+    ];
+    let mut unrelated = Command::new("/bin/sleep")
+        .arg("30")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let (cancel, cancelled) = watch::channel(false);
+    let worker = tokio::spawn(async move {
+        run_bounded_process_cancellable(
+            &command,
+            Path::new("."),
+            &safe_environment(),
+            Duration::from_secs(30),
+            128,
+            cancelled,
+        )
+        .await
+    });
+    for _ in 0..100 {
+        if marker.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(marker.exists(), "descendant must start before cancellation");
+    cancel.send(true).unwrap();
+    let outcome = tokio::time::timeout(Duration::from_secs(5), worker)
+        .await
+        .expect("cancellation must close descendant output pipes promptly")
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.completion, ProcessCompletion::Cancelled);
+    assert_eq!(outcome.exit_code, None);
+    assert_eq!(outcome.stdout, b"started");
+    assert!(unrelated.try_wait().unwrap().is_none());
+    unrelated.kill().await.unwrap();
 }
