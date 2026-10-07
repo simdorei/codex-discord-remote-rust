@@ -182,7 +182,13 @@ fn relative_profile_is_resolved_once_from_the_callers_directory() {
             fixture::inventories(root.path(), "normal");
             let caller = root.path().join("unrelated caller");
             fs::create_dir(&caller).unwrap();
-            let profile = caller.join("selected profile");
+            // The Unix installer anchors relative profiles at `pwd -P`.
+            let physical_caller = if cfg!(unix) {
+                caller.canonicalize().unwrap()
+            } else {
+                caller.clone()
+            };
+            let profile = physical_caller.join("selected profile");
             let mut command = fixture::command(root.path(), windows, Some(&codex), skip_env);
             command
                 .current_dir(&caller)
