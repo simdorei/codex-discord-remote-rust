@@ -40,4 +40,4 @@ jobs:
           bash -n install.sh setup-discord-bot.sh codex-discord-bot.sh
           bash install.sh --dry-run --skip-build --skip-env-file --skip-codex-plugin
           ./target/debug/cdr-runtime --admin setup-discord --dry-run --repo-root .
-          bash setup-discord-bot.sh --dry-run
+          bash setup-discord-bot.sh --binary-path "$PWD/target/debug/cdr-runtime" --dry-run
