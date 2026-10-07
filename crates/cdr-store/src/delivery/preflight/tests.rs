@@ -494,6 +494,9 @@ fn confirmed_cleanup_rejects_stale_payload_or_identity_and_empty_manifests() {
             std::slice::from_ref(&pending)
         );
     }
+    // Another worker may have completed this row after it was selected.
+    crate::delivery::complete(&path, &pending.delivery_id).unwrap();
+    assert!(!crate::delivery::complete_confirmed(&path, &pending, &chunks).unwrap());
 }
 
 #[test]
