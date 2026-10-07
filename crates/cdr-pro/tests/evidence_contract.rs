@@ -1,9 +1,8 @@
 use std::fs;
 
 use cdr_pro::evidence::{
-    BROWSER_EVIDENCE_PROTOCOL, BROWSER_PROBE_SHA256, EvidenceError,
-    canonical_browser_inner_probe_code, canonical_browser_probe_code, require_browser_available,
-    require_browser_available_with_transcript,
+    BROWSER_EVIDENCE_PROTOCOL, BROWSER_PROBE_SHA256, EvidenceError, canonical_browser_probe_code,
+    require_browser_available, require_browser_available_with_transcript,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -19,6 +18,8 @@ fn receipt_key(session_id: &str, turn_id: &str) -> String {
 #[cfg(windows)]
 #[test]
 fn canonical_browser_code_matches_current_lexical_binding_contract() {
+    use cdr_pro::evidence::canonical_browser_inner_probe_code;
+
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../fixtures/parity/pro_canonical_probe_lexical_windows.json"
     ))
