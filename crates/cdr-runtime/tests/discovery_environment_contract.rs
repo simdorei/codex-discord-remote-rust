@@ -21,6 +21,13 @@ fn inert_executable(directory: &Path) -> PathBuf {
     let name = if cfg!(windows) { "codex.exe" } else { "codex" };
     let path = directory.join(name);
     fs::write(&path, b"inert discovery fixture; must never execute").unwrap();
+    if cfg!(windows) {
+        fs::write(
+            directory.join("codex-code-mode-host.exe"),
+            b"inert host fixture",
+        )
+        .unwrap();
+    }
     path
 }
 

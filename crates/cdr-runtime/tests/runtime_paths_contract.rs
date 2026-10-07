@@ -10,6 +10,9 @@ use cdr_runtime::runtime_paths::{
 fn touch(path: &std::path::Path) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, b"fixture").unwrap();
+    if cfg!(windows) && path.file_name().is_some_and(|name| name == "codex.exe") {
+        fs::write(path.with_file_name("codex-code-mode-host.exe"), b"fixture").unwrap();
+    }
 }
 
 #[test]

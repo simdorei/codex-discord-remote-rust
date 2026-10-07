@@ -28,18 +28,18 @@ pub(super) fn resolve_executable(
         if !configured.is_empty() {
             let candidate = expand_home(configured, &inputs.user_home);
             return if is_file(&candidate) {
-                Ok((candidate, PathSource::Environment))
+                validate_executable(candidate, PathSource::Environment)
             } else {
                 Err(RuntimePathError::ConfiguredExecutableMissing(candidate))
             };
         }
     }
     if let Some(candidate) = newest_existing(&inputs.local_app_candidates) {
-        return Ok((candidate, PathSource::LocalAppBin));
+        return validate_executable(candidate, PathSource::LocalAppBin);
     }
     let sandbox = codex_home.join(".sandbox-bin").join(executable_name());
     if is_file(&sandbox) {
-        return Ok((sandbox, PathSource::SandboxBin));
+        return validate_executable(sandbox, PathSource::SandboxBin);
     }
     let mut saw_windowsapps = false;
     for candidate in &inputs.path_candidates {
@@ -49,7 +49,7 @@ pub(super) fn resolve_executable(
         if is_windowsapps(candidate) {
             saw_windowsapps = true;
         } else {
-            return Ok((candidate.clone(), PathSource::Path));
+            return validate_executable(candidate.clone(), PathSource::Path);
         }
     }
     if saw_windowsapps {
@@ -57,6 +57,25 @@ pub(super) fn resolve_executable(
     } else {
         Err(RuntimePathError::ExecutableNotFound)
     }
+}
+
+fn validate_executable(
+    candidate: PathBuf,
+    source: PathSource,
+) -> Result<(PathBuf, PathSource), RuntimePathError> {
+    let normalized = candidate
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_lowercase();
+    if cfg!(windows)
+        && (normalized.contains("/openai/codex/bin/") || normalized.contains("/.sandbox-bin/"))
+    {
+        let host = candidate.with_file_name("codex-code-mode-host.exe");
+        if !is_file(&host) {
+            return Err(RuntimePathError::CodeModeHostMissing(host));
+        }
+    }
+    Ok((candidate, source))
 }
 
 pub(super) fn latest_state_db(codex_home: &Path) -> PathBuf {
