@@ -12,6 +12,10 @@ fn touch(path: &std::path::Path) {
     fs::write(path, b"fixture").unwrap();
 }
 
+const fn executable_name() -> &'static str {
+    if cfg!(windows) { "codex.exe" } else { "codex" }
+}
+
 #[test]
 fn explicit_paths_win_and_the_existing_python_mirror_location_is_the_default() {
     let temp = tempfile::tempdir().unwrap();
@@ -58,7 +62,7 @@ fn sandbox_bin_is_preferred_and_latest_codex_state_db_is_selected() {
     let root = temp.path().join("runtime");
     let home = temp.path().join("home");
     let codex_home = home.join(".codex");
-    let sandbox = codex_home.join(".sandbox-bin/codex.exe");
+    let sandbox = codex_home.join(".sandbox-bin").join(executable_name());
     let old_state = codex_home.join("state_4.sqlite");
     let new_state = codex_home.join("state_5.sqlite");
     let path_exe = temp.path().join("path-bin/codex.exe");
@@ -173,9 +177,11 @@ fn current_machine_discovery_uses_loaded_env_including_local_app_and_path() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let local = temp.path().join("local");
-    let app_exe = local.join("OpenAI/Codex/bin/build-1/codex.exe");
+    let app_exe = local
+        .join("OpenAI/Codex/bin/build-1")
+        .join(executable_name());
     let path_dir = temp.path().join("path-bin");
-    let path_exe = path_dir.join("codex.exe");
+    let path_exe = path_dir.join(executable_name());
     touch(&app_exe);
     touch(&path_exe);
     let env = BTreeMap::from([
