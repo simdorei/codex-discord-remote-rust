@@ -23,6 +23,7 @@ fn builder(directory: &Path, nonce: &str) -> Command {
     let mut command =
         Command::new(Path::new(&windows).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
     command
+        .env_remove("PSModulePath")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(fixtures().join("native_process_cross_context.ps1"))
         .arg("-RunDirectory")

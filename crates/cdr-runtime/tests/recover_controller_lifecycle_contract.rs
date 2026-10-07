@@ -3,6 +3,7 @@
 fn run_case(case: &str) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = std::process::Command::new("powershell.exe")
+        .env_remove("PSModulePath")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(root.join("scripts/Test-CdrRecoveryControllerLifecycle.ps1"))
         .args(["-Case", case])

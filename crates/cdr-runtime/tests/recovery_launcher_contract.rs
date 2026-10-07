@@ -39,6 +39,7 @@ fn scenario(name: &str) {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/recovery_launcher_fixture.ps1");
     let mut command = Command::new("powershell.exe");
     command
+        .env_remove("PSModulePath")
         .args([
             "-NoProfile",
             "-NonInteractive",

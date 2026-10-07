@@ -15,6 +15,7 @@ fn scenario(name: &str) {
     let script =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/recovery_install_fixture.ps1");
     let output = Command::new("powershell.exe")
+        .env_remove("PSModulePath")
         .args([
             "-NoProfile",
             "-NonInteractive",
