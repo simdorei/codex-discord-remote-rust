@@ -4,7 +4,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 use super::{FinalReadiness, StoredDelivery, preflight, select};
-use crate::{Result, delivery_receipt, schema};
+use crate::{Result, StoreError, delivery_receipt, schema};
 
 /// The trusted runtime supplies every normally rendered and validated chunk.
 /// Missing, changed or unconfirmed receipts roll back all tentative claims;
@@ -24,9 +24,12 @@ pub fn complete_confirmed(
     db.busy_timeout(schema::STORE_BUSY_TIMEOUT)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     schema::checked_read::verify_current_catalog_in(&tx)?;
-    if select(&tx, &pending.delivery_id)? != *pending
-        || preflight::read(&tx, pending)? != FinalReadiness::Ready
-    {
+    match select(&tx, &pending.delivery_id) {
+        Ok(stored) if stored == *pending => {}
+        Ok(_) | Err(StoreError::DeliveryNotFound(_)) => return Ok(false),
+        Err(error) => return Err(error),
+    }
+    if preflight::read(&tx, pending)? != FinalReadiness::Ready {
         return Ok(false);
     }
     let guard = crate::new_reply::DeliveryGuard {
