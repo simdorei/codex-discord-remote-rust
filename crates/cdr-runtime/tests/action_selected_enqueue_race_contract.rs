@@ -69,14 +69,12 @@ async fn concurrent_action_reprepares_after_another_action_moves_its_selected_ta
         .find(|job| job.discord_message_id == Some(302))
         .unwrap();
     assert_eq!(second.prompt, "prepared:moved:second");
-    assert_eq!(
-        preprocessor.seen.lock().unwrap().as_slice(),
-        [
-            ("first".into(), "selected".into()),
-            ("second".into(), "selected".into()),
-            ("second".into(), "moved".into()),
-        ]
-    );
+    let seen = preprocessor.seen.lock().unwrap();
+    assert_eq!(seen.len(), 3);
+    // The two concurrent initial preparations have no ordering dependency.
+    assert!(seen[..2].contains(&("first".into(), "selected".into())));
+    assert!(seen[..2].contains(&("second".into(), "selected".into())));
+    assert_eq!(seen[2], ("second".into(), "moved".into()));
 }
 
 #[tokio::test]

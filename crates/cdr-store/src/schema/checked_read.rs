@@ -41,18 +41,7 @@ impl CheckedRead {
         if !cached {
             #[cfg(debug_assertions)]
             profile.miss();
-            let found = super::schema_version(&connection)?;
-            if found != LATEST_STORE_SCHEMA_VERSION {
-                return Err(StoreError::UnsupportedVersion {
-                    found,
-                    supported: LATEST_STORE_SCHEMA_VERSION,
-                });
-            }
-            if !super::rust_extensions_current(&connection)? {
-                return Err(StoreError::Integrity(
-                    "metadata discovery requires an initialized current schema; no repair attempted".into(),
-                ));
-            }
+            require_current_schema(&connection)?;
         }
         Ok(Self {
             connection,
@@ -85,3 +74,33 @@ impl CheckedRead {
 }
 // Closing the owned connection rolls back any unfinished read transaction.
 // Nothing is pooled, and no connection or transaction crosses the round's return.
+
+/// Check a caller-owned transaction without initializing, repairing or caching it.
+pub(crate) fn verify_current_catalog_in(connection: &Connection) -> Result<()> {
+    if connection.is_autocommit() {
+        return Err(StoreError::Integrity(
+            "catalog check requires an active snapshot".into(),
+        ));
+    }
+    let signature = catalog_cache::signature(connection)?;
+    if !catalog_cache::contains(&signature) {
+        require_current_schema(connection)?;
+    }
+    Ok(())
+}
+
+fn require_current_schema(connection: &Connection) -> Result<()> {
+    let found = super::schema_version(connection)?;
+    if found != LATEST_STORE_SCHEMA_VERSION {
+        return Err(StoreError::UnsupportedVersion {
+            found,
+            supported: LATEST_STORE_SCHEMA_VERSION,
+        });
+    }
+    if !super::rust_extensions_current(connection)? {
+        return Err(StoreError::Integrity(
+            "metadata discovery requires an initialized current schema; no repair attempted".into(),
+        ));
+    }
+    Ok(())
+}

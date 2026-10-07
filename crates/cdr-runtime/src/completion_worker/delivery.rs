@@ -37,6 +37,9 @@ impl CompletionWorker {
         pending: &StoredDelivery,
     ) -> Result<(), CompletionWorkerError> {
         let result = async {
+            if self.complete_confirmed(pending)? {
+                return Ok(true);
+            }
             match final_preflight(self.queue.db_path(), pending)? {
                 FinalReadiness::Ready => {},
                 FinalReadiness::Held(reason) => return Err(CompletionWorkerError::Held(reason)),
@@ -68,9 +71,13 @@ impl CompletionWorker {
                     turn_id: &pending.turn_id,
                 },
             )
-            .await
+            .await?;
+            Ok(false)
         }
         .await;
+        if matches!(result, Ok(true)) {
+            return Ok(());
+        }
         if let Err(error) = result {
             if matches!(error, CompletionWorkerError::Held(_)) {
                 return Err(error);
@@ -98,6 +105,33 @@ impl CompletionWorker {
         }
         let _ = complete(self.queue.db_path(), &pending.delivery_id)?;
         Ok(())
+    }
+
+    fn complete_confirmed(&self, pending: &StoredDelivery) -> Result<bool, CompletionWorkerError> {
+        let Ok(channel) = i64_channel(pending.channel_id) else {
+            return Ok(false);
+        };
+        let identity = CompletionDeliveryIdentity::outbox(&pending.delivery_id);
+        let chunks = cdr_discord::text::split_delivery_chunks(&pending.content, true);
+        for (index, chunk) in chunks.iter().enumerate() {
+            if cdr_discord::idempotent_message::idempotent_message_request_with_components(
+                channel,
+                chunk,
+                &[],
+                identity.domain(),
+                identity.logical_key(),
+                index,
+            )
+            .is_err()
+            {
+                return Ok(false);
+            }
+        }
+        Ok(cdr_store::delivery::complete_confirmed(
+            self.queue.db_path(),
+            pending,
+            &chunks,
+        )?)
     }
 
     pub(super) async fn send_idempotent_text(

@@ -9,6 +9,8 @@ use crate::{Result, StoreError};
 
 mod preflight;
 pub use preflight::{FinalReadiness, final_preflight};
+mod confirmed;
+pub use confirmed::complete_confirmed;
 
 const COLUMNS: &str = "delivery_id, job_id, target_thread_id, turn_id, channel_id, \
     content, attempt_count, last_error, created_at, updated_at";
