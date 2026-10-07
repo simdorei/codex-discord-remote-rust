@@ -654,6 +654,38 @@ foreach($command in @(@{exe='cargo';args=@('--version')},@{exe=$env:CDR_LONG_COM
 }
 
 #[test]
+fn immediate_exit_with_empty_process_name_preserves_launch_identity() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+$ErrorActionPreference='Stop'; Import-Module $env:CDR_NATIVE -Force
+& (Get-Module CdrNativeProcess) {
+    $body=(Get-Command Invoke-CdrNative).ScriptBlock.ToString()
+    if(-not $body.Contains('$process.ProcessName')) { throw 'missing process-name fault injection point' }
+    $body=$body.Replace('$process.ProcessName', "''")
+    Set-Item Function:script:Invoke-CdrNative ([scriptblock]::Create($body))
+    $identity=$null
+    $null=Invoke-CdrNative -Executable cmd.exe -Arguments @('/d','/c','exit','0') -ProcessIdentity ([ref]$identity)
+    if($identity.name -ne 'cmd.exe' -or $identity.pid -eq 0 -or
+        $identity.created_tick -eq 0 -or $identity.exited_tick -le $identity.created_tick) {
+        throw 'immediate exit lost launch identity'
+    }
+}
+'passed'
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-Command", script])
+        .env("CDR_NATIVE", root.join("scripts/CdrNativeProcess.psm1"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("passed"));
+}
+
+#[test]
 fn actual_boundary_canaries_are_required_and_command_failure_has_no_pass_record() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = format!(
