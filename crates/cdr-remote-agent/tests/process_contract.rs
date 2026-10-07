@@ -9,6 +9,19 @@ use cdr_remote_agent::commands::{
 #[path = "process_contract/windows.rs"]
 mod windows;
 
+fn fixture_command(windows_script: &str, unix_script: &str) -> Vec<String> {
+    if cfg!(windows) {
+        vec![
+            "powershell.exe".into(),
+            "-NoProfile".into(),
+            "-Command".into(),
+            windows_script.into(),
+        ]
+    } else {
+        vec!["/bin/sh".into(), "-c".into(), unix_script.into()]
+    }
+}
+
 #[cfg(windows)]
 #[test]
 fn proc0_windows_environment_keeps_rooted_system_directories() {
@@ -36,12 +49,7 @@ fn proc0_windows_environment_keeps_rooted_system_directories() {
 async fn proc1_preserves_small_output_and_bounds_noisy_streams() {
     let environment = safe_environment();
     let small = run_bounded_process(
-        &[
-            "powershell.exe".into(),
-            "-NoProfile".into(),
-            "-Command".into(),
-            "[Console]::Out.Write('hello')".into(),
-        ],
+        &fixture_command("[Console]::Out.Write('hello')", "printf %s hello"),
         Path::new("."),
         &environment,
         Duration::from_secs(5),
@@ -56,12 +64,10 @@ async fn proc1_preserves_small_output_and_bounds_noisy_streams() {
     assert!(!small.stdout_truncated);
 
     let nonzero = run_bounded_process(
-        &[
-            "powershell.exe".into(),
-            "-NoProfile".into(),
-            "-Command".into(),
-            "[Console]::Out.Write('out'); [Console]::Error.Write('error'); exit 7".into(),
-        ],
+        &fixture_command(
+            "[Console]::Out.Write('out'); [Console]::Error.Write('error'); exit 7",
+            "printf %s out; printf %s error >&2; exit 7",
+        ),
         Path::new("."),
         &environment,
         Duration::from_secs(5),
@@ -77,12 +83,10 @@ async fn proc1_preserves_small_output_and_bounds_noisy_streams() {
     assert_eq!(nonzero.stderr_bytes, 5);
 
     let noisy = run_bounded_process(
-        &[
-            "powershell.exe".into(),
-            "-NoProfile".into(),
-            "-Command".into(),
-            "[Console]::Out.Write(('a' * 200)); [Console]::Error.Write(('b' * 200))".into(),
-        ],
+        &fixture_command(
+            "[Console]::Out.Write(('a' * 200)); [Console]::Error.Write(('b' * 200))",
+            "i=0; while [ \"$i\" -lt 200 ]; do printf a; printf b >&2; i=$((i+1)); done",
+        ),
         Path::new("."),
         &environment,
         Duration::from_secs(5),
@@ -108,12 +112,10 @@ async fn proc2_timeout_kills_the_owned_process_tree_and_keeps_diagnostics() {
     #[cfg(windows)]
     let (_fixture, command) = windows::timeout_fixture("started", "timeout-error");
     #[cfg(not(windows))]
-    let command = vec![
-        "powershell.exe".into(),
-        "-NoProfile".into(),
-        "-Command".into(),
-        "[Console]::Out.Write('started'); [Console]::Out.Flush(); [Console]::Error.Write('timeout-error'); [Console]::Error.Flush(); Start-Sleep -Seconds 30".into(),
-    ];
+    let command = fixture_command(
+        "",
+        "printf %s started; printf %s timeout-error >&2; exec sleep 30",
+    );
     let outcome = run_bounded_process(
         &command,
         Path::new("."),
