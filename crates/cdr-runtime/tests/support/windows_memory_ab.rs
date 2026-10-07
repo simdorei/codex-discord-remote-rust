@@ -91,16 +91,27 @@ if ($null -ne $p) {
 pub fn spawn_owned_process_pair(root: &Path) -> OwnedProcessPair {
     let metadata_path = root.join("owned-processes.json");
     let command = r"
-$child = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+$child = Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60'
 ) -PassThru
+$ready = [Diagnostics.Stopwatch]::StartNew()
+do {
+    $child.Refresh()
+    $childPath = [string]$child.Path
+    if (-not [string]::IsNullOrWhiteSpace($childPath)) { break }
+    Start-Sleep -Milliseconds 25
+} while ($ready.Elapsed.TotalSeconds -lt 5)
+if ([string]::IsNullOrWhiteSpace($childPath)) {
+    $child.Kill()
+    throw 'Owned child executable path was not ready before metadata publication'
+}
 $self = Get-Process -Id $PID -ErrorAction Stop
 $payload = [ordered]@{
     bot_started_at_utc = $self.StartTime.ToUniversalTime().ToString('o')
     bot_executable_path = $self.Path
     app_pid = [int]$child.Id
     app_started_at_utc = $child.StartTime.ToUniversalTime().ToString('o')
-    app_executable_path = $child.Path
+    app_executable_path = $childPath
 } | ConvertTo-Json -Compress
 [IO.File]::WriteAllText('__METADATA__', $payload, [Text.UTF8Encoding]::new($false))
 Start-Sleep -Seconds 60

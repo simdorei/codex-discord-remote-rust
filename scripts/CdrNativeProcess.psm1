@@ -122,7 +122,16 @@ function Invoke-CdrNative {
         # Cache the OS image name while the child exists. A hard-link launcher
         # such as cargo.exe can actually be reported as rustup.exe by Windows.
         $launchedName = $null
-        if ($PSBoundParameters.ContainsKey('ProcessIdentity')) { $launchedName = $process.ProcessName + '.exe' }
+        if ($PSBoundParameters.ContainsKey('ProcessIdentity')) {
+            $imageName = $process.ProcessName
+            if ([string]::IsNullOrWhiteSpace($imageName)) {
+                # A fast exit can leave ProcessName empty. The observer still
+                # requires this launch candidate to match the actual ETW image.
+                $launchedName = [System.IO.Path]::GetFileName($startInfo.FileName)
+            } else {
+                $launchedName = $imageName + '.exe'
+            }
+        }
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if ($startInfo.RedirectStandardInput) {
