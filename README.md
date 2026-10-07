@@ -88,9 +88,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun -SkipD
 `.env.example`을 참고해 허용할 Discord 서버·사용자·채널을 좁게 설정하세요.
 토큰은 `.env`에만 보관하며 Git에 올리지 않습니다.
 Windows의 Codex 앱 설치 폴더나 `.sandbox-bin`에서 실행기를 선택하면 같은 폴더의
-`codex-code-mode-host.exe`도 확인합니다. 파일이 빠졌다면 시작 전에 누락 경로를
-표시합니다. Codex 업데이트 후 오래된 폴더를 가리키고 있다면 `.env`의
-`CODEX_EXE` 값을 비워 현재 설치본을 자동 검색하도록 하세요. 특정 PC의 경로나
+`codex-code-mode-host.exe`도 확인합니다. 파일이 빠졌다면 `CODEX_EXE`에 고정된
+설치라도 건너뛰고 정상 설치를 자동 검색합니다. 앱 설치의 실행 파일 수정 시각이
+최신인 순서로 확인한 뒤 `.sandbox-bin`, PATH 순서로 탐색하며, 불완전한 설치는
+제외합니다. 정상 후보가 하나도 없을 때만 누락 경로를 표시하고 시작을 중단합니다.
+이 과정에서 `.env`를 바꾸거나 다른 설치의 host 파일을 복사하지 않습니다.
+정상인 `CODEX_EXE` 지정은 우선하며, 지정한 실행 파일 자체가 없는 경우에는 기존처럼
+오류를 표시합니다. 값을 비워 두면 처음부터 자동 검색하므로 특정 PC의 경로나
 업데이트마다 바뀌는 버전 폴더를 고정할 필요가 없습니다.
 MCP 예제의 `mcp.example.com`은 실제 주소가 아닙니다. 선택 기능을 사용할 때만
 본인이 관리하는 서버 주소와 기기별 인증 값을 설정하세요.
