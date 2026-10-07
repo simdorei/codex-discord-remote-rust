@@ -83,3 +83,13 @@ incremental = false
 [profile.test]
 debug = 1
 incremental = false
+
+# Keep SQLite's catalog parsing representative in debug-mode timing contracts.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 2
+
+[profile.dev.package.rusqlite]
+opt-level = 2
+
+[profile.dev.package.cdr-store]
+opt-level = 2
