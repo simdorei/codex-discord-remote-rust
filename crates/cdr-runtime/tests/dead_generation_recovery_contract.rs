@@ -222,22 +222,28 @@ async fn store_failure_leaves_generation_one_unsettled_then_retry_can_replace() 
 async fn alive_quarantined_work_is_not_fenced_or_killed() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("state.sqlite");
-    let server = ResidentAppServer::start_with_dead_generation_fence(
-        support::config(&temp.path().join("methods")),
-        fence(&db),
-    )
-    .await
-    .unwrap();
+    let log = temp.path().join("methods");
+    let server =
+        ResidentAppServer::start_with_dead_generation_fence(support::config(&log), fence(&db))
+            .await
+            .unwrap();
     server
         .request("test/active", json!({}), Duration::from_secs(1), Some(1))
         .await
         .unwrap();
-    assert!(
-        server
-            .request("test/hang", json!({}), Duration::from_millis(50), Some(1))
-            .await
-            .is_err()
-    );
+    // Cancellation must follow a confirmed write. A short deadline can expire
+    // during durable preflight, which correctly leaves the server unquarantined.
+    let mut request =
+        Box::pin(server.request("test/hang", json!({}), Duration::from_secs(30), Some(1)));
+    tokio::select! {
+        result = &mut request => panic!("hanging request completed before cancellation: {result:?}"),
+        received = tokio::time::timeout(Duration::from_secs(5), async {
+            while !support::methods(&log).iter().any(|method| method == "test/hang ") {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }) => received.expect("fixture received the hanging request"),
+    }
+    drop(request);
     assert!(server.lifecycle_snapshot().await.quarantined);
     assert!(!server.force_restart_if_quiescent().await.unwrap());
     assert_eq!(server.generation(), 1);
