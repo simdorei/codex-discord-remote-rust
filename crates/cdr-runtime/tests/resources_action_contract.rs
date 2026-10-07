@@ -1,5 +1,8 @@
+#[cfg(windows)]
 use cdr_runtime::{bridge_state::BridgeState, command_plan::CommandAction};
+#[cfg(windows)]
 use std::sync::Arc;
+#[cfg(windows)]
 #[path = "support/action_target.rs"]
 mod target;
 

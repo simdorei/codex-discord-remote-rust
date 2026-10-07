@@ -9,6 +9,7 @@ use thiserror::Error;
 use crate::commands::ProcessError;
 
 pub use engine::TerminalExecutionEngine;
+#[cfg(windows)]
 pub(crate) use shell::inherited_environment;
 pub use window::{
     OwnedTerminalWindow, TerminalWindowBackend, TerminalWindowCapture,

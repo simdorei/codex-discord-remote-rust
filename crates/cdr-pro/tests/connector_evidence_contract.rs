@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use cdr_pro::evidence::{
     CONNECTOR_NAME, CONNECTOR_PATH, CONNECTOR_PROBE_SHA256, CONNECTOR_PROTOCOL, EvidenceError,
-    canonical_connector_inner_probe_code, canonical_connector_probe_code,
-    canonical_connector_retry_probe_code, require_connector_verified,
+    canonical_connector_probe_code, canonical_connector_retry_probe_code,
+    require_connector_verified,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -91,6 +91,8 @@ fn write_transcript(codex_home: &Path, attempts: &[(&str, String, Option<Value>)
 #[cfg(windows)]
 #[test]
 fn canonical_connector_code_matches_current_lexical_binding_contract() {
+    use cdr_pro::evidence::canonical_connector_inner_probe_code;
+
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../fixtures/parity/pro_canonical_probe_lexical_windows.json"
     ))

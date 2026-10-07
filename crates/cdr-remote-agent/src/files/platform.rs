@@ -1,4 +1,6 @@
-use std::fs::{self, File, Metadata, OpenOptions, ReadDir};
+#[cfg(windows)]
+use std::fs::OpenOptions;
+use std::fs::{self, File, Metadata, ReadDir};
 use std::path::{Path, PathBuf};
 
 use same_file::Handle;

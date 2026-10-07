@@ -37,6 +37,7 @@ fn remap(f: &MessageFixture) {
     cdr_store::mapping::upsert_thread(db, "thread-a", "project", "A", 100, 42, 3.0).unwrap();
 }
 
+#[cfg(windows)]
 fn enqueue(f: &MessageFixture, job: &str, target: &str, event: i64) {
     cdr_store::queue::enqueue(
         f.executor.mirror_db(),
@@ -57,6 +58,7 @@ fn enqueue(f: &MessageFixture, job: &str, target: &str, event: i64) {
 }
 
 // The only host process these tests can launch is this inert temporary script.
+#[cfg(windows)]
 fn fake_controller(temp: &tempfile::TempDir, f: &mut MessageFixture) {
     let root = temp.path().join("fake-controller");
     std::fs::create_dir_all(root.join("scripts")).unwrap();
