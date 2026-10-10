@@ -5,6 +5,7 @@ use crate::Result;
 use rusqlite::{Connection, params};
 use serde_json::Value;
 mod classification;
+mod legacy_stop;
 
 pub(super) fn admission_held_in(db: &Connection, thread: &str) -> Result<bool> {
     let repaired: bool = db.query_row(
@@ -17,7 +18,8 @@ pub(super) fn admission_held_in(db: &Connection, thread: &str) -> Result<bool> {
     }
     let mut statement = db.prepare(
         "SELECT CASE WHEN length(CAST(payload_json AS BLOB))<=?2 THEN payload_json END,
-         CASE WHEN length(CAST(outcome_json AS BLOB))<=?2 THEN outcome_json END
+         CASE WHEN length(CAST(outcome_json AS BLOB))<=?2 THEN outcome_json END,
+         ingress_id
          FROM discord_ingress_journal
          WHERE target_thread_id=?1 AND owner_id IS NULL AND state!='completed'
          AND NOT(phase IN ('result_recorded','stop_accepted') AND outcome_json IS NOT NULL)
@@ -53,6 +55,9 @@ pub(super) fn admission_held_in(db: &Connection, thread: &str) -> Result<bool> {
                 Some("stop" | "archive")
             );
         if !declared && classification::ordinary(&payload) {
+            continue;
+        }
+        if legacy_stop::superseded_in(db, thread, &row.get::<_, String>(2)?, &payload)? {
             continue;
         }
         let outcome: Option<String> = row.get(1)?;
