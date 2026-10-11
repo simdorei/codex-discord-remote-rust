@@ -146,12 +146,13 @@ impl TurnBackend for AppServerTurnBackend {
             if self.fresh_threads.contains(thread_id, self.generation()) {
                 return Ok(());
             }
+            // This path only consumes identity; history is read separately below.
+            // Avoid hydrating a large rollout just to open its subscription.
+            let mut request = resume_thread_with_timeout(thread_id, self.resume_timeout);
+            request.params["excludeTurns"] = Value::Bool(true);
             let result = self
                 .server
-                .execute(
-                    resume_thread_with_timeout(thread_id, self.resume_timeout),
-                    Some(self.generation()),
-                )
+                .execute(request, Some(self.generation()))
                 .await
                 .map_err(|error| resume_failure(&error))?;
             validate_thread_identity(&result, thread_id).map_err(BackendFailure::definite)?;
