@@ -22,6 +22,7 @@ mod bootstrap;
 mod error;
 mod gateway_loop;
 mod message_create;
+mod resume_recovery;
 mod shutdown;
 mod shutdown_deadline;
 mod startup_notice;
@@ -81,6 +82,7 @@ pub async fn run(
         config.startup_channel_id,
     )
     .await?;
+    resume_recovery::recover(&server, &paths.mirror_db, drain_controller.runtime_id()).await;
     let held_ingress = cdr_store::ingress::recover_prior_runtime(
         &paths.mirror_db,
         drain_controller.runtime_id(),

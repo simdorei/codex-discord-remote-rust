@@ -1,5 +1,6 @@
 //! Pre-dispatch evidence, never a lease or permission to replay.
 pub mod response;
+pub mod resume_recovery;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,14 +30,15 @@ pub(crate) fn migrate_schema(db: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS codex_mutation_prepared
         ON codex_mutation_attempts(state,scoped,target_thread_id);",
     )?;
-    Ok(())
+    resume_recovery::migrate_schema(db)
 }
 
 pub(crate) fn schema_current(db: &Connection) -> Result<bool> {
     Ok(db.query_row("SELECT
         EXISTS(SELECT 1 FROM pragma_table_info('codex_mutation_attempts') WHERE name='request_sha256')
         AND EXISTS(SELECT 1 FROM pragma_table_info('codex_mutation_runtime') WHERE name='runtime_id')
-        AND EXISTS(SELECT 1 FROM sqlite_schema WHERE name='codex_mutation_prepared_target')",
+        AND EXISTS(SELECT 1 FROM sqlite_schema WHERE name='codex_mutation_prepared_target')
+        AND EXISTS(SELECT 1 FROM sqlite_schema WHERE name='cdr_resume_restart_recoveries')",
         [], |r| r.get(0))?)
 }
 
