@@ -129,6 +129,7 @@ fn s1_new_database_matches_shared_schema_and_rust_extensions() {
                 "cdr_recovery_abandonment_deliveries",
                 "cdr_recovery_abandonment_decisions",
                 "cdr_recovery_ingress_order",
+                "cdr_resume_restart_recoveries",
             ])
             .map(String::from)
             .collect::<BTreeSet<_>>()
