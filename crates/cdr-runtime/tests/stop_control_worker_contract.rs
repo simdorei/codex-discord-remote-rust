@@ -430,7 +430,7 @@ async fn cold_worker_releases_exact_terminal_stop_without_replay_or_full_items()
     );
 }
 
-fn save_terminal(f: &Fixture, thread: &str, turn: &str, status: &str, goal: Value) {
+fn save_terminal(f: &Fixture, thread: &str, turn: &str, status: &str, goal: &Value) {
     std::fs::write(
         f.log.with_file_name("terminal.json"),
         serde_json::to_vec(&json!({
@@ -457,7 +457,7 @@ async fn terminal_recovery_refuses_active_unknown_foreign_turn_and_live_goal() {
             json!({"threadId":"thread-a","status":"active"}),
         ),
     ] {
-        save_terminal(&f, "thread-a", turn, status, goal);
+        save_terminal(&f, "thread-a", turn, status, &goal);
         assert_eq!(f.executor.process_stop_recoveries(&mut 0).await.unwrap(), 0);
         assert_eq!(f.snapshot(), before);
         assert!(control::target_is_held(&f.db, "thread-a").unwrap());
@@ -479,7 +479,7 @@ async fn lost_interrupt_reply_can_settle_from_terminal_history_without_second_in
             .as_deref(),
         Some("unknown")
     );
-    save_terminal(&f, "thread-a", "owned-a", "idle", json!(null));
+    save_terminal(&f, "thread-a", "owned-a", "idle", &json!(null));
     assert_eq!(f.executor.process_stop_recoveries(&mut 0).await.unwrap(), 1);
     assert!(!control::target_is_held(&f.db, "thread-a").unwrap());
     assert!(f.snapshot().as_array().unwrap().is_empty());
@@ -496,7 +496,7 @@ async fn busy_recovery_target_does_not_block_another_stopped_thread() {
         .await;
     f.stop("thread-a", 99, 20).await;
     f.stop("thread-b", 100, 21).await;
-    save_terminal(&f, "thread-b", "owned-b", "idle", json!(null));
+    save_terminal(&f, "thread-b", "owned-b", "idle", &json!(null));
     let _guard = f.executor.control_lock("thread-a").await.unwrap();
     assert_eq!(f.executor.process_stop_recoveries(&mut 0).await.unwrap(), 1);
     assert!(control::target_is_held(&f.db, "thread-a").unwrap());

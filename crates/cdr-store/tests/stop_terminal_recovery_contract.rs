@@ -37,7 +37,7 @@ impl Fixture {
             original,
         }
     }
-    fn observed(&self) -> Value {
+    fn observed() -> Value {
         json!({"threadId":"thread-b","truncated":false,"required_owners_complete":true,
             "turns":[{"id":"original","status":"interrupted"}],
             "thread_observation":{"thread":{"id":"thread-b","status":{"type":"notLoaded"}}},
@@ -78,7 +78,7 @@ fn stopped_original_settles_atomically_in_every_phase_and_preserves_policy_and_n
             queue::adopt_target_generation(&f.db, "thread-b", 9).unwrap();
             let before_question = aq::get(&f.db, &f.question).unwrap();
             assert_eq!(control::recovery_after(&f.db, 0).unwrap().len(), 1);
-            assert_eq!(f.recover(&f.observed()).unwrap(), 2);
+            assert_eq!(f.recover(&Fixture::observed()).unwrap(), 2);
             assert!(!control::target_is_held(&f.db, "thread-b").unwrap());
             assert_eq!(
                 queue::list(&f.db)
@@ -125,7 +125,7 @@ fn incomplete_or_different_terminal_evidence_keeps_original_queue_and_question()
     for case in 0..9 {
         let f = Fixture::new(true);
         let before = queue::list(&f.db).unwrap();
-        let mut observed = f.observed();
+        let mut observed = Fixture::observed();
         match case {
             0 => observed["turns"][0]["status"] = json!("inProgress"),
             1 => observed["turns"][0]["id"] = json!("replacement"),
@@ -134,11 +134,11 @@ fn incomplete_or_different_terminal_evidence_keeps_original_queue_and_question()
             4 => observed["goal_observation"] = json!({}),
             5 => {
                 observed["goal_observation"]["goal"] =
-                    json!({"threadId":"thread-b","status":"active"})
+                    json!({"threadId":"thread-b","status":"active"});
             }
             6 => {
                 observed["goal_observation"]["goal"] =
-                    json!({"threadId":"other","status":"complete"})
+                    json!({"threadId":"other","status":"complete"});
             }
             7 => observed["truncated"] = json!(true),
             _ => observed["turns"] = json!([]),
@@ -160,7 +160,7 @@ fn changed_original_or_missing_hold_cannot_be_cancelled_using_old_stop() {
         let f = Fixture::new(true);
         Connection::open(&f.db).unwrap().execute_batch(sql).unwrap();
         let before = queue::list(&f.db).unwrap();
-        assert!(f.recover(&f.observed()).is_err());
+        assert!(f.recover(&Fixture::observed()).is_err());
         assert_eq!(queue::list(&f.db).unwrap(), before);
         assert!(control::target_is_held(&f.db, "thread-b").unwrap());
     }
@@ -177,7 +177,7 @@ fn a_failed_cancellation_certificate_or_stop_write_rolls_back_every_change() {
         let db = Connection::open(&f.db).unwrap();
         db.execute_batch(trigger).unwrap();
         let before = queue::list(&f.db).unwrap();
-        assert!(f.recover(&f.observed()).is_err());
+        assert!(f.recover(&Fixture::observed()).is_err());
         assert_eq!(queue::list(&f.db).unwrap(), before);
         assert!(control::target_is_held(&f.db, "thread-b").unwrap());
         assert!(cdr_store::async_resolution::admission_held(&f.db, "thread-b").unwrap());
@@ -200,7 +200,7 @@ fn queue_absence_alone_is_not_terminal_proof() {
     queue::complete(&f.db, "old-pending").unwrap();
     assert!(f.recover(&json!({})).is_err());
     assert!(control::target_is_held(&f.db, "thread-b").unwrap());
-    assert_eq!(f.recover(&f.observed()).unwrap(), 0);
+    assert_eq!(f.recover(&Fixture::observed()).unwrap(), 0);
     assert!(!control::target_is_held(&f.db, "thread-b").unwrap());
     assert!(!cdr_store::async_resolution::admission_held(&f.db, "thread-b").unwrap());
 }
