@@ -8,18 +8,25 @@ use tokio::sync::watch;
 impl<B: TurnBackend> ActionExecutor<B> {
     pub async fn run_stop_worker(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
         let mut cursor = 0;
+        let mut recovery_cursor = 0;
         let mut tick = tokio::time::interval(Duration::from_millis(250));
+        let mut recovery_tick = tokio::time::interval(Duration::from_secs(2));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        recovery_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         while !*shutdown.borrow() {
-            tokio::select! {
+            let recovering = tokio::select! {
                 biased;
                 _=shutdown.changed()=>break,
-                _=tick.tick()=>{}
-            }
+                _=tick.tick()=>false,
+                _=recovery_tick.tick()=>true,
+            };
             let result = tokio::select! {
                 biased;
                 _=shutdown.changed()=>break,
-                result=tokio::time::timeout(Duration::from_secs(2),self.process_stop_controls(&mut cursor))=>result,
+                result=tokio::time::timeout(Duration::from_secs(2),async {
+                    if recovering { self.process_stop_recoveries(&mut recovery_cursor).await }
+                    else { self.process_stop_controls(&mut cursor).await }
+                })=>result,
             };
             match result {
                 Ok(Ok(_)) => {}

@@ -41,6 +41,7 @@ mod service_actions;
 pub(crate) mod settings_action;
 mod settings_custody;
 mod stop_action;
+mod stop_recovery;
 mod stop_worker;
 mod target_resolution;
 mod types;

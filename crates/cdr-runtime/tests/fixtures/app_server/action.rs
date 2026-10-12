@@ -115,6 +115,28 @@ pub(super) fn run() -> Result {
 }
 
 fn fixture_reply(request: &Value, result: &Value) -> Result {
+    if let Ok(path) = std::env::var("CDR_STOP_TERMINAL_PATH")
+        && let Ok(text) = std::fs::read_to_string(path)
+    {
+        let observed: Value = serde_json::from_str(&text)?;
+        if request["params"]["threadId"] == observed["thread"]["id"] {
+            let terminal = match method(request) {
+                "thread/read" => Some(json!({"thread":observed["thread"]})),
+                "thread/goal/get" => Some(json!({"goal":observed["goal"]})),
+                "thread/turns/list" => {
+                    let mut page = json!({"data":observed["turns"],"nextCursor":null});
+                    if request["params"]["itemsView"] == "full" {
+                        page["data"][0]["items"] = json!([{"text":"x".repeat(1_048_577)}]);
+                    }
+                    Some(page)
+                }
+                _ => None,
+            };
+            if let Some(terminal) = terminal {
+                return reply(request, &terminal);
+            }
+        }
+    }
     if method(request) == "turn/interrupt"
         && std::env::var_os("CDR_STOP_DROP_INTERRUPT_REPLY").is_some()
     {

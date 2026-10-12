@@ -148,6 +148,7 @@ fn fingerprint(snapshot: &TerminalHistorySnapshot) -> Result<String> {
 fn observations<'a>(
     expected: &TerminalHistorySnapshot,
     observed: &'a Value,
+    stopped: bool,
 ) -> Result<&'a [Value]> {
     let thread = &expected.history.thread;
     let invalid = || {
@@ -165,7 +166,8 @@ fn observations<'a>(
         || observed["threadId"] != *thread
         || observed["truncated"] == true
         || metadata["thread"]["id"] != *thread
-        || metadata["thread"]["status"]["type"] != "idle"
+        || !(metadata["thread"]["status"]["type"] == "idle"
+            || stopped && metadata["thread"]["status"]["type"] == "notLoaded")
         || !(goal.is_null() || (goal["threadId"] == *thread && goal["status"] == "complete"))
     {
         return Err(invalid());
@@ -351,7 +353,7 @@ pub fn settle_terminal_history(
             "historical reader identity is invalid",
         ));
     }
-    let turns = observations(expected, observed)?;
+    let turns = observations(expected, observed, false)?;
     let mut db = crate::schema::open_initialized(path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let Some(current) = capture_in(&tx, &expected.history.thread)? else {
@@ -373,4 +375,28 @@ pub fn settle_terminal_history(
     verify_sources_in(&tx, expected)?;
     tx.commit()?;
     Ok(expected.entries.len())
+}
+
+/// Stop recovery has already verified the native lifetime and cancelled only
+/// its original jobs in this transaction. Preserve receipt/publishing policy;
+/// settle execution only for questions sealed to that same stopped turn.
+pub(crate) fn settle_stopped_execution_in(
+    db: &Connection,
+    thread: &str,
+    turn: &str,
+    observed: &Value,
+    reader: &str,
+    generation: i64,
+) -> Result<usize> {
+    let Some(mut snapshot) = capture_in(db, thread)? else {
+        return Ok(0);
+    };
+    snapshot.entries.retain(|entry| entry.owner.turn_id == turn);
+    let turns = observations(&snapshot, observed, true)?;
+    for entry in &snapshot.entries {
+        let proof = proof_in(db, &snapshot, entry, observed, turns, reader, generation)?;
+        settle_one_in(db, &snapshot, entry, &proof)?;
+    }
+    verify_sources_in(db, &snapshot)?;
+    Ok(snapshot.entries.len())
 }
