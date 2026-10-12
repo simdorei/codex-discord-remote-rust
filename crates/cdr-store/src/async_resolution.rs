@@ -26,6 +26,7 @@ pub use policy::{
 mod preflight;
 pub(crate) use preflight::unprovable_in;
 mod history;
+pub(crate) use history::settle_stopped_execution_in;
 pub use history::{HistorySnapshot, capture_history_snapshot, retain_history_candidate};
 pub use history::{
     TerminalHistorySnapshot, capture_terminal_history_snapshot, settle_terminal_history,

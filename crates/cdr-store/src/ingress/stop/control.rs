@@ -8,6 +8,8 @@ use std::path::Path;
 mod admission;
 mod dispatch;
 mod late_start;
+mod recovery;
+pub use recovery::{recover_terminal_in, recovery_after};
 mod schema;
 mod terminal;
 pub use admission::accept_running;

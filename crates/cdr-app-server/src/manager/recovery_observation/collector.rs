@@ -16,9 +16,10 @@ fn charge(value: &Value, bytes: &mut usize) -> Result<(), AppServerError> {
     Ok(())
 }
 
-fn exact_idle(value: &Value, thread: &str) -> Result<(), AppServerError> {
+fn exact_idle(value: &Value, thread: &str, stopped: bool) -> Result<(), AppServerError> {
     if value["thread"]["id"] != thread
-        || value["thread"]["status"]["type"] != "idle"
+        || !(value["thread"]["status"]["type"] == "idle"
+            || stopped && value["thread"]["status"]["type"] == "notLoaded")
         || value["thread"]["archived"] == true
         || value
             .get("truncated")
@@ -46,7 +47,7 @@ pub(super) async fn collect(pin: &ReadLifetime) -> Result<Value, AppServerError>
     let params = json!({"threadId":pin.thread,"includeTurns":false});
     let initial = pin.request("thread/read", params.clone()).await?;
     charge(&initial, &mut bytes)?;
-    exact_idle(&initial, &pin.thread)?;
+    exact_idle(&initial, &pin.thread, pin.stopped_execution)?;
     let history = history(pin, &mut bytes).await?;
     let goal = pin
         .request("thread/goal/get", json!({"threadId":pin.thread}))
@@ -55,7 +56,7 @@ pub(super) async fn collect(pin: &ReadLifetime) -> Result<Value, AppServerError>
     ended_goal(&goal, &pin.thread)?;
     let thread = pin.request("thread/read", params).await?;
     charge(&thread, &mut bytes)?;
-    exact_idle(&thread, &pin.thread)?;
+    exact_idle(&thread, &pin.thread, pin.stopped_execution)?;
     // Completeness is only for the requested owner set. A remaining cursor does
     // not certify that the whole thread's historical inventory was exhausted.
     let result = json!({"threadId":pin.thread,"truncated":false,
@@ -80,7 +81,8 @@ async fn history(pin: &ReadLifetime, bytes: &mut usize) -> Result<History, AppSe
             .request(
                 "thread/turns/list",
                 json!({"threadId":pin.thread,
-            "limit":16,"sortDirection":"desc","itemsView":"full","cursor":cursor}),
+            "limit":16,"sortDirection":"desc",
+            "itemsView":if pin.stopped_execution {"notLoaded"} else {"full"},"cursor":cursor}),
             )
             .await?;
         charge(&page, bytes)?;
@@ -101,6 +103,14 @@ async fn history(pin: &ReadLifetime, bytes: &mut usize) -> Result<History, AppSe
             .filter(|v| v.len() <= 16)
             .ok_or_else(|| invalid("recovery history has no bounded turn array"))?;
         for turn in data {
+            if pin.stopped_execution
+                && !matches!(
+                    turn["status"].as_str(),
+                    Some("completed" | "failed" | "interrupted")
+                )
+            {
+                return Err(invalid("stopped thread still has an unconfirmed execution"));
+            }
             let id = turn
                 .get("id")
                 .and_then(Value::as_str)

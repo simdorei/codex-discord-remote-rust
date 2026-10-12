@@ -1,6 +1,7 @@
 mod cancel_ingress;
 mod cancel_pending;
 mod cancel_recovery;
+pub(crate) use cancel_recovery::cancel_request_in;
 pub use cancel_recovery::{RecoveryCancellation, cancel_for_recovery, cancel_for_recovery_checked};
 mod cancellation_schema;
 mod failure;

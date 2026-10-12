@@ -16,6 +16,7 @@ struct ReadLifetime {
     owners: BTreeSet<String>,
     deadline: Instant,
     request_limit: Duration,
+    stopped_execution: bool,
 }
 
 /// A completed bounded observation tied to one real resident/client lifetime.
@@ -42,6 +43,29 @@ impl ResidentAppServer {
         owners: &[String],
         request_limit: Duration,
     ) -> Result<NativeRecoveryObservation, AppServerError> {
+        self.observe_prerequisites(thread, owners, request_limit, false)
+            .await
+    }
+
+    /// A stop already carries cancellation consent. An unloaded thread still
+    /// needs its exact ended turn and Goal; this never resumes or interrupts it.
+    pub async fn observe_stopped_execution(
+        self: &Arc<Self>,
+        thread: &str,
+        turn: &str,
+        request_limit: Duration,
+    ) -> Result<NativeRecoveryObservation, AppServerError> {
+        self.observe_prerequisites(thread, &[turn.to_owned()], request_limit, true)
+            .await
+    }
+
+    async fn observe_prerequisites(
+        self: &Arc<Self>,
+        thread: &str,
+        owners: &[String],
+        request_limit: Duration,
+        stopped_execution: bool,
+    ) -> Result<NativeRecoveryObservation, AppServerError> {
         let wanted = owners.iter().cloned().collect::<BTreeSet<_>>();
         if thread.trim().is_empty()
             || thread.len() > 512
@@ -64,6 +88,7 @@ impl ResidentAppServer {
             owners: wanted,
             deadline: Instant::now() + BUDGET,
             request_limit: request_limit.min(REQUEST_LIMIT),
+            stopped_execution,
         };
         lifetime.current(|| ())?;
         let observation = tokio::time::timeout_at(lifetime.deadline, collector::collect(&lifetime))

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, path::Path};
 mod settlement;
+pub(crate) use settlement::settle_stopped_execution_in;
 pub use settlement::{
     TerminalHistorySnapshot, capture_terminal_history_snapshot, settle_terminal_history,
 };

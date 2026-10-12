@@ -118,7 +118,7 @@ pub fn cancel_for_recovery_checked(
     Ok(result)
 }
 
-fn cancel_request_in(
+pub(crate) fn cancel_request_in(
     tx: &rusqlite::Connection,
     scope: crate::ingress::stop::StopScope<'_>,
     now: f64,

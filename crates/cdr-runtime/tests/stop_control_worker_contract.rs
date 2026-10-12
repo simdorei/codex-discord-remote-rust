@@ -155,6 +155,12 @@ async fn start_server(
         "CDR_ACTION_RPC_LOG".into(),
         log.to_string_lossy().into_owned(),
     );
+    config.environment.insert(
+        "CDR_STOP_TERMINAL_PATH".into(),
+        log.with_file_name("terminal.json")
+            .to_string_lossy()
+            .into_owned(),
+    );
     if drop_reply {
         config
             .environment
@@ -358,4 +364,144 @@ async fn cold_new_resident_never_adopts_an_old_accepted_interrupt() {
     assert_eq!(f.calls("turn/interrupt", "thread-a"), 0);
     assert!(control::target_is_held(&f.db, "thread-a").unwrap());
     server.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cold_worker_releases_exact_terminal_stop_without_replay_or_full_items() {
+    let f = Fixture::new(false).await;
+    let original = f.stop("thread-a", 99, 20).await;
+    f.server.close().await.unwrap();
+    let server = start_server(&f.db, &f.log, false, "runtime-b").await;
+    assert_ne!(server.instance_id(), original.resident);
+    let queue = Arc::new(QueueCoordinator::new(
+        f.db.clone(),
+        Arc::new(AppServerTurnBackend::new(Arc::clone(&server))),
+    ));
+    let cold = Arc::new(
+        ActionExecutor::new(
+            f.state.clone(),
+            f.db.clone(),
+            Arc::new(BridgeState::new(f.temp.path().join("bridge.json"))),
+            queue,
+        )
+        .with_server(Arc::clone(&server)),
+    );
+    std::fs::write(
+        f.log.with_file_name("terminal.json"),
+        serde_json::to_vec(&json!({
+            "thread":{"id":"thread-a","status":{"type":"notLoaded"}},
+            "turns":[{"id":"owned-a","status":"interrupted"}], "goal":null,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let (shutdown, rx) = tokio::sync::watch::channel(false);
+    let worker = tokio::spawn(cold.run_stop_worker(rx));
+    let recovered = tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            if !control::target_is_held(&f.db, "thread-a").unwrap()
+                && f.snapshot().as_array().unwrap().is_empty()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    shutdown.send(true).unwrap();
+    worker.await.unwrap();
+    server.close().await.unwrap();
+    assert!(
+        recovered.is_ok(),
+        "ended original stop remained busy after restart"
+    );
+    assert_eq!(f.calls("turn/interrupt", "thread-a"), 0);
+    assert_eq!(f.calls("turn/start", "thread-a"), 0);
+    assert_eq!(f.calls("thread/resume", "thread-a"), 0);
+    let history: Vec<_> = server_support::rpc_log(&f.log)
+        .into_iter()
+        .filter(|call| call["method"] == "thread/turns/list")
+        .collect();
+    assert!(!history.is_empty());
+    assert!(
+        history
+            .iter()
+            .all(|call| call["params"]["itemsView"] == "notLoaded")
+    );
+}
+
+fn save_terminal(f: &Fixture, thread: &str, turn: &str, status: &str, goal: &Value) {
+    std::fs::write(
+        f.log.with_file_name("terminal.json"),
+        serde_json::to_vec(&json!({
+            "thread":{"id":thread,"status":{"type":status}},
+            "turns":[{"id":turn,"status":"interrupted"}], "goal":goal,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_recovery_refuses_active_unknown_foreign_turn_and_live_goal() {
+    let f = Fixture::new(false).await;
+    f.stop("thread-a", 99, 20).await;
+    let before = f.snapshot();
+    for (turn, status, goal) in [
+        ("owned-a", "active", json!(null)),
+        ("owned-a", "unknown", json!(null)),
+        ("replacement", "idle", json!(null)),
+        (
+            "owned-a",
+            "idle",
+            json!({"threadId":"thread-a","status":"active"}),
+        ),
+    ] {
+        save_terminal(&f, "thread-a", turn, status, &goal);
+        assert_eq!(f.executor.process_stop_recoveries(&mut 0).await.unwrap(), 0);
+        assert_eq!(f.snapshot(), before);
+        assert!(control::target_is_held(&f.db, "thread-a").unwrap());
+    }
+    assert_eq!(f.calls("turn/interrupt", "thread-a"), 0);
+    assert_eq!(f.calls("turn/start", "thread-a"), 0);
+    assert_eq!(f.calls("thread/resume", "thread-a"), 0);
+    f.server.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lost_interrupt_reply_can_settle_from_terminal_history_without_second_interrupt() {
+    let f = Fixture::new(true).await;
+    let original = f.stop("thread-a", 99, 20).await;
+    assert_eq!(f.executor.process_stop_controls(&mut 0).await.unwrap(), 1);
+    assert_eq!(
+        control::phase(&f.db, &original.operation_id)
+            .unwrap()
+            .as_deref(),
+        Some("unknown")
+    );
+    save_terminal(&f, "thread-a", "owned-a", "idle", &json!(null));
+    assert_eq!(f.executor.process_stop_recoveries(&mut 0).await.unwrap(), 1);
+    assert!(!control::target_is_held(&f.db, "thread-a").unwrap());
+    assert!(f.snapshot().as_array().unwrap().is_empty());
+    assert_eq!(f.calls("turn/interrupt", "thread-a"), 1);
+    assert_eq!(f.calls("turn/start", "thread-a"), 0);
+    assert_eq!(f.calls("thread/resume", "thread-a"), 0);
+    f.server.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn busy_recovery_target_does_not_block_another_stopped_thread() {
+    let f = Fixture::new(false).await;
+    f.add_running("running-b", "thread-b", "owned-b", 100, 21)
+        .await;
+    f.stop("thread-a", 99, 20).await;
+    f.stop("thread-b", 100, 21).await;
+    save_terminal(&f, "thread-b", "owned-b", "idle", &json!(null));
+    let _guard = f.executor.control_lock("thread-a").await.unwrap();
+    assert_eq!(f.executor.process_stop_recoveries(&mut 0).await.unwrap(), 1);
+    assert!(control::target_is_held(&f.db, "thread-a").unwrap());
+    assert!(!control::target_is_held(&f.db, "thread-b").unwrap());
+    assert_eq!(f.calls("turn/interrupt", "thread-b"), 0);
+    assert_eq!(f.calls("turn/start", "thread-b"), 0);
+    f.server.close().await.unwrap();
 }
