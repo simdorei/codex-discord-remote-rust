@@ -1,0 +1,200 @@
+{
+    "schema_version":  1,
+    "date":  "2026-10-13",
+    "base_commit":  "3ebf4223b75b9d36237a73a78ce52ce794aee4ca",
+    "branch":  "fix/independent-local-tools-20261013",
+    "scope":  "Independent local tools only",
+    "source_files":  [
+                         {
+                             "path":  "crates/cdr-app-server/src/client.rs",
+                             "sha256":  "a37d66a2e4084ba20bb9532c580d07d490eba127380cb30a66e24b9f4022cbbe",
+                             "deployed_source_sha256":  "dbdb2b6c71bd0326621ef709de6878bf747dda62deb5935a0f42df5846a5ca04"
+                         },
+                         {
+                             "path":  "crates/cdr-app-server/src/client/startup.rs",
+                             "sha256":  "55e6096ebd4e19ff9142a2c7408f480d8290297d3d0c6b31d3c2dbd1ba74e7b9",
+                             "deployed_source_sha256":  "55e6096ebd4e19ff9142a2c7408f480d8290297d3d0c6b31d3c2dbd1ba74e7b9"
+                         },
+                         {
+                             "path":  "crates/cdr-app-server/src/process.rs",
+                             "sha256":  "cffa5ea4228b3774e99f4744d02865c6ce17419ef246f1d6f96ebb400322fdba",
+                             "deployed_source_sha256":  "cffa5ea4228b3774e99f4744d02865c6ce17419ef246f1d6f96ebb400322fdba"
+                         },
+                         {
+                             "path":  "crates/cdr-app-server/tests/independent_tools_contract.rs",
+                             "sha256":  "7679089ba3c59be8590eff355af5bc8fe9b06dd05d96aa10d141154ce8fc6833",
+                             "deployed_source_sha256":  "7679089ba3c59be8590eff355af5bc8fe9b06dd05d96aa10d141154ce8fc6833"
+                         },
+                         {
+                             "path":  "crates/cdr-runtime/src/server_request_worker.rs",
+                             "sha256":  "a40a1ad51a204a70ac4ebe4e215e56a958148fcc3127e394ca65853c7ad6154e",
+                             "deployed_source_sha256":  "a40a1ad51a204a70ac4ebe4e215e56a958148fcc3127e394ca65853c7ad6154e"
+                         },
+                         {
+                             "path":  "crates/cdr-runtime/src/server_request_worker/local_tools.rs",
+                             "sha256":  "b91368972fdbde123bac7192abb3eb1b481d192410dc28c6b7e596b1c2bfed00",
+                             "deployed_source_sha256":  "b91368972fdbde123bac7192abb3eb1b481d192410dc28c6b7e596b1c2bfed00"
+                         },
+                         {
+                             "path":  "crates/cdr-runtime/src/server_request_worker/local_tools_tests.rs",
+                             "sha256":  "3bb7224298aa6541e5bb9f5fb39e7dc5d4c8f7d292c00459047b677d696872ce",
+                             "deployed_source_sha256":  "3bb7224298aa6541e5bb9f5fb39e7dc5d4c8f7d292c00459047b677d696872ce"
+                         },
+                         {
+                             "path":  "crates/cdr-runtime/tests/fixtures/app_server/approval.rs",
+                             "sha256":  "0c9054ef0389416077afdd83d20d68beccf6c537f07ad77d26467b5e1013e1aa",
+                             "deployed_source_sha256":  "0c9054ef0389416077afdd83d20d68beccf6c537f07ad77d26467b5e1013e1aa"
+                         }
+                     ],
+    "report":  {
+                   "path":  "docs/independent-local-tools-verification-20261013.md",
+                   "sha256":  "c4e814cea35f901d929d72cd65a165aba42c64ab825a9e24aaf622647b2ac2d2"
+               },
+    "qa":  {
+               "totals":  {
+                              "passed":  171,
+                              "failed":  0,
+                              "ignored":  8
+                          },
+               "checks":  [
+                              {
+                                  "name":  "app-server",
+                                  "command":  "cargo test --offline --locked -p cdr-app-server --lib --test independent_tools_contract --test startup_budget_contract",
+                                  "exit_code":  0,
+                                  "started_at":  "2026-10-13T07:12:25.2396793+00:00",
+                                  "finished_at":  "2026-10-13T07:13:17.8151820+00:00",
+                                  "private_log_name":  "app-server.log",
+                                  "private_log_sha256":  "c81f91065154ec28c9b8bc590f95da9ab0e3926e7c9e97fa66e4da7cecbca2f4"
+                              },
+                              {
+                                  "name":  "native-fixture",
+                                  "command":  "cargo build --offline --locked -p cdr-runtime --bin cdr-offline-soak",
+                                  "exit_code":  0,
+                                  "started_at":  "2026-10-13T07:13:17.8621802+00:00",
+                                  "finished_at":  "2026-10-13T07:13:51.4687809+00:00",
+                                  "private_log_name":  "native-fixture.log",
+                                  "private_log_sha256":  "fd8e817134d80a23473f5d46af50927af3a5982362ff79b34daa19de5448c373"
+                              },
+                              {
+                                  "name":  "automatic-tools",
+                                  "command":  "cargo test --offline --locked -p cdr-runtime --lib server_request_worker::local_tools_tests -- --nocapture",
+                                  "exit_code":  0,
+                                  "started_at":  "2026-10-13T07:13:51.4717816+00:00",
+                                  "finished_at":  "2026-10-13T07:14:25.8549646+00:00",
+                                  "private_log_name":  "automatic-tools.log",
+                                  "private_log_sha256":  "dbf8d42579e10f3441390e20dbbcbc12358ed429dc88cf527c39255e75e72e6c"
+                              },
+                              {
+                                  "name":  "approval-regressions",
+                                  "command":  "cargo test --offline --locked -p cdr-runtime --test approval_actor_contract --test server_request_recovery_contract --test server_prompt_contract --test component_reply_contract --test bound_component_selection_contract --test approval_text_contract --test server_request_occurrence_identity_contract",
+                                  "exit_code":  0,
+                                  "started_at":  "2026-10-13T07:14:25.8559894+00:00",
+                                  "finished_at":  "2026-10-13T07:14:51.1895615+00:00",
+                                  "private_log_name":  "approval-regressions.log",
+                                  "private_log_sha256":  "2db939077777bd794c3cd217f7d4b4d0a3cdb70e6d1f899fed041ebae65b9771"
+                              },
+                              {
+                                  "name":  "production-clippy",
+                                  "command":  "cargo clippy --offline --locked -p cdr-app-server -p cdr-runtime --lib --bin cdr-runtime --bin cdr-offline-soak -- -D warnings",
+                                  "exit_code":  0,
+                                  "started_at":  "2026-10-13T07:14:51.1920713+00:00",
+                                  "finished_at":  "2026-10-13T07:15:06.0180159+00:00",
+                                  "private_log_name":  "production-clippy.log",
+                                  "private_log_sha256":  "bc478f370e08280bf0fecf5068a1339d30f051c73284bf09314beff2e45213c3"
+                              },
+                              {
+                                  "name":  "app-server-test-clippy",
+                                  "command":  "cargo clippy --offline --locked -p cdr-app-server --test independent_tools_contract -- -D warnings",
+                                  "exit_code":  0,
+                                  "started_at":  "2026-10-13T07:15:06.0210217+00:00",
+                                  "finished_at":  "2026-10-13T07:15:08.2539990+00:00",
+                                  "private_log_name":  "app-server-test-clippy.log",
+                                  "private_log_sha256":  "992b3de5b65522562345e14b7b823103e2122b29052630a0875776e86048de29"
+                              }
+                          ],
+               "test_binary_results":  [
+                                           {
+                                               "passed":  126,
+                                               "failed":  0,
+                                               "ignored":  5
+                                           },
+                                           {
+                                               "passed":  3,
+                                               "failed":  0,
+                                               "ignored":  2
+                                           },
+                                           {
+                                               "passed":  2,
+                                               "failed":  0,
+                                               "ignored":  1
+                                           },
+                                           {
+                                               "passed":  5,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  1,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  2,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  8,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  7,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  10,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  1,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           },
+                                           {
+                                               "passed":  6,
+                                               "failed":  0,
+                                               "ignored":  0
+                                           }
+                                       ],
+               "format_exit":  0,
+               "diff_check_exit":  0,
+               "client_rustfmt_output_equivalent":  true,
+               "whole_workspace_suite_run":  false
+           },
+    "live":  {
+                 "proof_sha256":  "cd4c02f3748c149b7698030d2e4a7b5893a9906bf9fbf4ed8f7e6d4ea10c14b9",
+                 "installed_runtime_sha256":  "b5f3ee049f6eefb82859cafb88bcb3b491a7aa4c02e9f937df474c01f3c3df99",
+                 "desktop_off":  true,
+                 "watchdog_disabled":  true,
+                 "native_click_and_input":  true,
+                 "chrome_extension_navigation":  true,
+                 "user_tabs_preserved":  true,
+                 "heartbeat_advanced":  true,
+                 "post_restart_delivery_receipts":  2,
+                 "preserved_queue_and_hold_evidence":  true,
+                 "distinct_auto_accept_event_observed":  false,
+                 "legacy_handoff_receipt":  "failed: retained, not rewritten",
+                 "one_shot_task_disabled":  true,
+                 "live_runtime_restarted_during_reconciliation":  false
+             },
+    "external_pro_review":  false,
+    "excluded":  [
+                     "unrelated working-tree changes",
+                     "production databases and settings",
+                     "operational backups",
+                     "raw logs"
+                 ]
+}

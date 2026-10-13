@@ -9,6 +9,17 @@ use crate::{AppServerConfig, AppServerError};
 #[cfg(windows)]
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+#[cfg(windows)]
+const DESKTOP_SESSION_ENVIRONMENT: &[&str] = &[
+    "CODEX_APP_TOOLS_PIPE_PATH",
+    "BROWSER_USE_ACCESS_VERIFYING_IDENTITY",
+    "CODEX_TASK_WORKSPACE_VERIFYING_IDENTITY",
+    "SKY_CUA_NATIVE_PIPE_DIRECTORY",
+    "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+    "CODEX_SESSION_ID",
+    "CODEX_THREAD_ID",
+];
+
 pub(crate) type AppServerInput = Pin<Box<dyn AsyncWrite + Send>>;
 pub(crate) type AppServerOutput = Pin<Box<dyn AsyncRead + Send>>;
 
@@ -78,6 +89,15 @@ fn inherited_environment(
         let name = name
             .into_string()
             .map_err(|_| AppServerError::EnvironmentEncoding { field: "name" })?;
+        // Inherited desktop identities and pipe addresses belong to the parent
+        // session, not this independent server. Explicit overrides below remain
+        // available to callers; authentication and CODEX_HOME are preserved.
+        if DESKTOP_SESSION_ENVIRONMENT
+            .iter()
+            .any(|desktop_name| name.eq_ignore_ascii_case(desktop_name))
+        {
+            continue;
+        }
         let value = value
             .into_string()
             .map_err(|_| AppServerError::EnvironmentEncoding { field: "value" })?;
