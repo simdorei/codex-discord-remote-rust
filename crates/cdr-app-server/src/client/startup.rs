@@ -69,7 +69,10 @@ where
             "title": config.client_title,
             "version": config.client_version
         },
-        "capabilities": {"experimentalApi": true}
+            "capabilities": {
+                "experimentalApi": true,
+                "mcpServerOpenaiFormElicitation": true
+            }
     });
     if let Err(primary) = client
         .request("initialize", initialize, APP_SERVER_INITIALIZE_TIMEOUT)

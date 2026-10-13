@@ -49,9 +49,17 @@ pub struct AppServerConfig {
 impl AppServerConfig {
     #[must_use]
     pub fn new(executable: impl Into<PathBuf>) -> Self {
+        let mut arguments = vec!["app-server".to_owned(), "--stdio".to_owned()];
+        if cfg!(windows) {
+            // Reuse the installed native tools without a desktop-owned pipe.
+            arguments.extend([
+                "-c".to_owned(),
+                r#"mcp_servers.node_repl.env.SKY_CUA_NATIVE_PIPE="0""#.to_owned(),
+            ]);
+        }
         Self {
             executable: executable.into(),
-            arguments: vec!["app-server".to_owned(), "--stdio".to_owned()],
+            arguments,
             environment: BTreeMap::new(),
             client_name: DEFAULT_CLIENT_NAME.to_owned(),
             client_title: DEFAULT_CLIENT_TITLE.to_owned(),

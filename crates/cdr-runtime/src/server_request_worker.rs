@@ -4,6 +4,7 @@ use std::time::Duration;
 
 pub mod delivery_identity;
 mod error;
+mod local_tools;
 pub mod recovery;
 pub mod sent_cache;
 
@@ -24,6 +25,8 @@ use recovery::{
 };
 use sent_cache::SentRequestCache;
 
+#[cfg(test)]
+mod local_tools_tests;
 #[cfg(test)]
 mod receipt_contract;
 
@@ -159,6 +162,19 @@ impl ServerRequestWorker {
             generation,
         )
         .await?;
+        if let Some((response, disposition)) = local_tools::response(&request) {
+            // The authority check above binds this response to the original
+            // Discord user, channel, running turn, and server generation.
+            self.server
+                .respond_current(&request.id, request.occurrence, response, generation)
+                .await
+                .map_err(ServerRequestWorkerError::AppServer)?;
+            eprintln!(
+                "app_server_elicitation_response thread_id={} generation={generation} policy={disposition}",
+                authority.thread_id
+            );
+            return Ok(());
+        }
         let prompt = build_server_prompt(&request, generation)?;
         let material = PromptIdentityMaterial {
             generation,
