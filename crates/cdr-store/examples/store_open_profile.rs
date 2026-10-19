@@ -28,8 +28,8 @@ fn main() {
         );
         write_us.push(start.elapsed().as_micros());
     }
-    let backups = std::fs::read_dir(temp.path().join(".codex-discord-backups"))
-        .map_or(0, |items| items.count());
+    let backups =
+        std::fs::read_dir(temp.path().join(".codex-discord-backups")).map_or(0, Iterator::count);
     println!(
         "{}",
         serde_json::json!({

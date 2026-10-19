@@ -6,6 +6,8 @@ pub(crate) mod approval_app_fixture;
 pub(crate) mod approval_http;
 #[path = "../tests/support/approval_owner.rs"]
 pub(crate) mod approval_owner;
+#[path = "../tests/support/archive_app_server.rs"]
+pub(crate) mod archive_app_fixture;
 pub(crate) mod cleanup_refusal_transport;
 #[path = "../tests/support/completion_lane_http.rs"]
 pub(crate) mod completion_lane_http;

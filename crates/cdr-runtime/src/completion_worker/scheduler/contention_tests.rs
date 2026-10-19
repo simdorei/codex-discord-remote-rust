@@ -10,6 +10,40 @@ use tokio::sync::{broadcast, watch};
 
 use crate::test_support::completion_lane_http as http_fixture;
 
+fn stage_same_thread(db: &Path, generation: i64, job: &str, stamp: f64) {
+    use cdr_store::commentary_outbox;
+    queue::enqueue(
+        db,
+        queue::NewQueueJob {
+            job_id: job,
+            target_thread_id: "same",
+            channel_id: 42,
+            owner_user_id: Some(1),
+            discord_message_id: None,
+            app_server_generation: generation,
+            prompt: "original",
+            queued: false,
+            ack_sent: true,
+            created_at: stamp,
+        },
+    )
+    .unwrap();
+    queue::begin_attempt(db, job, &[], generation).unwrap();
+    queue::mark_running(db, job, job, generation).unwrap();
+    commentary_outbox::stage(db, "same", job, &format!("progress {job}")).unwrap();
+    delivery::stage_queue_completion(db, job, &format!("Final {job}"), stamp).unwrap();
+    cdr_store::schema::open_initialized(db)
+        .unwrap()
+        .execute(
+            "INSERT INTO discord_ingress_journal
+        (ingress_id,kind,channel_id,owner_user_id,payload_json,state,phase,
+         owner_kind,owner_id,confirmation_delivered,created_at,updated_at)
+        VALUES (?1,'message',42,1,'{}','owned','durable_prompt','prompt',?1,1,?2,?2)",
+            rusqlite::params![job, stamp],
+        )
+        .unwrap();
+}
+
 #[tokio::test]
 async fn unknown_old_progress_allows_new_turn_progress_and_final_after_worker_restart() {
     use cdr_store::{commentary_outbox, delivery_receipt};
@@ -28,45 +62,14 @@ async fn unknown_old_progress_allows_new_turn_progress_and_final_after_worker_re
         Arc::new(AppServerTurnBackend::new(Arc::clone(&server))),
     ));
     let generation = i64::try_from(server.generation()).unwrap();
-    let stage = |job: &str, stamp: f64| {
-        queue::enqueue(
-            &db,
-            queue::NewQueueJob {
-                job_id: job,
-                target_thread_id: "same",
-                channel_id: 42,
-                owner_user_id: Some(1),
-                discord_message_id: None,
-                app_server_generation: generation,
-                prompt: "original",
-                queued: false,
-                ack_sent: true,
-                created_at: stamp,
-            },
-        )
-        .unwrap();
-        queue::begin_attempt(&db, job, &[], generation).unwrap();
-        queue::mark_running(&db, job, job, generation).unwrap();
-        commentary_outbox::stage(&db, "same", job, &format!("progress {job}")).unwrap();
-        delivery::stage_queue_completion(&db, job, &format!("Final {job}"), stamp).unwrap();
-        cdr_store::schema::open_initialized(&db)
-            .unwrap()
-            .execute(
-                "INSERT INTO discord_ingress_journal
-            (ingress_id,kind,channel_id,owner_user_id,payload_json,state,phase,
-             owner_kind,owner_id,confirmation_delivered,created_at,updated_at)
-            VALUES (?1,'message',42,1,'{}','owned','durable_prompt','prompt',?1,1,?2,?2)",
-                rusqlite::params![job, stamp],
-            )
-            .unwrap();
-    };
-    stage("old", 1.0);
+
+    stage_same_thread(&db, generation, "old", 1.0);
     let identity =
         super::super::CompletionDeliveryIdentity::commentary("same", "old", "progress old");
     let key = serde_json::to_string(&(42, identity.domain(), identity.logical_key(), 0)).unwrap();
     delivery_receipt::begin(&db, &key, "frozen-unknown").unwrap();
     for (job, stamp) in [("new", 2.0), ("after-restart", 3.0)] {
-        stage(job, stamp);
+        stage_same_thread(&db, generation, job, stamp);
         let client = Arc::new(
             twilight_http::Client::builder()
                 .token("fixture".into())

@@ -102,7 +102,7 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 let mut child_guards = Vec::new();
                 for child in &children {
                     child_guards.push(self.control_lock(child).await?);
-                    self.archive_preflight(0, Some(child), child, generation, own.as_deref())
+                    self.archive_preflight(0, Some(child), child, generation, own)
                         .await?;
                     self.load_archive_target(child, generation).await?;
                 }
@@ -114,18 +114,17 @@ impl<B: TurnBackend> ActionExecutor<B> {
                     ));
                 }
                 for child in &children {
-                    self.archive_preflight(0, Some(child), child, generation, own.as_deref())
+                    self.archive_preflight(0, Some(child), child, generation, own)
                         .await?;
                 }
-                self.archive_preflight(channel, reference, &thread.id, generation, own.as_deref())
+                self.archive_preflight(channel, reference, &thread.id, generation, own)
                     .await?;
                 self.validate_lifecycle_binding(binding, channel)?;
                 let mut scope = children;
                 scope.insert(thread.id.clone());
                 // This transaction commits before awaiting the app-server writer. Late
                 // ingress is saved held; earlier ingress prevents this reservation.
-                let reservation =
-                    cdr_store::archive_fence::reserve(&self.mirror_db, &scope, own.as_deref())?;
+                let reservation = cdr_store::archive_fence::reserve(&self.mirror_db, &scope, own)?;
                 *archive_sent = true;
                 if let Err(error) = server
                     .execute(archive_thread(&thread.id), Some(generation))

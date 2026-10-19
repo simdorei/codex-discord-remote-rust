@@ -1,7 +1,6 @@
+use crate::test_support::archive_app_fixture as app;
 use crate::test_support::{approval_http, message_fixture::MessageFixture};
 use std::sync::Arc;
-#[path = "../../tests/support/archive_app_server.rs"]
-mod app;
 
 #[tokio::test]
 async fn admitted_lifecycle_commands_reject_changed_room_before_any_rpc() {

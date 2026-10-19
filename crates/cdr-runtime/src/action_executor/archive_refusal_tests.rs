@@ -2,10 +2,8 @@ use crate::test_support::{approval_http, message_fixture::MessageFixture};
 use cdr_store::{async_resolution, delivery, ingress, queue};
 use std::{sync::Arc, time::Duration};
 
-#[path = "../../tests/support/archive_app_server.rs"]
-mod app;
-#[path = "../../../../tests/support/async_orphan_fixture.rs"]
-mod async_fixture;
+use crate::async_orphan_tests::submitted_fixture::original as async_fixture;
+use crate::test_support::archive_app_fixture as app;
 
 fn settled_question(db: &std::path::Path) {
     cdr_store::schema::open_initialized(db)

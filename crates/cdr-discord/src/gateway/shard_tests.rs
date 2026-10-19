@@ -15,7 +15,7 @@ fn message_nonce_survives_decode_and_typed_ingress_as_number_or_string() {
     let (ingress, mut receivers) = GatewayIngress::new(GatewayIngressConfig::default()).unwrap();
     let outcomes = GatewayIngressPublishOutcomes::default();
     for nonce in [
-        serde_json::json!(9223372036854775807_u64),
+        serde_json::json!(9_223_372_036_854_775_807_u64),
         serde_json::json!("9223372036854775807"),
     ] {
         let mut payload = serde_json::json!({"op":0,"s":1,"t":"MESSAGE_CREATE","d":message});
@@ -32,7 +32,7 @@ fn message_nonce_survives_decode_and_typed_ingress_as_number_or_string() {
         );
         let received = receivers.messages.try_recv().unwrap();
         assert_eq!(received.event.id.get(), 123);
-        assert_eq!(received.nonce, Some(9223372036854775807));
+        assert_eq!(received.nonce, Some(9_223_372_036_854_775_807));
     }
     assert_eq!(outcomes.snapshot().messages_accepted, 2);
 }
