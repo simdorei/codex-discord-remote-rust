@@ -398,7 +398,9 @@ async fn more_than_128_eligible_confirmed_heads_do_not_delay_a_new_b() {
     );
     let cleanup_started = std::time::Instant::now();
     let mut last_remaining = i64::MAX;
-    wait_for(|| {
+    // B must still finish within the five-second responsiveness budget above.
+    // Draining 130 historical SQLite entries is a separate eventual-cleanup check.
+    fixture::wait_for_with_budget(Duration::from_secs(30), || {
         let remaining: i64 = rusqlite::Connection::open_with_flags(
             rig.queue.db_path(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,

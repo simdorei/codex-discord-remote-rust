@@ -140,8 +140,11 @@ impl Running {
             .unwrap();
     }
 }
-pub async fn wait_for(mut ready: impl FnMut() -> bool) {
-    tokio::time::timeout(Duration::from_secs(5), async {
+pub async fn wait_for(ready: impl FnMut() -> bool) {
+    wait_for_with_budget(Duration::from_secs(5), ready).await;
+}
+pub async fn wait_for_with_budget(budget: Duration, mut ready: impl FnMut() -> bool) {
+    tokio::time::timeout(budget, async {
         while !ready() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
