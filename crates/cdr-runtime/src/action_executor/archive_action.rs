@@ -48,11 +48,16 @@ impl<B: TurnBackend> ActionExecutor<B> {
             ActionError::Invalid(format!("archive operation timed out; {phase}"))
         })
         .and_then(|result| result);
-        if !archive_sent && let (Some(key), Err(error)) = (own.as_deref(), &result) {
+        if !archive_sent
+            && let (Some(key), Err(error)) = (own.as_deref(), &result)
+            && matches!(error, ActionError::Invalid(_))
+        {
             // A known refusal is a finished command, even if its error notice
             // is lost. Preserve that fact before MessageCustody can retain it
             // as an unknown lifecycle action and fence every later request.
             // An attempted archive keeps its existing fence and unknown result.
+            // Typed app-server holds also retain custody: a stop revision or
+            // uncertain mutation is not a locally completed refusal.
             cdr_store::ingress::record_result(
                 &self.mirror_db,
                 key,
