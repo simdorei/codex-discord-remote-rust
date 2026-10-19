@@ -38,11 +38,43 @@ pub async fn start(db: &Path, log: &Path, owner: &str, mode: &str) -> Arc<Reside
 }
 
 pub fn calls(log: &Path) -> Vec<Value> {
-    fs::read_to_string(log)
+    fs::read(log)
         .unwrap_or_default()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
+        .split_inclusive(|byte| *byte == b'\n')
+        .filter(|line| line.ends_with(b"\n"))
+        .map(|line| serde_json::from_slice(line).unwrap())
         .collect()
+}
+
+#[test]
+fn calls_wait_for_the_newline_commit() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("rpc.jsonl");
+    fs::write(&log, b"{\"method\":\"initialize\"}\n{\"meth").unwrap();
+    assert_eq!(calls(&log), vec![json!({"method":"initialize"})]);
+    fs::write(
+        &log,
+        b"{\"method\":\"initialize\"}\n{\"method\":\"thread/read\"}\n",
+    )
+    .unwrap();
+    assert_eq!(calls(&log).len(), 2);
+}
+
+#[test]
+fn calls_ignore_only_uncommitted_partial_utf8() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("rpc.jsonl");
+    fs::write(&log, [b'{', b'"', 0xed, 0x95]).unwrap();
+    assert!(calls(&log).is_empty());
+}
+
+#[test]
+#[should_panic(expected = "expected value")]
+fn calls_reject_invalid_committed_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("rpc.jsonl");
+    fs::write(&log, b"invalid\n").unwrap();
+    let _ = calls(&log);
 }
 
 pub fn count(log: &Path, method: &str, target: &str) -> usize {

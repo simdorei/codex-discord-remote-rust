@@ -103,10 +103,8 @@ fn failed_turn_attachment_cannot_commit_only_the_observation_generation() {
 fn old_schema_migrates_without_fabricating_turn_or_execution_generation() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("db.sqlite");
+    waiting(&db);
     let connection = rusqlite::Connection::open(&db).unwrap();
-    // Build the historical queue directly. Dropping an old column from today's
-    // initialized store leaves modern triggers referring to that column, which
-    // fails before the migration under test can run.
     connection
         .execute_batch(
             // These modern capture triggers do not exist in the legacy fixture.
