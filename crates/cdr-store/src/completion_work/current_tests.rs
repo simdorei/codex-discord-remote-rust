@@ -11,12 +11,15 @@ fn legacy(db: &Connection, entry: &Entry) -> Option<Entry> {
 #[test]
 fn channel_current_preserves_heads_and_reduces_cross_channel_query_work() {
     let db = Connection::open_in_memory().unwrap();
-    db.execute_batch("CREATE TABLE codex_delivery_outbox(delivery_id TEXT PRIMARY KEY,target_thread_id TEXT,turn_id TEXT,channel_id INTEGER,content TEXT,created_at REAL);
-        CREATE TABLE codex_delivery_receipts(receipt_key TEXT,message_id TEXT,retryable INTEGER,blocked_reason TEXT);").unwrap();
+    db.execute_batch("CREATE TABLE codex_delivery_outbox(delivery_id TEXT PRIMARY KEY,job_id TEXT,target_thread_id TEXT,turn_id TEXT,channel_id INTEGER,content TEXT,created_at REAL);
+        CREATE TABLE codex_delivery_receipts(receipt_key TEXT,message_id TEXT,retryable INTEGER,blocked_reason TEXT);
+        CREATE TABLE discord_ingress_journal(owner_kind TEXT,owner_id TEXT,kind TEXT,confirmation_delivered INTEGER,created_at REAL,ingress_id TEXT);
+        CREATE TABLE cdr_final_recovery(delivery_id TEXT);
+        CREATE TABLE codex_commentary_outbox(job_id TEXT,target_thread_id TEXT,turn_id TEXT,channel_id INTEGER);").unwrap();
     for n in 0..130 {
         let id = format!("job-{n:03}");
         db.execute(
-            "INSERT INTO codex_delivery_outbox VALUES(?1,?1,'turn',?2,'body',1)",
+            "INSERT INTO codex_delivery_outbox VALUES(?1,?1,?1,'turn',?2,'body',1)",
             params![id, n + 100],
         )
         .unwrap();
@@ -85,7 +88,7 @@ fn assert_stale_and_held_heads(db: &Connection, entry: &Entry) {
     // Same-time tie, earlier unknown/blocked/oversized head, stale channel,
     // changed identity and deletion all retain the public load rejection.
     db.execute(
-        "INSERT INTO codex_delivery_outbox VALUES('aaa','earlier','turn',?1,'earlier',1)",
+        "INSERT INTO codex_delivery_outbox VALUES('aaa','aaa','earlier','turn',?1,'earlier',1)",
         [entry.channel],
     )
     .unwrap();
