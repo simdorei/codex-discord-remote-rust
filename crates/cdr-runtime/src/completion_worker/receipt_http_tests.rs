@@ -12,6 +12,56 @@ use tokio::{
 };
 
 #[tokio::test]
+async fn independent_confirmation_survives_lost_http_response_without_repost() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("receipt.sqlite");
+    let confirm_db = db.clone();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let count = socket.read(&mut request).await.unwrap();
+        assert!(request[..count].starts_with(b"POST /api/v10/channels/42/messages "));
+        // The authoritative independent acknowledgement arrived before HTTP failed.
+        assert!(
+            delivery_receipt::confirm(
+                &confirm_db,
+                r#"[42,"test/terminal","thread/turn",0]"#,
+                "987"
+            )
+            .unwrap()
+        );
+        drop(socket);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err()
+        );
+    });
+    let client = twilight_http::Client::builder()
+        .token("test-token".into())
+        .proxy(address.to_string(), true)
+        .ratelimiter(None)
+        .timeout(Duration::from_secs(2))
+        .build();
+    let chunk = IdempotentChunk {
+        domain: "test/terminal",
+        logical_key: "thread/turn".into(),
+        chunk_index: 0,
+        content: "Final\nverified body".into(),
+    };
+    let result = send_chunk(&db, &client, Id::new(42), &chunk).await;
+    assert!(
+        result.is_ok(),
+        "confirmed delivery must win over a lost HTTP response: {result:?}"
+    );
+    send_chunk(&db, &client, Id::new(42), &chunk).await.unwrap();
+    server.await.unwrap();
+    assert_eq!(delivery_receipt::unknown_count(&db).unwrap(), 0);
+}
+
+#[tokio::test]
 async fn intent_storage_failure_prevents_any_http_request() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let client = twilight_http::Client::builder()

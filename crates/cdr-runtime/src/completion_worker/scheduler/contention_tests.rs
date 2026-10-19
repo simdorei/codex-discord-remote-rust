@@ -10,6 +10,128 @@ use tokio::sync::{broadcast, watch};
 
 use crate::test_support::completion_lane_http as http_fixture;
 
+#[tokio::test]
+async fn unknown_old_progress_allows_new_turn_progress_and_final_after_worker_restart() {
+    use cdr_store::{commentary_outbox, delivery_receipt};
+
+    let temp = tempfile::tempdir().unwrap();
+    let remote = http_fixture::start([], []).await;
+    let mut config = native_fixture::config("action");
+    config.environment.insert(
+        "CDR_ACTION_RPC_LOG".into(),
+        temp.path().join("rpc.jsonl").to_string_lossy().into_owned(),
+    );
+    let server = Arc::new(ResidentAppServer::start(config).await.unwrap());
+    let db = temp.path().join("mirror.sqlite");
+    let coordinator = Arc::new(QueueCoordinator::new(
+        db.clone(),
+        Arc::new(AppServerTurnBackend::new(Arc::clone(&server))),
+    ));
+    let generation = i64::try_from(server.generation()).unwrap();
+    let stage = |job: &str, stamp: f64| {
+        queue::enqueue(
+            &db,
+            queue::NewQueueJob {
+                job_id: job,
+                target_thread_id: "same",
+                channel_id: 42,
+                owner_user_id: Some(1),
+                discord_message_id: None,
+                app_server_generation: generation,
+                prompt: "original",
+                queued: false,
+                ack_sent: true,
+                created_at: stamp,
+            },
+        )
+        .unwrap();
+        queue::begin_attempt(&db, job, &[], generation).unwrap();
+        queue::mark_running(&db, job, job, generation).unwrap();
+        commentary_outbox::stage(&db, "same", job, &format!("progress {job}")).unwrap();
+        delivery::stage_queue_completion(&db, job, &format!("Final {job}"), stamp).unwrap();
+        cdr_store::schema::open_initialized(&db)
+            .unwrap()
+            .execute(
+                "INSERT INTO discord_ingress_journal
+            (ingress_id,kind,channel_id,owner_user_id,payload_json,state,phase,
+             owner_kind,owner_id,confirmation_delivered,created_at,updated_at)
+            VALUES (?1,'message',42,1,'{}','owned','durable_prompt','prompt',?1,1,?2,?2)",
+                rusqlite::params![job, stamp],
+            )
+            .unwrap();
+    };
+    stage("old", 1.0);
+    let identity =
+        super::super::CompletionDeliveryIdentity::commentary("same", "old", "progress old");
+    let key = serde_json::to_string(&(42, identity.domain(), identity.logical_key(), 0)).unwrap();
+    delivery_receipt::begin(&db, &key, "frozen-unknown").unwrap();
+    for (job, stamp) in [("new", 2.0), ("after-restart", 3.0)] {
+        stage(job, stamp);
+        let client = Arc::new(
+            twilight_http::Client::builder()
+                .token("fixture".into())
+                .proxy(remote.address.clone(), true)
+                .ratelimiter(None)
+                .build(),
+        );
+        let (_sender, receiver) = broadcast::channel(128);
+        let (stop, shutdown) = watch::channel(false);
+        let task = tokio::spawn(super::super::run_completion_worker(
+            receiver,
+            Arc::clone(&server),
+            Arc::clone(&coordinator),
+            client,
+            true,
+            Duration::from_secs(2),
+            shutdown,
+        ));
+        let sent = tokio::time::timeout(Duration::from_secs(8), async {
+            while delivery::list_pending(&db)
+                .unwrap()
+                .iter()
+                .any(|p| p.job_id == job)
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        stop.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(6), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            sent.is_ok(),
+            "independent final must reach HTTP despite old unknown progress"
+        );
+        assert_eq!(
+            delivery_receipt::begin(&db, &key, "frozen-unknown").unwrap(),
+            delivery_receipt::ReceiptState::Unknown
+        );
+        let old = delivery::list_pending(&db).unwrap();
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].job_id, "old");
+        assert_eq!(
+            old[0].attempt_count, 0,
+            "held progress must not cause final retry spin"
+        );
+        assert_eq!(commentary_outbox::pending(&db).unwrap().len(), 1);
+    }
+    server.close().await.unwrap();
+    let posts = remote.posts.lock().unwrap().clone();
+    remote.close().await;
+    assert_eq!(
+        posts.iter().map(|p| p.content.as_str()).collect::<Vec<_>>(),
+        [
+            "In progress\nprogress new",
+            "Final new",
+            "In progress\nprogress after-restart",
+            "Final after-restart",
+        ]
+    );
+    assert!(posts.iter().all(|p| p.channel == 42));
+}
+
 fn seed(db: &Path, target: &str, generation: i64) {
     queue::enqueue(
         db,

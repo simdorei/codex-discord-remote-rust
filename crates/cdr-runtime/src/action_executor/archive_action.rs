@@ -7,6 +7,10 @@ use std::time::Duration;
 #[path = "archive_dispatch.rs"]
 mod dispatch;
 
+#[cfg(test)]
+#[path = "archive_refusal_tests.rs"]
+mod refusal_tests;
+
 impl<B: TurnBackend> ActionExecutor<B> {
     pub(super) async fn archive_thread(
         &self,
@@ -22,10 +26,17 @@ impl<B: TurnBackend> ActionExecutor<B> {
         reference: Option<&str>,
         binding: Option<&crate::settings_binding::SettingsBinding>,
     ) -> Result<ActionResult, ActionError> {
+        let own = self.archive_own_request(context, reference)?;
         let mut archive_sent = false;
-        tokio::time::timeout(
+        let result = tokio::time::timeout(
             self.app_server_resume_timeout,
-            self.archive_with_verification(context, reference, &mut archive_sent, binding),
+            self.archive_with_verification(
+                context,
+                reference,
+                &mut archive_sent,
+                binding,
+                own.as_deref(),
+            ),
         )
         .await
         .map_err(|_| {
@@ -35,7 +46,28 @@ impl<B: TurnBackend> ActionExecutor<B> {
                 "no archive was sent"
             };
             ActionError::Invalid(format!("archive operation timed out; {phase}"))
-        })?
+        })
+        .and_then(|result| result);
+        if !archive_sent && let (Some(key), Err(error)) = (own.as_deref(), &result) {
+            // A known refusal is a finished command, even if its error notice
+            // is lost. Preserve that fact before MessageCustody can retain it
+            // as an unknown lifecycle action and fence every later request.
+            // An attempted archive keeps its existing fence and unknown result.
+            cdr_store::ingress::record_result(
+                &self.mirror_db,
+                key,
+                &serde_json::json!({
+                    "kind": "archive_not_dispatched",
+                    "version": 1,
+                    "archive_dispatched": false,
+                    "error": error.to_string(),
+                }),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_secs_f64(),
+            )?;
+        }
+        result
     }
 
     async fn archive_with_verification(
@@ -44,16 +76,16 @@ impl<B: TurnBackend> ActionExecutor<B> {
         reference: Option<&str>,
         archive_sent: &mut bool,
         binding: Option<&crate::settings_binding::SettingsBinding>,
+        own: Option<&str>,
     ) -> Result<ActionResult, ActionError> {
         let channel = context.channel_id;
-        let own = self.archive_own_request(context, reference)?;
         let thread =
             self.resolve_thread(channel, binding.map(|b| b.target.as_str()).or(reference))?;
         let server = self.server.as_ref().ok_or(ActionError::MissingAppServer)?;
         let _guard = self.control_lock(&thread.id).await?;
         let generation = server.generation();
         self.validate_lifecycle_binding(binding, channel)?;
-        self.archive_preflight(channel, reference, &thread.id, generation, own.as_deref())
+        self.archive_preflight(channel, reference, &thread.id, generation, own)
             .await?;
         self.load_archive_target(&thread.id, generation).await?;
         let children = super::archive_scope::descendants(server, &thread.id, generation).await?;

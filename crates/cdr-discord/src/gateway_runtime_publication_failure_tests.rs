@@ -46,9 +46,12 @@ fn gi_rt_08_publication_helper_has_no_wait_clone_or_blocking_primitives() {
 #[test]
 fn gi_rt_12_shard_wires_events_and_receive_errors_to_typed_publishers() {
     let compact = SHARD_SOURCE.split_whitespace().collect::<String>();
-    assert_eq!(compact.matches("publish_decoded_event(").count(), 1);
+    assert_eq!(
+        compact.matches("publish_decoded_event_with_nonce(").count(),
+        1
+    );
     assert!(compact.contains(concat!(
-        "publish_decoded_event(event,Instant::now(),&ingress,",
+        "publish_decoded_event_with_nonce(event,nonce,Instant::now(),&ingress,",
         "&ingress_publish_outcomes,);"
     )));
     assert_eq!(compact.matches("publish_receive_error(").count(), 1);

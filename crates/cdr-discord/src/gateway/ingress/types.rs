@@ -159,6 +159,8 @@ pub struct InteractionIngress {
 pub struct MessageIngress {
     pub sequence: u64,
     pub event: Box<MessageCreate>,
+    /// Discord's send acknowledgement, omitted by Twilight's typed Message model.
+    pub nonce: Option<u64>,
 }
 
 #[derive(Debug, Eq, PartialEq)]

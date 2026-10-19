@@ -19,6 +19,8 @@ use crate::message_worker::{
 };
 use crate::restart_readiness::drain::{AdmissionGate, AdmissionPermit, DrainGateError};
 
+mod receipt_echo;
+
 enum PreparedMessage {
     Ignore(&'static str, u64, u64),
     Duplicate,
@@ -208,12 +210,19 @@ where
 
 pub(super) async fn handle_message_create(
     message: Message,
+    nonce: Option<u64>,
     bot_user_id: Option<u64>,
     application_id: Id<ApplicationMarker>,
     context: &TypedIngressContext,
 ) -> Result<(), DiscordRuntimeError> {
     let report_target = ErrorReportTarget::from_message(&message);
     let database = context.executor.mirror_db();
+    if let Err(error) = receipt_echo::confirm(database, &message, nonce, bot_user_id) {
+        eprintln!(
+            "discord_gateway_receipt_confirmation_failed message_id={} error={error}",
+            message.id
+        );
+    }
     let force_restart = cdr_discord::gateway::ingress::is_emergency_message(&message.content);
     let allow_drain_control = if !force_restart && context.admission.is_sealed() {
         match context.executor.target_thread_id(message.channel_id.get()) {

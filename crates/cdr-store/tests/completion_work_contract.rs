@@ -152,3 +152,98 @@ fn held_receipt_does_not_promote_a_later_same_channel_head_or_claim_a_retry() {
             .is_some()
     );
 }
+
+fn first_reply(path: &Path, job: &str, suffix: &str, confirmed: bool, created: f64) {
+    cdr_store::schema::open_initialized(path)
+        .unwrap()
+        .execute(
+            "INSERT INTO discord_ingress_journal
+         (ingress_id,kind,channel_id,owner_user_id,payload_json,state,phase,
+          owner_kind,owner_id,confirmation_delivered,created_at,updated_at)
+         VALUES (?1,'message',42,1,'{}','owned','durable_prompt','prompt',?2,?3,?4,?4)",
+            rusqlite::params![format!("message:{job}:{suffix}"), job, confirmed, created],
+        )
+        .unwrap();
+}
+
+#[test]
+fn unconfirmed_first_reply_retains_old_output_without_blocking_new_job() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("store.sqlite");
+    for (job, confirmed, stamp) in [("old", false, 1.0), ("new", true, 2.0)] {
+        seed(&path, job, 42, job, stamp);
+        first_reply(&path, job, "original", confirmed, stamp);
+        let db = cdr_store::schema::open_initialized(&path).unwrap();
+        db.execute("UPDATE codex_delivery_outbox SET target_thread_id='same-thread',turn_id=? WHERE job_id=?",
+            rusqlite::params![format!("turn-{job}"), job]).unwrap();
+        db.execute(
+            "INSERT INTO codex_commentary_outbox
+            (delivery_key,job_id,target_thread_id,turn_id,channel_id,text)
+            VALUES (?1,?1,'same-thread',?2,42,?1)",
+            rusqlite::params![job, format!("turn-{job}")],
+        )
+        .unwrap();
+    }
+    let mut chosen = Vec::new();
+    for source in [Source::Commentary, Source::Final] {
+        let page =
+            completion_work::page(&path, source, &mut Cursor::default(), "runtime", 1).unwrap();
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(
+            page.entries[0].turn, "turn-new",
+            "blocked acknowledgement must not own the channel head"
+        );
+        assert!(
+            completion_work::load(&path, &page.entries[0], "runtime", 1)
+                .unwrap()
+                .is_some()
+        );
+        chosen.push(page.entries[0].clone());
+    }
+    assert_eq!(delivery::list_pending(&path).unwrap().len(), 2);
+    assert_eq!(
+        cdr_store::commentary_outbox::pending(&path).unwrap().len(),
+        2
+    );
+    assert!(
+        cdr_store::first_reply::pending(&path, "old")
+            .unwrap()
+            .is_some()
+    );
+    // A late authoritative ACK restores the old head; stale discovery cannot overtake it.
+    cdr_store::schema::open_initialized(&path)
+        .unwrap()
+        .execute(
+            "UPDATE discord_ingress_journal SET confirmation_delivered=1 WHERE owner_id='old'",
+            [],
+        )
+        .unwrap();
+    for entry in chosen {
+        assert!(
+            completion_work::load(&path, &entry, "runtime", 1)
+                .unwrap()
+                .is_none()
+        );
+        let page = completion_work::page(&path, entry.source, &mut Cursor::default(), "runtime", 1)
+            .unwrap();
+        assert_eq!(page.entries[0].turn, "turn-old");
+    }
+}
+
+#[test]
+fn duplicate_unconfirmed_ingress_does_not_hide_an_acknowledged_original() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("store.sqlite");
+    seed(&path, "original", 42, "answer", 1.0);
+    first_reply(&path, "original", "first", true, 1.0);
+    first_reply(&path, "original", "duplicate", false, 2.0);
+    assert!(
+        cdr_store::first_reply::pending(&path, "original")
+            .unwrap()
+            .is_none()
+    );
+    let page =
+        completion_work::page(&path, Source::Final, &mut Cursor::default(), "runtime", 1).unwrap();
+    assert_eq!(page.entries.len(), 1);
+    assert_eq!(page.entries[0].id, "original");
+}

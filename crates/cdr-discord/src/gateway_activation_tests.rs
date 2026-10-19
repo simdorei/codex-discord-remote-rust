@@ -235,11 +235,16 @@ fn ga_11_production_shard_entry_is_gated_before_next_event() {
         .find("run_after_activation(&activation")
         .expect("production shard uses the injectable entry seam");
     let poll = SHARD_SOURCE
-        .find("shard.next_event(gateway_event_flags())")
+        .find("next_event_with_nonce(&mut shard)")
         .expect("production shard has one gateway poll point");
 
     assert!(gate < poll);
-    assert_eq!(SHARD_SOURCE.matches("shard.next_event(").count(), 1);
+    assert_eq!(
+        SHARD_SOURCE
+            .matches("next_event_with_nonce(&mut shard)")
+            .count(),
+        1
+    );
 }
 
 #[test]

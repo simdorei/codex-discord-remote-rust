@@ -1,17 +1,18 @@
-use std::future::Future;
+use std::future::{Future, poll_fn};
+use std::pin::Pin;
 
 use tokio::{
     sync::{mpsc, watch},
     time::Instant,
 };
-use twilight_gateway::{CloseFrame, Event, Shard, StreamExt as _};
+use twilight_gateway::{CloseFrame, Event, Message, Shard, StreamExt, error::ReceiveMessageError};
 
 use super::{
     activation::{ActivationWaitOutcome, ShardActivation},
     gateway_event_flags,
     ingress::GatewayIngress,
     runtime_publication::{
-        GatewayIngressPublishOutcomes, publish_decoded_event, publish_receive_error,
+        GatewayIngressPublishOutcomes, publish_decoded_event_with_nonce, publish_receive_error,
     },
 };
 
@@ -77,13 +78,14 @@ async fn run_active_shard(
                     Ok(()) => {}
                 }
             }
-            item = shard.next_event(gateway_event_flags()) => {
+            item = next_event_with_nonce(&mut shard) => {
                 let Some(item) = item else { break; };
                 match item {
-                    Ok(event) => {
+                    Ok((event, nonce)) => {
                         let terminal_close = matches!(event, Event::GatewayClose(_));
-                        publish_decoded_event(
+                        publish_decoded_event_with_nonce(
                             event,
+                            nonce,
                             Instant::now(),
                             &ingress,
                             &ingress_publish_outcomes,
@@ -102,6 +104,50 @@ async fn run_active_shard(
             }
         }
     }
+}
+
+// Retain the one field Twilight's Message model drops, while using its normal
+// parser for the event itself. Polling through StreamExt's supertrait needs no
+// additional dependency and has the same cancellation behavior as next_event.
+async fn next_event_with_nonce<S>(
+    stream: &mut S,
+) -> Option<Result<(Event, Option<u64>), ReceiveMessageError>>
+where
+    S: StreamExt<Item = Result<Message, ReceiveMessageError>> + Unpin,
+{
+    loop {
+        let message = match poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx)).await? {
+            Ok(message) => message,
+            Err(error) => return Some(Err(error)),
+        };
+        match message {
+            Message::Close(frame) => return Some(Ok((Event::GatewayClose(frame), None))),
+            Message::Text(json) => match decode_with_nonce(json) {
+                Ok(Some(event)) => return Some(Ok(event)),
+                Ok(None) => {}
+                Err(error) => return Some(Err(error)),
+            },
+        }
+    }
+}
+
+fn decode_with_nonce(json: String) -> Result<Option<(Event, Option<u64>)>, ReceiveMessageError> {
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        t: Option<String>,
+        d: Option<Nonce>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Nonce {
+        nonce: Option<serde_json::Value>,
+    }
+    let nonce = serde_json::from_str::<Envelope>(&json)
+        .ok()
+        .filter(|event| event.t.as_deref() == Some("MESSAGE_CREATE"))
+        .and_then(|event| event.d?.nonce)
+        .and_then(|value| value.as_u64().or_else(|| value.as_str()?.parse().ok()));
+    twilight_gateway::parse(json, gateway_event_flags())
+        .map(|event| event.map(|event| (event.into(), nonce)))
 }
 
 #[cfg(test)]

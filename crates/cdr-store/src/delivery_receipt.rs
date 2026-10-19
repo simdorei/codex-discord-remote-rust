@@ -3,6 +3,9 @@ use crate::{Result, schema::open_initialized};
 use rusqlite::{Connection, TransactionBehavior, params};
 use std::path::Path;
 
+mod gateway;
+pub use gateway::{candidates_for_hash, confirm_legacy_message_reply, confirmed_message};
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReceiptState {
     New,
@@ -107,7 +110,7 @@ pub(crate) fn begin_guarded_in(
 pub fn confirm(path: &Path, key: &str, message_id: &str) -> Result<bool> {
     let mut connection = open_initialized(path)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let changed = tx.execute("UPDATE codex_delivery_receipts SET message_id=? WHERE receipt_key=? AND message_id IS NULL",params![message_id,key])?==1;
+    let changed = tx.execute("UPDATE codex_delivery_receipts SET message_id=? WHERE receipt_key=? AND (message_id IS NULL OR message_id=?)",params![message_id,key,message_id])?==1;
     if changed {
         crate::new_reply::confirm_receipt_in(&tx, key)?;
     }
@@ -153,6 +156,19 @@ pub fn blocked_count(path: &Path) -> Result<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn duplicate_confirmation_accepts_same_message_but_never_replaces_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("receipt.sqlite");
+        assert_eq!(begin(&path, "chunk", "hash").unwrap(), ReceiptState::New);
+        assert!(confirm(&path, "chunk", "123").unwrap());
+        assert!(confirm(&path, "chunk", "123").unwrap());
+        assert!(!confirm(&path, "chunk", "456").unwrap());
+        assert_eq!(
+            begin(&path, "chunk", "hash").unwrap(),
+            ReceiptState::Delivered("123".into())
+        );
+    }
     #[test]
     fn definite_blocked_rejection_survives_reopen_without_new_attempt_or_unknown_count() {
         let temp = tempfile::tempdir().unwrap();
