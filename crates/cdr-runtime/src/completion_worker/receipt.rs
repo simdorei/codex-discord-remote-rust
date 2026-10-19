@@ -82,6 +82,9 @@ pub(crate) async fn send_chunk_guarded(
     {
         Ok(message) => message,
         Err(error) => {
+            if delivery_receipt::confirmed_message(db, &key, &hash)?.is_some() {
+                return Ok(());
+            }
             if definitely_rejected(&error) {
                 if retryable_rejection(&error) {
                     delivery_receipt::release_rejected(db, &key)?;

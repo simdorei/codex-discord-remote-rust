@@ -51,7 +51,8 @@ fn connector_probe_receives_lexical_tab_and_preserves_the_origin_guard() {
         r"
 let reads = 0;
 let evidence;
-const proConversationTab = {{ playwright: {{}}, url: async () => {{ reads++; return 'https://example.invalid/'; }} }};
+const emptyLocator = () => ({{ count: async () => 0 }});
+const proConversationTab = {{ playwright: {{ locator: emptyLocator, getByRole: emptyLocator }}, url: async () => {{ reads++; return 'https://example.invalid/'; }} }};
 const nodeRepl = {{ write: value => {{ evidence = JSON.parse(value); }} }};
 {code}
 process.stdout.write(JSON.stringify({{ evidence, reads }}));

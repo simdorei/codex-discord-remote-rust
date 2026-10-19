@@ -100,6 +100,20 @@ pub(super) fn publish_decoded_event(
     );
 }
 
+pub(super) fn publish_decoded_event_with_nonce(
+    event: Event,
+    nonce: Option<u64>,
+    received_at: Instant,
+    ingress: &GatewayIngress,
+    outcomes: &GatewayIngressPublishOutcomes,
+) {
+    if nonce.is_none() {
+        publish_decoded_event(event, received_at, ingress, outcomes);
+    } else {
+        outcomes.record(ingress.publish_with_nonce(event, received_at, nonce, || {}));
+    }
+}
+
 pub(super) fn publish_decoded_event_with(
     event: Event,
     received_at: Instant,

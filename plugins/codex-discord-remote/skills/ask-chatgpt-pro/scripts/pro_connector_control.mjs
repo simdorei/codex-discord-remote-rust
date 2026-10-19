@@ -191,7 +191,299 @@ async function findUniquePluginButton(playwright, deadlineMs) {
   return null;
 }
 
+// Current ChatGPT composer: a picker label can request an attachment, but only
+// the exact resulting chip identity is evidence. Never submit from this helper.
+const CURRENT_COMPOSER =
+  '[contenteditable="true"][role="textbox"][data-composer-markdown]';
+const CURRENT_SURFACE = 'form[data-thread-find-composer="true"]';
+const CURRENT_ADD_CONTEXT = 'button[data-composer-navigation-target="add-context"]';
+const CURRENT_MODEL =
+  'button[data-codex-intelligence-trigger="true"][data-composer-navigation-target="reasoning"]';
+const CURRENT_CATALOG_HEADING = CONNECTOR_NAME + " 내 클라우드 플러그인";
+const CURRENT_CONNECTOR_CHIP = [
+  'span[contenteditable="false"]',
+  '[plugin-mention-name="dev-6a6ae90be0a08191b877eddba93b631c"]',
+  '[plugin-mention-display-name="Simdorei Local Project Oauth"]',
+  '[plugin-mention-path="plugin://dev-6a6ae90be0a08191b877eddba93b631c@openai-curated-remote"]',
+  '[data-prompt-link-href="plugin://dev-6a6ae90be0a08191b877eddba93b631c@openai-curated-remote"]',
+].join("");
+const CURRENT_CONNECTOR_APP_CHIP = [
+  'span[contenteditable="false"]',
+  '[app-mention-name="simdorei-local-project-oauth"]',
+  '[app-mention-display-name="Simdorei Local Project Oauth"]',
+  '[app-mention-path="app://asdk_app_6a6ae90be0a08191b877eddba93b631c"]',
+  '[data-prompt-link-href="app://asdk_app_6a6ae90be0a08191b877eddba93b631c"]',
+].join("");
+const CURRENT_CONNECTOR_PILL = [
+  CONNECTOR_PILL_SELECTOR, CURRENT_CONNECTOR_CHIP, CURRENT_CONNECTOR_APP_CHIP,
+].join(", ");
+
+async function isPlainCurrentChat(tab, composer, surface) {
+  return (await surface.getAttribute("data-chatgpt-composer")) === "" &&
+    (await surface.getAttribute("data-composer-placement")) === "thread" &&
+    (await composer.getAttribute("aria-label")) === "ChatGPT에게 물어보세요" &&
+    (await surface.locator(CURRENT_ADD_CONTEXT).count()) === 1 &&
+    (await surface.getByRole("button", { name: "Work", exact: true }).count()) === 0 &&
+    (await surface.getByRole("button", { name: "Chat", exact: true }).count()) === 0 &&
+    (await tab.playwright.getByRole("radio", { name: "Work", exact: true }).count()) === 0 &&
+    (await tab.playwright.getByRole("radio", { name: "Chat", exact: true }).count()) === 0;
+}
+
+async function observeCurrentComposer(composer, surface) {
+  const read = async () => {
+    if ((await composer.count()) !== 1 || (await surface.count()) !== 1 ||
+        (await surface.locator(CURRENT_COMPOSER).count()) !== 1) {
+      return { failure: "composer_changed" };
+    }
+    const pill = composer.locator(CURRENT_CONNECTOR_PILL);
+    const pillCount = await pill.count();
+    const surfaceCount = await surface.locator(CURRENT_CONNECTOR_PILL).count();
+    const chipCount = await composer.locator(CURRENT_CONNECTOR_CHIP).count();
+    const allChips = await composer.locator("span[plugin-mention-path]").count();
+    const appChipCount = await composer.locator(CURRENT_CONNECTOR_APP_CHIP).count();
+    const allAppChips = await composer.locator("span[app-mention-path]").count();
+    const anchorCount = await composer.locator(CONNECTOR_PILL_SELECTOR).count();
+    const allAnchors = await composer.locator('a[href^="/plugins/"]').count();
+    if (pillCount > 1 || surfaceCount > 1 || allChips !== chipCount ||
+        allAppChips !== appChipCount ||
+        allAnchors !== anchorCount) return { failure: "connector_pill" };
+    if (pillCount !== surfaceCount) return { failure: "composer_changed" };
+    const text = (await composer.textContent()) ?? "";
+    const pillText = pillCount === 1 ? (await pill.textContent()) ?? "" : "";
+    if (pillCount === 1 &&
+        (pillText.trim() !== CONNECTOR_NAME || !text.includes(pillText))) {
+      return { failure: "connector_pill" };
+    }
+    return { pillCount, text, pillText };
+  };
+  const first = await read();
+  if (first.failure) return first;
+  const second = await read();
+  if (second.failure) return second;
+  if (first.pillCount !== second.pillCount || first.text !== second.text ||
+      first.pillText !== second.pillText) return { failure: "composer_changed" };
+  const draft = second.pillCount === 1
+    ? second.text.replace(second.pillText, "") : second.text;
+  if (draft.trim()) return { failure: "composer_not_empty" };
+  return { pillCount: second.pillCount, failure: null };
+}
+
+async function currentPickerAxTarget(tab) {
+  if (typeof tab.ax?.get !== "function" || typeof tab.ax?.click !== "function") {
+    return null;
+  }
+  const state = await tab.ax.get("state", { disableDiffing: true });
+  const expected = `${CONNECTOR_NAME} ${CONNECTOR_NAME}`;
+  const matches = state.split(/\r?\n/)
+    .map(line => line.match(/^[\t ]*(\d+) button (.+)$/))
+    .filter(match => match?.[2] === expected);
+  if (matches.length !== 1) return null;
+  const target = Number(matches[0][1]);
+  return Number.isSafeInteger(target) ? target : null;
+}
+
+async function prepareCurrentConnector(tab) {
+  let stage = "conversation_url";
+  try {
+    const initialUrl = new URL(await tab.url());
+    if (initialUrl.protocol !== "https:" || initialUrl.hostname !== "chatgpt.com") {
+      return failed(stage);
+    }
+    let launched = false;
+    if (initialUrl.pathname.startsWith("/plugins/")) {
+      stage = "catalog_identity";
+      const heading = tab.playwright.getByRole("heading", {
+        name: CURRENT_CATALOG_HEADING, exact: true,
+      });
+      const use = tab.playwright.getByRole("button", {
+        name: "채팅에서 사용해 보기", exact: true,
+      });
+      if (initialUrl.pathname !== CONNECTOR_PATH || initialUrl.hash ||
+          (await heading.count()) !== 1 || (await use.count()) !== 1 ||
+          (await tab.playwright.locator(CURRENT_COMPOSER).count()) !== 0 ||
+          (await tab.playwright.locator('[id="prompt-textarea"]').count()) !== 0) {
+        return failed(stage);
+      }
+      stage = "catalog_navigation";
+      await use.click();
+      await tab.playwright.locator(CURRENT_COMPOSER).waitFor({
+        state: "visible", timeoutMs: 10000,
+      });
+      launched = true;
+    }
+
+    const conversationUrl = new URL(await tab.url());
+    if (conversationUrl.protocol !== "https:" ||
+        conversationUrl.hostname !== "chatgpt.com" ||
+        !(conversationUrl.pathname === "/" ||
+          /^\/c\/[0-9a-f-]+$/i.test(conversationUrl.pathname))) {
+      return failed("catalog_navigation");
+    }
+    stage = "composer";
+    let composer = tab.playwright.locator(CURRENT_COMPOSER);
+    let surface = tab.playwright.locator(CURRENT_SURFACE);
+    if ((await composer.count()) !== 1 ||
+        (await tab.playwright.locator('[id="prompt-textarea"]').count()) !== 0) {
+      return failed(stage);
+    }
+    stage = "composer_surface";
+    if ((await surface.count()) !== 1 ||
+        (await surface.locator(CURRENT_COMPOSER).count()) !== 1) return failed(stage);
+
+    if (launched) {
+      stage = "catalog_attach";
+      await surface.locator(CURRENT_CONNECTOR_PILL).waitFor({
+        state: "visible", timeoutMs: 10000,
+      });
+    }
+    let ready = await observeCurrentComposer(composer, surface);
+    let readinessFailure = ready.failure;
+    if (readinessFailure) return failed(readinessFailure);
+    let pickerResult = null;
+    if (ready.pillCount !== 1) {
+      if (launched) return failed("catalog_attach");
+      stage = "pro_mode";
+      const model = surface.locator(CURRENT_MODEL);
+      if ((await model.count()) !== 1 ||
+          (await model.getAttribute("aria-haspopup")) !== "menu" ||
+          (await model.innerText()).trim() !== "Pro" ||
+          (await model.getByText("Pro", { exact: true }).count()) !== 1) return failed(stage);
+
+      stage = "connector_picker_unavailable";
+      const plus = surface.locator(CURRENT_ADD_CONTEXT);
+      if ((await plus.count()) !== 1) return failed(stage);
+      const expanded = await plus.getAttribute("aria-expanded");
+      if (!["true", "false"].includes(expanded)) return failed(stage);
+      ready = await observeCurrentComposer(composer, surface);
+      if (ready.failure) return failed(ready.failure);
+      if (ready.pillCount !== 0) return failed("composer_changed");
+      if ((await tab.url()) !== conversationUrl.href) return failed("conversation_url");
+      if (expanded === "false") await plus.click();
+
+      stage = "connector_match";
+      const item = tab.playwright.getByRole("button", {
+        name: `${CONNECTOR_NAME} ${CONNECTOR_NAME}`, exact: true,
+      });
+      await item.waitFor({ state: "visible", timeoutMs: 10000 });
+      if ((await item.count()) !== 1 ||
+          (await item.getAttribute("type")) !== "button" ||
+          (await item.getAttribute("data-list-navigation-item")) !== "true") return failed(stage);
+      const target = await currentPickerAxTarget(tab);
+      if (target === null) return failed(stage);
+      composer = tab.playwright.locator(CURRENT_COMPOSER);
+      surface = tab.playwright.locator(CURRENT_SURFACE);
+      ready = await observeCurrentComposer(composer, surface);
+      if (ready.failure) return failed(ready.failure);
+      if (ready.pillCount !== 0 ||
+          (await surface.locator(CURRENT_ADD_CONTEXT).getAttribute("aria-expanded")) !== "true") {
+        return failed("composer_changed");
+      }
+      if ((await tab.url()) !== conversationUrl.href) return failed("conversation_url");
+
+      stage = "connector_attach";
+      pickerResult = "verified_composer_picker";
+      try {
+        // Use this fresh exact accessibility target, never locator coordinates or keys.
+        await tab.ax.click(target);
+      } catch {
+        // An activation can have succeeded. Observe once; never activate again.
+        pickerResult = "verified_after_error";
+      }
+      composer = tab.playwright.locator(CURRENT_COMPOSER);
+      surface = tab.playwright.locator(CURRENT_SURFACE);
+      await surface.locator(CURRENT_CONNECTOR_PILL).waitFor({
+        state: "visible", timeoutMs: 10000,
+      });
+      ready = await observeCurrentComposer(composer, surface);
+      if (ready.failure) return failed(ready.failure);
+      if (ready.pillCount !== 1) return failed(stage);
+      if ((await tab.url()) !== conversationUrl.href) return failed("conversation_url");
+    }
+
+    stage = "chat_mode";
+    const modes = tab.playwright.getByRole("group", {
+      name: "작성기 모드", exact: true,
+    });
+    const chat = modes.getByRole("button", { name: "Chat", exact: true });
+    const work = modes.getByRole("button", { name: "Work", exact: true });
+    const modeCount = await modes.count();
+    if (modeCount === 0) {
+      if (!(await isPlainCurrentChat(tab, composer, surface))) return failed(stage);
+    } else {
+      if (modeCount !== 1 || (await chat.count()) !== 1 ||
+          (await work.count()) !== 1) return failed(stage);
+      const chatState = await chat.getAttribute("aria-pressed");
+      const workState = await work.getAttribute("aria-pressed");
+      if (!["true", "false"].includes(chatState) ||
+          !["true", "false"].includes(workState) || chatState === workState) {
+        return failed(stage);
+      }
+      if (chatState !== "true") await chat.click();
+      if ((await chat.getAttribute("aria-pressed")) !== "true" ||
+          (await work.getAttribute("aria-pressed")) !== "false") return failed(stage);
+    }
+
+    composer = tab.playwright.locator(CURRENT_COMPOSER);
+    surface = tab.playwright.locator(CURRENT_SURFACE);
+    if ((await composer.count()) !== 1 || (await surface.count()) !== 1 ||
+        (await surface.locator(CURRENT_COMPOSER).count()) !== 1) {
+      return failed("composer_surface");
+    }
+    stage = "connector_after_chat";
+    if ((await surface.locator(CURRENT_CONNECTOR_PILL).count()) !== 1) {
+      return failed(stage);
+    }
+    stage = "pro_mode";
+    const model = surface.locator(CURRENT_MODEL);
+    if ((await model.count()) !== 1 ||
+        (await model.getAttribute("aria-haspopup")) !== "menu") return failed(stage);
+    await model.getByText("Pro", { exact: true }).waitFor({
+      state: "visible", timeoutMs: 10000,
+    });
+    if ((await model.getByText("Pro", { exact: true }).count()) !== 1 ||
+        (await model.innerText()).trim() !== "Pro") return failed(stage);
+
+    ready = await observeCurrentComposer(composer, surface);
+    readinessFailure = ready.failure;
+    if (readinessFailure) return failed(readinessFailure);
+    if (ready.pillCount !== 1) return failed("connector_after_chat");
+    if ((await modes.count()) !== modeCount) return failed("chat_mode");
+    if (modeCount === 0) {
+      if (!(await isPlainCurrentChat(tab, composer, surface))) return failed("chat_mode");
+    } else if ((await chat.getAttribute("aria-pressed")) !== "true" ||
+        (await work.getAttribute("aria-pressed")) !== "false") return failed("chat_mode");
+    if ((await tab.url()) !== conversationUrl.href) return failed("conversation_url");
+    return {
+      protocol: PROTOCOL,
+      browser_type: "chrome",
+      status: "verified",
+      connector_name: CONNECTOR_NAME,
+      connector_path: CONNECTOR_PATH,
+      chat_mode: "chat",
+      pro_mode: true,
+      action: launched || pickerResult ? "attached" : "already_attached",
+      click_result: launched ? "verified_catalog_launch" : pickerResult ?? "not_needed",
+    };
+  } catch {
+    return failed(stage);
+  }
+}
+
 export async function prepareProConnector(globals = globalThis) {
+  const currentTab = globals.proConversationTab;
+  if (currentTab?.playwright) {
+    try {
+      const currentEditorCount = await currentTab.playwright.locator(CURRENT_COMPOSER).count();
+      const currentHeadingCount = await currentTab.playwright.getByRole("heading", {
+        name: CURRENT_CATALOG_HEADING, exact: true,
+      }).count();
+      if (currentEditorCount > 0 || currentHeadingCount > 0) {
+        return await prepareCurrentConnector(currentTab);
+      }
+    } catch {
+      return failed("composer");
+    }
+  }
   const tab = globals.proConversationTab;
   if (!tab?.playwright) return failed("conversation_tab");
 

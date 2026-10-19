@@ -68,7 +68,7 @@ impl Source {
             Self::Commentary => {
                 "SELECT 0 stamp,sequence ordinal,'' sort_id,
                 CAST(sequence AS TEXT) id,target_thread_id target,turn_id turn,channel_id channel,
-                length(CAST(text AS BLOB)) bytes FROM codex_commentary_outbox"
+                length(CAST(text AS BLOB)) bytes,job_id job FROM codex_commentary_outbox"
             }
             Self::Goal => {
                 "SELECT 0 stamp,rowid ordinal,'' sort_id,thread id,
@@ -90,7 +90,7 @@ impl Source {
             Self::Final => {
                 "SELECT created_at stamp,0 ordinal,delivery_id sort_id,delivery_id id,
                 target_thread_id target,turn_id turn,channel_id channel,
-                length(CAST(content AS BLOB)) bytes FROM codex_delivery_outbox"
+                length(CAST(content AS BLOB)) bytes,job_id job FROM codex_delivery_outbox"
             }
         }
     }
@@ -133,11 +133,34 @@ impl Source {
         } else {
             self.select().to_owned()
         };
+        // Match first_reply::pending before electing a channel head. A request
+        // whose initial reply is unconfirmed retains its output, but cannot
+        // prevent independently acknowledged requests from being delivered.
+        let first_reply_ready = "COALESCE((SELECT confirmation_delivered
+            FROM discord_ingress_journal WHERE owner_kind='prompt' AND owner_id=h.job
+            AND kind IN ('message','interaction') ORDER BY created_at,ingress_id LIMIT 1),1)<>0";
+        let eligible = match self {
+            // A held progress receipt belongs to its original turn. Keep that
+            // turn's progress, but elect the next independent acknowledged job.
+            Self::Commentary => format!(
+                "{first_reply_ready} AND NOT EXISTS(SELECT 1 FROM unavailable r WHERE {})",
+                self.held_receipt_match()
+            ),
+            Self::Final => format!(
+                "({first_reply_ready} OR EXISTS(SELECT 1 FROM cdr_final_recovery WHERE delivery_id=h.id))
+                AND NOT EXISTS(SELECT 1 FROM codex_commentary_outbox p JOIN unavailable r
+                    ON r.channel=p.channel_id AND r.domain='completion/commentary/v1'
+                    AND instr(r.logical,length(CAST(p.target_thread_id AS BLOB))||':'||p.target_thread_id||';'||
+                        length(CAST(p.turn_id AS BLOB))||':'||p.turn_id||';')=1
+                    WHERE p.job_id=h.job)"
+            ),
+            _ => "1".to_owned(),
+        };
         // One head per source/lane. Different domains are NOT ordered by invented timestamps.
         format!(
             "WITH scope AS (SELECT ?1 runtime,?2 generation), source_input AS ({}),
              ranked AS (SELECT *,row_number() OVER
-               (PARTITION BY {lane} ORDER BY stamp,ordinal,sort_id) lane_rank FROM source_input),
+               (PARTITION BY {lane} ORDER BY stamp,ordinal,sort_id) lane_rank FROM source_input h WHERE {eligible}),
              unavailable AS (SELECT
                 json_extract(CASE WHEN json_valid(receipt_key) THEN receipt_key ELSE '[]' END,'$[0]') channel,
                 json_extract(CASE WHEN json_valid(receipt_key) THEN receipt_key ELSE '[]' END,'$[1]') domain,
@@ -265,9 +288,14 @@ fn page_in(
         params![runtime, generation],
         |r| r.get(0),
     )?;
+    let receipt_heads = if source == Source::Commentary {
+        "source_input"
+    } else {
+        "heads"
+    };
     let held_receipt_heads: i64 = tx.query_row(
         &format!(
-            "{query} SELECT COUNT(*) FROM heads h WHERE EXISTS(
+            "{query} SELECT COUNT(DISTINCT channel) FROM {receipt_heads} h WHERE EXISTS(
             SELECT 1 FROM unavailable r WHERE {})",
             source.held_receipt_match()
         ),

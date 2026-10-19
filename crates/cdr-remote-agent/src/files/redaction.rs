@@ -1,3 +1,7 @@
+mod review_context;
+
+use std::ops::Range;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use regex::{Captures, Regex};
@@ -5,6 +9,18 @@ use regex::{Captures, Regex};
 const MASK: &str = "[REDACTED]";
 
 pub fn redact(text: &str) -> String {
+    redact_opaque(&redact_credentials(text), &[])
+}
+
+/// File review keeps only syntactically identified non-secret occurrences.
+/// The generic/log/diff redactor remains conservative and has no exemptions.
+pub fn redact_file(text: &str, path: &Path) -> String {
+    let value = redact_credentials(text);
+    let allowed = review_context::allowed_ranges(&value, path);
+    redact_opaque(&value, &allowed)
+}
+
+fn redact_credentials(text: &str) -> String {
     let mut value = replace(text, pem(), MASK);
     value = replace(&value, aws_access(), MASK);
     value = replace_captures(&value, aws_secret(), |capture| {
@@ -31,12 +47,24 @@ pub fn redact(text: &str) -> String {
         let quote = capture.get(2).map_or("", |value| value.as_str());
         format!("{}{quote}{MASK}{quote}", &capture[1])
     });
-    replace_captures(&value, high_entropy(), |capture| {
+    replace_captures(&value, json_secret(), |capture| {
+        format!("{}{MASK}{}", &capture[1], &capture[3])
+    })
+}
+
+fn redact_opaque(value: &str, allowed: &[Range<usize>]) -> String {
+    replace_captures(value, high_entropy(), |capture| {
         let token = &capture[0];
+        let matched = capture.get(0).expect("whole match");
+        let index = allowed.partition_point(|range| range.end <= matched.start());
+        let contextual = allowed
+            .get(index)
+            .is_some_and(|range| range.start <= matched.start() && range.end >= matched.end());
         let variety = usize::from(token.chars().any(|value| value.is_ascii_digit()))
             + usize::from(token.chars().any(|value| value.is_ascii_uppercase()))
             + usize::from(token.chars().any(|value| value.is_ascii_lowercase()));
-        if variety < 2
+        if contextual
+            || variety < 2
             || (token.contains('/') && !token.chars().any(|value| value.is_ascii_digit()))
         {
             token.to_owned()
@@ -47,7 +75,7 @@ pub fn redact(text: &str) -> String {
 }
 
 fn replace(value: &str, regex: &Regex, replacement: &str) -> String {
-    regex.replace_all(value, replacement).into_owned()
+    replace_captures(value, regex, |_| replacement.to_owned())
 }
 
 fn replace_captures(
@@ -55,7 +83,15 @@ fn replace_captures(
     regex: &Regex,
     replacement: impl Fn(&Captures<'_>) -> String,
 ) -> String {
-    regex.replace_all(value, replacement).into_owned()
+    regex
+        .replace_all(value, |capture: &Captures<'_>| {
+            let mut result = replacement(capture);
+            let removed = capture[0].bytes().filter(|byte| *byte == b'\n').count();
+            let kept = result.bytes().filter(|byte| *byte == b'\n').count();
+            result.extend(std::iter::repeat_n('\n', removed.saturating_sub(kept)));
+            result
+        })
+        .into_owned()
 }
 
 macro_rules! pattern {
@@ -97,6 +133,10 @@ pattern!(
 pattern!(bearer, r"(?i)\b(Bearer\s+)([A-Za-z0-9\-_.~+/]{10,}=*)");
 pattern!(
     generic_secret,
-    r#"(?i)\b((?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|secret|password|passwd|pwd)\s*[:=]\s*)(['"]?)([A-Za-z0-9\-_.\/+={}]{8,})['"]?"#
+    r#"(?i)\b((?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\s*[:=]\s*)(['"]?)([A-Za-z0-9\-_.\/+={}]{8,})['"]?"#
+);
+pattern!(
+    json_secret,
+    r#"(?i)("(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd|authorization|private[_-]?key)"\s*:\s*")((?:[^"\\]|\\.)*)(")"#
 );
 pattern!(high_entropy, r"\b[A-Za-z0-9+/_-]{32,}={0,2}\b");

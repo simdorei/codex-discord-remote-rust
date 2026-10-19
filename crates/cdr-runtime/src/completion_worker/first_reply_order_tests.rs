@@ -249,6 +249,12 @@ async fn explicit_saved_final_recovery_posts_once_without_reopening_acceptance_o
     })
     .unwrap();
     let frozen = delivery::list_pending(db).unwrap().remove(0);
+    let heads = cdr_store::completion_work::heads_for_target(db, "thread-b", "runtime", 1).unwrap();
+    assert!(
+        heads
+            .iter()
+            .any(|entry| entry.source == cdr_store::completion_work::Source::Final)
+    );
     changed_grant_evidence_blocks_actual_http(&worker(&fixture), &frozen).await;
     let expected = cdr_discord::text::split_delivery_chunks(&frozen.content, true);
     worker(&fixture).deliver_pending().await.unwrap();
@@ -308,18 +314,13 @@ async fn confirmed_echo_wakes_actual_processor_without_waiting_for_thirty_second
     let (events, pending) = tokio::sync::mpsc::channel(4);
     let processing = worker.clone();
     let task = tokio::spawn(async move { super::driver::process(&processing, pending).await });
-    // The startup recovery has already attempted and held this exact outbox.
-    tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            let pending = delivery::list_pending(fixture.executor.mirror_db()).unwrap();
-            if pending[0].attempt_count > attempts_before {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .unwrap();
+    // Discovery retains an unconfirmed outbox without repeatedly attempting it.
+    // Let the actual processor run before releasing the first-reply HTTP gate.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!task.is_finished());
+    let held = delivery::list_pending(fixture.executor.mirror_db()).unwrap();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].attempt_count, attempts_before);
     gate.release.send(()).unwrap();
     first_reply.await.unwrap();
     let promptly_delivered = tokio::time::timeout(Duration::from_secs(2), async {

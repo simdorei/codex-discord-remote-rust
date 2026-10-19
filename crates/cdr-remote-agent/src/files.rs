@@ -101,6 +101,10 @@ impl ProjectFileAccess {
             reason: "file is not UTF-8 text".into(),
         })?;
         let lines = text.lines().collect::<Vec<_>>();
+        // Decide redaction with full-file lexical/parent context before slicing.
+        // Redaction preserves newlines so caller-visible line addressing stays exact.
+        let safe_text = redaction::redact_file(text, &relative);
+        let safe_lines = safe_text.lines().collect::<Vec<_>>();
         let bounded_start = start_line.max(1);
         let bounded_count = usize::from(max_lines.clamp(1, 500));
         let start_index = usize::try_from(bounded_start - 1).unwrap_or(usize::MAX);
@@ -113,7 +117,14 @@ impl ProjectFileAccess {
             .collect::<Vec<_>>();
         let end_line = bounded_start - 1 + selected.len() as u64;
         let selected_content = selected.join("\n");
-        let safe_content = redaction::redact(&selected_content);
+        let safe_content = safe_lines
+            .get(start_index..)
+            .unwrap_or_default()
+            .iter()
+            .take(bounded_count)
+            .copied()
+            .collect::<Vec<_>>()
+            .join("\n");
         Ok(ReadFileOutput {
             path: relative_text(&relative),
             content: safe_content.clone(),

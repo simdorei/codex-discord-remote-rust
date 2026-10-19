@@ -43,6 +43,7 @@ pub(super) async fn run(
         };
         let process = Box::pin(handle_message_create(
             envelope.event.0,
+            envelope.nonce,
             Some(identity.user_id.get()),
             identity.application_id,
             &context,

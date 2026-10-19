@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -74,9 +75,52 @@ async fn real_rust_agent_serves_a_file_through_the_rust_gateway() {
         .await
         .expect("read through real agent");
     assert_eq!(read.content, "hello from rust");
+    assert_review_reads(&broker, temp.path()).await;
     stop_agent.send_replace(true);
     agent.await.expect("agent task").expect("agent shutdown");
     server_shutdown.cancel();
+}
+
+async fn assert_review_reads(broker: &BridgeBroker, root: &Path) {
+    // Distinct transport oracle: the gateway returns the agent's file-aware
+    // decision intact, while a credential with the same shape stays masked.
+    for (name, source, expected, redacted) in [
+        (
+            "process.py",
+            "kernel.InitializeProcThreadAttributeList(None)",
+            "kernel.InitializeProcThreadAttributeList(None)",
+            false,
+        ),
+        (
+            "candidate.json",
+            "{\"path\":\"code.py\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+            "{\"path\":\"code.py\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+            false,
+        ),
+        (
+            "settings.py",
+            "api_key = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'",
+            "api_key = '[REDACTED]'",
+            true,
+        ),
+    ] {
+        std::fs::write(root.join(name), source).expect("review fixture");
+        let result = broker
+            .read_file(
+                "chat-a",
+                "principal-a",
+                format!("review-request-{name}"),
+                name.into(),
+                1,
+                20,
+                CancellationToken::new(),
+            )
+            .await
+            .expect("review read through real agent");
+        assert_eq!(result.content, expected);
+        assert_eq!(result.redacted, redacted);
+        assert_eq!(result.sha256.len(), 64);
+    }
 }
 
 async fn wait_for_device(broker: &BridgeBroker) {

@@ -121,6 +121,11 @@ fn old_schema_migrates_without_fabricating_turn_or_execution_generation() {
     assert_eq!(inherited.app_server_generation, 1);
     assert_eq!(inherited.completion_evidence_generation(), 1);
     assert!(inherited.goal_waiting);
+    assert_eq!(inherited.state, queue::QueueJobState::Running);
+    assert_eq!(inherited.prompt, "original");
+    assert_eq!(inherited.turn_id.as_deref(), Some("T1"));
+    assert_eq!(inherited.attempt_count, 1);
+    assert_eq!(inherited.baseline_turn_ids, ["baseline"]);
     assert!(queue::attach_goal_turn_observed_if_owned(&db, &inherited, "T2", 2).unwrap());
     assert_eq!(
         queue::list(&db).unwrap()[0].turn_observation_generation,

@@ -16,10 +16,11 @@ use twilight_model::gateway::{
 
 use super::{
     GatewayIdentityConflictReceiver, GatewayIdentityReceiver,
-    gateway_identity::{GatewayIdentityTracker, publish_gateway_event_identity},
+    gateway_identity::GatewayIdentityTracker,
 };
 
 mod gaps;
+mod publication;
 mod receive_error;
 mod sequence;
 #[cfg(test)]
@@ -113,13 +114,7 @@ impl GatewayIngress {
         received_at: Instant,
         observer: impl FnOnce(),
     ) -> PublishOutcome {
-        publish_gateway_event_identity(&event, &self.identity);
-        observer();
-        match event {
-            Event::InteractionCreate(event) => self.publish_interaction(event, received_at),
-            Event::MessageCreate(event) => self.publish_message(event),
-            _ => PublishOutcome::Ignored,
-        }
+        self.publish_with_nonce(event, received_at, None, observer)
     }
 
     pub fn stop_accepting(&self) {
@@ -197,7 +192,7 @@ impl GatewayIngress {
         }
     }
 
-    fn publish_message(&self, event: Box<MessageCreate>) -> PublishOutcome {
+    fn publish_message(&self, event: Box<MessageCreate>, nonce: Option<u64>) -> PublishOutcome {
         let publication = self.message_gaps.begin_publication();
         if !self.accepting.load(Ordering::Acquire) {
             return self.message_gap(&publication, &event, UnavailableReason::Stopping);
@@ -210,7 +205,11 @@ impl GatewayIngress {
         } else {
             &self.messages
         };
-        match messages.try_send(MessageIngress { sequence, event }) {
+        match messages.try_send(MessageIngress {
+            sequence,
+            event,
+            nonce,
+        }) {
             Ok(()) => PublishOutcome::MessageAccepted { sequence },
             Err(error) => {
                 let reason = types::unavailable_reason(&error);
