@@ -90,7 +90,10 @@ pub(crate) fn record_busy_owner(
     )?;
     connection.execute(
         "UPDATE discord_ingress_journal SET state='owned',phase='durable_prompt',owner_kind='prompt',owner_id=?,target_thread_id=?,updated_at=?
-         WHERE canonical_owner=? AND channel_id=? AND owner_user_id=?",
+         WHERE canonical_owner=? AND channel_id=? AND owner_user_id=?
+         AND COALESCE((state='completed' OR (state='held' AND phase='result_recorded')) AND owner_id IS NULL
+             AND json_extract(outcome_json,'$.kind')='busy_control_preflight_rejected'
+             AND json_type(outcome_json,'$.control_dispatched')='false',0)=0",
         params![job_id,target,now,canonical,choice.channel_id,choice.owner_user_id],
     )?;
     Ok(())
