@@ -66,6 +66,9 @@ pub fn build_approval_response(
     params: &Value,
     answer: &str,
 ) -> Result<(Value, String), AppServerError> {
+    if crate::mcp_forms::needs_input(method, params) {
+        return crate::mcp_forms::response(params, answer);
+    }
     let answer = parse_approval_answer(answer)?;
     let (payload, action) = match method {
         "mcpServer/elicitation/request" => {

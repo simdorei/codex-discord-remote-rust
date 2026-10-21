@@ -5,6 +5,8 @@
 //! must still offer persistence. Command, filesystem and URL requests are separate.
 
 use cdr_app_server::ServerRequest;
+pub(super) use cdr_app_server::mcp_forms::empty_approval_schema;
+use cdr_app_server::mcp_forms::is_form_request;
 use serde_json::{Value, json};
 
 pub(super) fn policy_response(
@@ -112,12 +114,8 @@ pub(super) fn response(request: &ServerRequest) -> Option<(Value, &'static str)>
             "local-tool-access-auto-accepted",
         ));
     }
-    // A form that needs values or has unrecognized validation constraints cannot
-    // be answered with an empty approval payload.
-    Some((
-        json!({"action": "cancel", "content": null, "_meta": null}),
-        "unsupported-form-cancelled",
-    ))
+    // Value-bearing and invalid forms stay pending for input or schema repair.
+    None
 }
 
 pub(crate) fn requires_user_approval(method: &str, params: &Value) -> bool {
@@ -127,14 +125,6 @@ pub(crate) fn requires_user_approval(method: &str, params: &Value) -> bool {
         && empty_approval_schema(params.get("requestedSchema"))
         && !(is_local_tool_form(method, params)
             && params.pointer("/_meta/riskLevel").and_then(Value::as_str) == Some("low"))
-}
-
-fn is_form_request(method: &str, params: &Value) -> bool {
-    method == "mcpServer/elicitation/request"
-        && matches!(
-            params.get("mode").and_then(Value::as_str),
-            Some("form" | "openai/form")
-        )
 }
 
 fn is_local_tool_form(method: &str, params: &Value) -> bool {
@@ -151,29 +141,4 @@ fn is_local_tool_form(method: &str, params: &Value) -> bool {
             Some("computer-use" | "browser")
         )
         && empty_approval_schema(params.get("requestedSchema"))
-}
-
-pub(super) fn empty_approval_schema(schema: Option<&Value>) -> bool {
-    let Some(schema) = schema.and_then(Value::as_object) else {
-        return false;
-    };
-    schema.get("type").and_then(Value::as_str) == Some("object")
-        && schema
-            .get("properties")
-            .and_then(Value::as_object)
-            .is_some_and(serde_json::Map::is_empty)
-        && schema
-            .get("required")
-            .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty))
-        && schema
-            .get("additionalProperties")
-            .is_none_or(Value::is_boolean)
-        && schema.iter().all(|(key, value)| {
-            match key.as_str() {
-                "type" | "properties" | "required" | "additionalProperties" => true,
-                // These descriptive fields introduce no user input or assertions.
-                "title" | "description" | "$schema" | "$id" | "$comment" => value.is_string(),
-                _ => false,
-            }
-        })
 }

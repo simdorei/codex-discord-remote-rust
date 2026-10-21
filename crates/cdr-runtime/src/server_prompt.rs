@@ -3,6 +3,7 @@ use cdr_discord::components::{ComponentError, ComponentRequestId, bound_approval
 use thiserror::Error;
 use twilight_model::channel::message::Component;
 mod input;
+mod mcp_form;
 pub(crate) mod text_binding;
 use input::input_prompt;
 
@@ -32,6 +33,9 @@ pub fn build_server_prompt(
     generation: u64,
 ) -> Result<ServerPrompt, ServerPromptError> {
     let thread_id = extract_thread_id(&request.params).ok_or(ServerPromptError::MissingThread)?;
+    if cdr_app_server::mcp_forms::needs_input(&request.method, &request.params) {
+        return Ok(mcp_form::prompt(request, thread_id, generation));
+    }
     if is_approval(&request.method, &request.params) {
         return approval_prompt(request, thread_id, generation);
     }

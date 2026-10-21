@@ -8,6 +8,7 @@ use super::{SentRequestCache, ServerRequestWorker, local_tools};
 
 mod all_policy;
 mod form_approvals;
+mod input_forms;
 
 fn request() -> ServerRequest {
     ServerRequest {
@@ -130,7 +131,7 @@ fn unknown_server_connector_risk_and_approval_kind_reach_the_owner() {
 }
 
 #[test]
-fn data_entry_or_unrecognized_schema_constraints_are_never_auto_accepted() {
+fn data_entry_or_unrecognized_schema_constraints_are_never_auto_answered() {
     for schema in [
         Value::Null,
         json!({"type":"string"}),
@@ -142,16 +143,10 @@ fn data_entry_or_unrecognized_schema_constraints_are_never_auto_accepted() {
     ] {
         let mut request = request();
         request.params["requestedSchema"] = schema;
-        assert_eq!(
-            local_tools::response(&request).unwrap().0["action"],
-            "cancel"
-        );
+        assert!(local_tools::response(&request).is_none());
         request.params["_meta"]["riskLevel"] = json!("high");
-        assert_eq!(
-            local_tools::response(&request).unwrap().0["action"],
-            "cancel"
-        );
-        assert!(crate::server_prompt::build_server_prompt(&request, 1).is_err());
+        assert!(local_tools::response(&request).is_none());
+        assert!(crate::server_prompt::build_server_prompt(&request, 1).is_ok());
     }
     let mut request = request();
     request.params["requestedSchema"]["required"] = json!([]);
