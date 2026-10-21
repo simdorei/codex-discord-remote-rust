@@ -1,0 +1,480 @@
+[
+  {
+    "name": "typed object preserves every value",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string",
+          "minLength": 2
+        },
+        "copies": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "overwrite": {
+          "type": "boolean"
+        },
+        "color": {
+          "type": "string",
+          "oneOf": [
+            {
+              "const": "#f00",
+              "title": "Red"
+            },
+            {
+              "const": "#00f",
+              "title": "Blue"
+            }
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "news",
+              "work"
+            ]
+          }
+        }
+      },
+      "required": [
+        "folder",
+        "copies",
+        "overwrite",
+        "color",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "answer": "{\"folder\":\"C:/work\",\"copies\":2,\"overwrite\":false,\"color\":\"#00f\",\"tags\":[\"news\",\"work\"]}",
+    "content": {
+      "folder": "C:/work",
+      "copies": 2,
+      "overwrite": false,
+      "color": "#00f",
+      "tags": [
+        "news",
+        "work"
+      ]
+    }
+  },
+  {
+    "name": "plain single string is not an approval decision",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "folder": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "folder"
+      ]
+    },
+    "answer": "cancel",
+    "content": {
+      "folder": "cancel"
+    }
+  },
+  {
+    "name": "single numeric answer remains numeric",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "count"
+      ]
+    },
+    "answer": "3",
+    "content": {
+      "count": 3
+    }
+  },
+  {
+    "name": "single boolean answer remains boolean",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ]
+    },
+    "answer": "false",
+    "content": {
+      "enabled": false
+    }
+  },
+  {
+    "name": "optional default is not invented",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "default": "invented"
+        }
+      }
+    },
+    "answer": "{}",
+    "content": {}
+  },
+  {
+    "name": "unknown constraints are validated rather than empty approved",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "answer": "{\"label\":\"hello\"}",
+    "content": {
+      "label": "hello"
+    }
+  },
+  {
+    "name": "required value missing",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "answer": "{}",
+    "invalid": true
+  },
+  {
+    "name": "JSON boolean is not coerced",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ]
+    },
+    "answer": "{\"enabled\":\"true\"}",
+    "invalid": true
+  },
+  {
+    "name": "integer fractional value rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ]
+    },
+    "answer": "{\"count\":1.5}",
+    "invalid": true
+  },
+  {
+    "name": "range rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "maximum": 5
+        }
+      },
+      "required": [
+        "count"
+      ]
+    },
+    "answer": "9",
+    "invalid": true
+  },
+  {
+    "name": "pattern and length rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 2,
+          "pattern": "^[A-Z]+$"
+        }
+      },
+      "required": [
+        "code"
+      ]
+    },
+    "answer": "a1",
+    "invalid": true
+  },
+  {
+    "name": "enum membership rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": "string",
+          "enum": [
+            "red",
+            "blue"
+          ]
+        }
+      },
+      "required": [
+        "color"
+      ]
+    },
+    "answer": "green",
+    "invalid": true
+  },
+  {
+    "name": "array membership rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "const": "one",
+                "title": "One"
+              },
+              {
+                "const": "two",
+                "title": "Two"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "tags"
+      ]
+    },
+    "answer": "{\"tags\":[\"three\"]}",
+    "invalid": true
+  },
+  {
+    "name": "unknown fields rejected when schema forbids them",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "answer": "{\"name\":\"A\",\"other\":\"B\"}",
+    "invalid": true
+  },
+  {
+    "name": "invalid email rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email"
+        }
+      },
+      "required": [
+        "email"
+      ]
+    },
+    "answer": "invalid",
+    "invalid": true
+  },
+  {
+    "name": "invalid date rejected",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "day"
+      ]
+    },
+    "answer": "2026-02-30",
+    "invalid": true
+  },
+  {
+    "name": "JSON code block supported",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "answer": "```json\n{\"name\":\"example\"}\n```",
+    "content": {
+      "name": "example"
+    }
+  },
+  {
+    "name": "explicit cancellation only",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "answer": "/cancel",
+    "action": "cancel"
+  },
+  {
+    "name": "explicit refusal only",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "answer": "/decline",
+    "action": "decline"
+  },
+  {
+    "name": "invalid schema does not invent a response",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "not-a-type"
+        }
+      }
+    },
+    "answer": "{\"x\":\"a\"}",
+    "invalid": true
+  },
+  {
+    "name": "remote schema is not retrieved",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "$ref": "https://example.invalid/schema.json"
+        }
+      }
+    },
+    "answer": "{\"x\":\"a\"}",
+    "invalid": true
+  },
+  {
+    "name": "async schema extensions are not executed as synchronous acceptance",
+    "schema": {
+      "$async": true,
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "answer": "{\"name\":\"A\"}",
+    "invalid": true
+  },
+  {
+    "name": "large integers cannot be silently rounded by the TS validator",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "count"
+      ]
+    },
+    "answer": "{\"count\":9007199254740993}",
+    "invalid": true
+  },
+  {
+    "name": "2020-12 dates and titled multiselect preserve valid values",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string",
+          "format": "date"
+        },
+        "tags": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "anyOf": [
+              {
+                "const": "one",
+                "title": "One"
+              },
+              {
+                "const": "two",
+                "title": "Two"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "day",
+        "tags"
+      ]
+    },
+    "answer": "{\"day\":\"2026-10-21\",\"tags\":[\"one\",\"two\"]}",
+    "content": {
+      "day": "2026-10-21",
+      "tags": [
+        "one",
+        "two"
+      ]
+    }
+  }
+]

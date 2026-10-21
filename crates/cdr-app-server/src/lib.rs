@@ -11,6 +11,7 @@ pub mod idle_release;
 mod input_replies;
 mod input_validation;
 mod manager;
+pub mod mcp_forms;
 pub mod observation;
 pub mod outcomes;
 mod process;

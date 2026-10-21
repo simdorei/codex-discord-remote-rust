@@ -1,3 +1,4 @@
+use cdr_app_server::mcp_forms::needs_input;
 use cdr_app_server::{
     AppServerError, RequestId, ResidentAppServer, ServerRequest, ServerRequestOccurrence,
     build_approval_response, build_input_response,
@@ -110,6 +111,7 @@ pub(crate) async fn pending_text_reply_available(
     }
     Ok(requests.iter().any(|request| {
         request.method == "item/tool/requestUserInput"
+            || needs_input(&request.method, &request.params)
             || is_approval_method(&request.method, &request.params)
     }))
 }
@@ -132,6 +134,7 @@ async fn handle_pending_text_reply_with<S: PendingTextReplyServer>(
     let binding = crate::server_prompt::text_binding::parse(answer)?;
     let mut eligible = requests.iter().filter(|request| {
         (request.method == "item/tool/requestUserInput"
+            || needs_input(&request.method, &request.params)
             || is_approval_method(&request.method, &request.params))
             && binding.is_none_or(|(token, _)| {
                 crate::server_prompt::text_binding::fingerprint(request, generation) == token
@@ -155,7 +158,12 @@ async fn handle_pending_text_reply_with<S: PendingTextReplyServer>(
         )
     } else {
         let (payload, action) = build_approval_response(&request.method, &request.params, answer)?;
-        (payload, format!("Approval response submitted: {action}"))
+        let kind = if needs_input(&request.method, &request.params) {
+            "MCP input"
+        } else {
+            "Approval"
+        };
+        (payload, format!("{kind} response submitted: {action}"))
     };
     server
         .respond(&request.id, request.occurrence, payload, generation)

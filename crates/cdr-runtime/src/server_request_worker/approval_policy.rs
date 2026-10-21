@@ -19,13 +19,11 @@ pub(super) fn response(
             | "execCommandApproval"
             | "applyPatchApproval"
     ) || (request.method == "mcpServer/elicitation/request"
-        && match request.params.get("mode").and_then(Value::as_str) {
-            Some("url") => true,
-            Some("form" | "openai/form") => {
-                super::local_tools::empty_approval_schema(request.params.get("requestedSchema"))
-            }
-            _ => false,
-        });
+        && (request.params.get("mode").and_then(Value::as_str) == Some("url")
+            || (cdr_app_server::mcp_forms::is_form_request(&request.method, &request.params)
+                && super::local_tools::empty_approval_schema(
+                    request.params.get("requestedSchema"),
+                ))));
     if !approval {
         // Questions and forms requiring values are not approval decisions.
         return Ok(None);
