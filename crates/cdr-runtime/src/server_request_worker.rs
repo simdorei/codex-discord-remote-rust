@@ -2,9 +2,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod approval_policy;
 pub mod delivery_identity;
 mod error;
-mod local_tools;
+pub(crate) mod local_tools;
 pub mod recovery;
 pub mod sent_cache;
 
@@ -51,12 +52,19 @@ pub async fn run_server_request_worker(
     _default_channel_id: Option<u64>,
     http: Arc<Client>,
     mut shutdown: watch::Receiver<bool>,
+    approval_policies: crate::config::ApprovalPolicies,
 ) {
+    let approval_policy = approval_policies.all;
+    let local_tool_approval_policy = approval_policies.local_tools;
+    eprintln!("approval_policy={approval_policy:?}");
+    eprintln!("local_tool_approval_policy={local_tool_approval_policy:?}");
     let mut worker = ServerRequestWorker {
         server,
         mirror_db,
         http,
         sent: SentRequestCache::default(),
+        local_tool_approval_policy,
+        approval_policy,
     };
     let mut retries = RetrySchedule::default();
     let mut initial = true;
@@ -116,6 +124,8 @@ struct ServerRequestWorker {
     mirror_db: PathBuf,
     http: Arc<Client>,
     sent: SentRequestCache,
+    local_tool_approval_policy: crate::config::LocalToolApprovalPolicy,
+    approval_policy: crate::config::ApprovalPolicy,
 }
 
 impl ServerRequestWorker {
@@ -162,7 +172,45 @@ impl ServerRequestWorker {
             generation,
         )
         .await?;
-        if let Some((response, disposition)) = local_tools::response(&request) {
+        let policy_response = approval_policy::response(&request, self.approval_policy)?
+            .map(|response| (response, "approval-policy-auto-accepted"))
+            .or_else(|| local_tools::policy_response(&request, self.local_tool_approval_policy));
+        let saved_response =
+            if policy_response.is_none() && local_tools::saved_app_candidate(&request).is_some() {
+                let config = self
+                    .server
+                    .request(
+                        "config/read",
+                        serde_json::json!({"includeLayers":true}),
+                        Duration::from_secs(3),
+                        Some(generation),
+                    )
+                    .await;
+                let current = crate::server_prompt_authority::verify(
+                    &self.mirror_db,
+                    &self.server,
+                    &request,
+                    generation,
+                )
+                .await?;
+                if current != authority {
+                    return Err(
+                        crate::server_prompt_authority::PromptAuthorityError::Invalid(
+                            "original authority changed during app access lookup",
+                        )
+                        .into(),
+                    );
+                }
+                config
+                    .ok()
+                    .and_then(|config| local_tools::saved_access_response(&request, &config))
+            } else {
+                None
+            };
+        if let Some((response, disposition)) = policy_response
+            .or(saved_response)
+            .or_else(|| local_tools::response(&request))
+        {
             // The authority check above binds this response to the original
             // Discord user, channel, running turn, and server generation.
             self.server

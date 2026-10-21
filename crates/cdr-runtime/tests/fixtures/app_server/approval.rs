@@ -12,6 +12,9 @@ pub(super) fn run(interaction: bool) -> Result {
             "initialize" => {
                 json!({"userAgent":if interaction {"worker-test/1"} else {"approval-test/1"}})
             }
+            "config/read" if !interaction => serde_json::from_str(
+                &std::env::var("CDR_APPROVAL_TEST_CONFIG").unwrap_or_else(|_| "{}".into()),
+            )?,
             "test/requestApproval" if interaction => {
                 turn("thread-a", "turn-a", false)?;
                 emit(

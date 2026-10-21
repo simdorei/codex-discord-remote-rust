@@ -32,12 +32,56 @@ pub struct CliOptions {
     pub check_config: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ApprovalPolicy {
+    #[default]
+    Ask,
+    Allow,
+}
+
+impl ApprovalPolicy {
+    fn from_env(env: &BTreeMap<String, String>) -> Result<Self, ConfigError> {
+        match env.get("DISCORD_APPROVAL_POLICY").map(|value| value.trim()) {
+            None | Some("" | "ask") => Ok(Self::Ask),
+            Some("allow") => Ok(Self::Allow),
+            Some(_) => Err(ConfigError::InvalidApprovalPolicy),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ApprovalPolicies {
+    pub all: ApprovalPolicy,
+    pub local_tools: LocalToolApprovalPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LocalToolApprovalPolicy {
+    #[default]
+    Ask,
+    Allow,
+}
+
+impl LocalToolApprovalPolicy {
+    fn from_env(env: &BTreeMap<String, String>) -> Result<Self, ConfigError> {
+        match env
+            .get("DISCORD_LOCAL_TOOL_APPROVAL_POLICY")
+            .map(|value| value.trim())
+        {
+            None | Some("" | "ask") => Ok(Self::Ask),
+            Some("allow") => Ok(Self::Allow),
+            Some(_) => Err(ConfigError::InvalidLocalToolApprovalPolicy),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "these are independent deployment switches mirrored from the Python runtime"
 )]
 pub struct RuntimeConfig {
+    pub approval_policy: ApprovalPolicy,
     pub bot_token: SecretString,
     pub remote_mcp: Option<RemoteMcpConfig>,
     pub allowed_channel_ids: BTreeSet<u64>,
@@ -49,6 +93,7 @@ pub struct RuntimeConfig {
     pub enable_message_content: bool,
     pub qa_commands: bool,
     pub host_commands: bool,
+    pub local_tool_approval_policy: LocalToolApprovalPolicy,
     pub stream_commentary: bool,
     pub startup_notify: bool,
     pub session_mirror: bool,
@@ -62,6 +107,10 @@ pub struct RuntimeConfig {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ConfigError {
+    #[error("DISCORD_APPROVAL_POLICY must be ask or allow")]
+    InvalidApprovalPolicy,
+    #[error("DISCORD_LOCAL_TOOL_APPROVAL_POLICY must be ask or allow")]
+    InvalidLocalToolApprovalPolicy,
     #[error("missing required environment variable: {0}")]
     MissingRequired(&'static str),
     #[error("set DISCORD_ALLOWED_CHANNEL_IDS or DISCORD_ALLOW_ALL_CHANNELS=1")]
@@ -98,6 +147,7 @@ impl RuntimeConfig {
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect::<HashMap<_, _>>();
         Ok(Self {
+            approval_policy: ApprovalPolicy::from_env(env)?,
             bot_token: SecretString(bot_token.to_owned()),
             remote_mcp: cdr_remote_agent::config::load_remote_mcp_config(&remote_values)?,
             allowed_channel_ids,
@@ -109,6 +159,7 @@ impl RuntimeConfig {
             enable_message_content: env_message_content && !cli.no_message_content,
             qa_commands: flag(env, "DISCORD_ENABLE_QA_COMMANDS", false),
             host_commands: flag(env, "DISCORD_ENABLE_HOST_COMMANDS", false),
+            local_tool_approval_policy: LocalToolApprovalPolicy::from_env(env)?,
             stream_commentary: flag(env, "DISCORD_STREAM_COMMENTARY", true),
             startup_notify: flag(env, "DISCORD_STARTUP_NOTIFY", false),
             session_mirror: flag(env, "DISCORD_SESSION_MIRROR", true),

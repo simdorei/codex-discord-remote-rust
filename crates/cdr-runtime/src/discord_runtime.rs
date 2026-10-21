@@ -235,6 +235,10 @@ pub async fn run(
             config.startup_channel_id,
             Arc::clone(&http),
             completion_shutdown.subscribe(),
+            crate::config::ApprovalPolicies {
+                all: config.approval_policy,
+                local_tools: config.local_tool_approval_policy,
+            },
         ),
     ));
     drop(worker_exit_notifier);
