@@ -82,6 +82,7 @@ fn is_approval(method: &str, params: &serde_json::Value) -> bool {
             | "applyPatchApproval"
     ) || (method == "mcpServer/elicitation/request"
         && params.get("mode").and_then(serde_json::Value::as_str) == Some("url"))
+        || crate::server_request_worker::local_tools::requires_user_approval(method, params)
 }
 
 fn safe_detail(value: Option<&serde_json::Value>) -> Option<String> {

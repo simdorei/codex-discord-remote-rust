@@ -16,6 +16,7 @@ pub fn is_observational(method: &str) -> bool {
     matches!(
         method,
         "account/rateLimits/read"
+            | "config/read"
             | "account/usage/read"
             | "model/list"
             | "thread/list"

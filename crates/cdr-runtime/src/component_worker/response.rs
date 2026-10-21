@@ -207,4 +207,5 @@ pub(crate) fn is_approval_method(method: &str, params: &Value) -> bool {
             | "applyPatchApproval"
     ) || (method == "mcpServer/elicitation/request"
         && params.get("mode").and_then(Value::as_str) == Some("url"))
+        || crate::server_request_worker::local_tools::requires_user_approval(method, params)
 }

@@ -69,6 +69,8 @@ async fn check_receipt(fail_confirmation: bool) {
             mirror_db: db.clone(),
             http: http.clone(),
             sent: SentRequestCache::default(),
+            local_tool_approval_policy: crate::config::LocalToolApprovalPolicy::Ask,
+            approval_policy: crate::config::ApprovalPolicy::Ask,
         };
         let result = worker.process(generation, request.clone()).await;
         if fail_confirmation {

@@ -233,3 +233,37 @@ fn enabled_remote_mcp_is_validated_and_its_token_is_redacted() {
     let debug = format!("{config:?}");
     assert!(!debug.contains("remote-secret-token"));
 }
+
+#[test]
+fn local_tool_policy_is_explicit_and_invalid_values_cannot_enable_it() {
+    use cdr_runtime::config::LocalToolApprovalPolicy::{Allow, Ask};
+    assert_eq!(
+        RuntimeConfig::from_map(&required_env(), CliOptions::default())
+            .unwrap()
+            .local_tool_approval_policy,
+        Ask
+    );
+    for (raw, expected) in [
+        ("", Ask),
+        ("ask", Ask),
+        ("allow", Allow),
+        (" allow ", Allow),
+    ] {
+        let mut env = required_env();
+        env.insert("DISCORD_LOCAL_TOOL_APPROVAL_POLICY".into(), raw.into());
+        assert_eq!(
+            RuntimeConfig::from_map(&env, CliOptions::default())
+                .unwrap()
+                .local_tool_approval_policy,
+            expected
+        );
+    }
+    for raw in ["true", "1", "ALLOW", "all", "invalid"] {
+        let mut env = required_env();
+        env.insert("DISCORD_LOCAL_TOOL_APPROVAL_POLICY".into(), raw.into());
+        assert_eq!(
+            RuntimeConfig::from_map(&env, CliOptions::default()).unwrap_err(),
+            ConfigError::InvalidLocalToolApprovalPolicy
+        );
+    }
+}
