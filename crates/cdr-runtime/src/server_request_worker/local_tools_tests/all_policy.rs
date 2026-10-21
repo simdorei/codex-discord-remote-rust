@@ -47,6 +47,15 @@ fn cases() -> Vec<(ServerRequest, Value)> {
         approval,
         json!({"action":"accept","content":{},"_meta":null}),
     ));
+    let mut annotated = request();
+    annotated.params["serverName"] = json!("codex_apps");
+    annotated.params["requestedSchema"] = json!({"type":"object","properties":{},
+        "title":"Approval","description":"Approve this action", "$schema":"https://json-schema.org/draft/2020-12/schema",
+        "$id":"https://example.com/approval", "$comment":"No input required"});
+    cases.push((
+        annotated,
+        json!({"action":"accept","content":{},"_meta":null}),
+    ));
     cases
 }
 

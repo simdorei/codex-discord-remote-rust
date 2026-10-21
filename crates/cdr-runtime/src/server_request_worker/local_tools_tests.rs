@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use super::{SentRequestCache, ServerRequestWorker, local_tools};
 
 mod all_policy;
+mod form_approvals;
 
 fn request() -> ServerRequest {
     ServerRequest {
@@ -107,7 +108,7 @@ fn command_file_permission_input_and_url_requests_keep_existing_handlers() {
 }
 
 #[test]
-fn unknown_server_connector_risk_and_approval_kind_are_not_accepted() {
+fn unknown_server_connector_risk_and_approval_kind_reach_the_owner() {
     for (pointer, value) in [
         ("/serverName", json!("other-server")),
         ("/_meta/connector_id", json!("other-tool")),
@@ -118,19 +119,12 @@ fn unknown_server_connector_risk_and_approval_kind_are_not_accepted() {
     ] {
         let mut request = request();
         *request.params.pointer_mut(pointer).unwrap() = value;
-        let (response, _) = local_tools::response(&request).unwrap();
-        assert_eq!(
-            response,
-            json!({"action":"cancel","content":null,"_meta":null}),
-            "{pointer}"
-        );
+        assert!(local_tools::response(&request).is_none(), "{pointer}");
+        assert!(crate::server_prompt::build_server_prompt(&request, 1).is_ok());
         if pointer != "/_meta/riskLevel" {
             request.params["_meta"]["riskLevel"] = json!("high");
-            assert_eq!(
-                local_tools::response(&request).unwrap().0["action"],
-                "cancel"
-            );
-            assert!(crate::server_prompt::build_server_prompt(&request, 1).is_err());
+            assert!(local_tools::response(&request).is_none());
+            assert!(crate::server_prompt::build_server_prompt(&request, 1).is_ok());
         }
     }
 }

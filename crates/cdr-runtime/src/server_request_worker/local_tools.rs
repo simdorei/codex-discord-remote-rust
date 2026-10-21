@@ -112,7 +112,8 @@ pub(super) fn response(request: &ServerRequest) -> Option<(Value, &'static str)>
             "local-tool-access-auto-accepted",
         ));
     }
-    // Unknown tools, unknown risk levels and data-entry forms remain unsupported.
+    // A form that needs values or has unrecognized validation constraints cannot
+    // be answered with an empty approval payload.
     Some((
         json!({"action": "cancel", "content": null, "_meta": null}),
         "unsupported-form-cancelled",
@@ -120,8 +121,12 @@ pub(super) fn response(request: &ServerRequest) -> Option<(Value, &'static str)>
 }
 
 pub(crate) fn requires_user_approval(method: &str, params: &Value) -> bool {
-    is_local_tool_form(method, params)
-        && params.pointer("/_meta/riskLevel").and_then(Value::as_str) == Some("high")
+    // Connector/risk allowlists decide automatic local access, not whether a
+    // valid approval can be shown to its owner. Unknown tools must not be cancelled.
+    is_form_request(method, params)
+        && empty_approval_schema(params.get("requestedSchema"))
+        && !(is_local_tool_form(method, params)
+            && params.pointer("/_meta/riskLevel").and_then(Value::as_str) == Some("low"))
 }
 
 fn is_form_request(method: &str, params: &Value) -> bool {
@@ -163,10 +168,12 @@ pub(super) fn empty_approval_schema(schema: Option<&Value>) -> bool {
         && schema
             .get("additionalProperties")
             .is_none_or(Value::is_boolean)
-        && schema.keys().all(|key| {
-            matches!(
-                key.as_str(),
-                "type" | "properties" | "required" | "additionalProperties"
-            )
+        && schema.iter().all(|(key, value)| {
+            match key.as_str() {
+                "type" | "properties" | "required" | "additionalProperties" => true,
+                // These descriptive fields introduce no user input or assertions.
+                "title" | "description" | "$schema" | "$id" | "$comment" => value.is_string(),
+                _ => false,
+            }
         })
 }
