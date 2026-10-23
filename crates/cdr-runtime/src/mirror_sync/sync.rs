@@ -20,7 +20,16 @@ impl MirrorSynchronizer {
     ) -> Result<MirrorSyncResult, MirrorSyncError> {
         self.ensure_cleanup_reconciled()?;
         let started = now()?;
-        let threads = self.scope(limit)?;
+        // Validate local read positions before changing Discord rooms. Missing
+        // plain logs may be restored here; no saved cursor is ever reset by sync.
+        let threads = self
+            .scope(limit)?
+            .into_iter()
+            .map(|thread| {
+                let available = super::rollout::ensure(&self.mirror_db, &thread)?;
+                Ok((thread, available))
+            })
+            .collect::<Result<Vec<_>, MirrorSyncError>>()?;
         let guild = match self.guild_id {
             Some(guild) => guild,
             None => self
@@ -47,8 +56,8 @@ impl MirrorSynchronizer {
             limited: limit.is_some(),
             ..MirrorSyncResult::default()
         };
-        for thread in threads {
-            if !thread.rollout_path.is_file() {
+        for (thread, available) in threads {
+            if !available {
                 result.unavailable += 1;
                 eprintln!(
                     "mirror_sync_unavailable thread={} reason=rollout_missing",

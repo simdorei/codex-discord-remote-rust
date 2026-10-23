@@ -17,6 +17,7 @@ mod inspection_snapshot;
 mod names;
 mod new_thread;
 mod orphan_cleanup;
+mod rollout;
 mod scope;
 mod sync;
 pub use http::DiscordMirrorTransport;
