@@ -84,8 +84,14 @@ try {
     $repeat = [string](Invoke-CdrNative -Executable $shell -Arguments $arguments)
     Assert-Release ($repeat.Contains('Install complete.')) 'Same-version reinstall failed'
     $setupInput = @{token=('synthetic-' + [char]0xd1a0 + [char]0xd070);channel_id='invalid-channel'} | ConvertTo-Json -Compress
-    Assert-Refused { Invoke-CdrNative -Executable $installedRuntime -Arguments @('--admin', 'setup-discord',
-        '--input-stdin', '--repo-root', $root) -InputText $setupInput } 'Discord ID must contain digits only'
+    $previousInputEncoding = [Console]::InputEncoding
+    try {
+        # GitHub's Windows host can use UTF-8 with a BOM; the pipe must not inherit it.
+        [Console]::InputEncoding = [Text.UTF8Encoding]::new($true)
+        Assert-Refused { Invoke-CdrNative -Executable $installedRuntime -Arguments @('--admin', 'setup-discord',
+            '--input-stdin', '--repo-root', $root) -InputText $setupInput } 'Discord ID must contain digits only'
+        Assert-Release ([Console]::InputEncoding.GetPreamble().Length -eq 3) 'Caller input encoding was not restored'
+    } finally { [Console]::InputEncoding = $previousInputEncoding }
     $helper = Join-Path $root 'bin\cdr-pro-helper.exe'
     $helperBytes = [IO.File]::ReadAllBytes($helper)
     [IO.File]::Delete($helper)

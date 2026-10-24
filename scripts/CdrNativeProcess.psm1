@@ -115,8 +115,16 @@ function Invoke-CdrNative {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     try {
-        if (-not $process.Start()) {
-            throw "Codex CLI process did not start: $exe"
+        # .NET Framework creates an autoflushing stdin writer at process start.
+        # A host UTF-8 encoding with a BOM otherwise prefixes even BaseStream writes.
+        $previousInputEncoding = [Console]::InputEncoding
+        try {
+            if ($startInfo.RedirectStandardInput) { [Console]::InputEncoding = $utf8 }
+            if (-not $process.Start()) {
+                throw "Codex CLI process did not start: $exe"
+            }
+        } finally {
+            if ($startInfo.RedirectStandardInput) { [Console]::InputEncoding = $previousInputEncoding }
         }
         # Cache the OS image name while the child exists. A hard-link launcher
         # such as cargo.exe can actually be reported as rustup.exe by Windows.
