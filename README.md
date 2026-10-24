@@ -9,7 +9,8 @@ Discord에서 Codex 작업을 요청하고, 진행 상황과 최종 답변을 �
 
 기존 [codex-discord-remote](https://github.com/simdorei/codex-discord-remote)에서
 현재 Rust 구현을 분리했습니다. 과거 Git 변경 이력, 실제 대화 기록,
-사용자 설정, 데이터베이스 및 실행 파일은 포함하지 않습니다.
+사용자 설정 및 데이터베이스는 포함하지 않습니다. 실행 파일은
+[GitHub Releases](https://github.com/simdorei/codex-discord-remote-rust/releases)에서 별도로 제공합니다.
 
 ## 포함된 기능
 
@@ -41,7 +42,23 @@ Python 설치 파일·소스·전용 복구 경로는 제거했습니다. 오류
 
 ## Windows 설치
 
-필요한 항목:
+일반적인 Intel·AMD Windows 10/11 64비트 PC에서는 **다운로드판을 사용하세요.**
+Git·Rust·Visual Studio 설치 없이 사용할 수 있습니다.
+
+1. [Releases](https://github.com/simdorei/codex-discord-remote-rust/releases)에서
+   `codex-discord-remote-버전-windows-x64.zip`을 받습니다.
+2. ZIP을 모두 압축 해제하고 `install.cmd`를 실행합니다.
+3. 설치 결과를 확인합니다. **설치만으로 봇이 시작되거나 자동 실행이 등록되지 않습니다.**
+
+Codex 설치·로그인과 Discord 봇 생성은 본인이 준비해야 합니다.
+봇을 시작할 준비가 되면 `setup-discord-bot.ps1`을 별도로 실행하세요. 이 단계는
+토큰을 저장하고 자동 실행을 등록한 뒤 봇을 시작합니다.
+[다운로드·설치·별도 시작 안내](docs/windows-release.md)를 참고하세요.
+GitHub의 **Source code (zip)**은 개발자용 소스이며 실행 파일이 들어 있지 않습니다.
+
+### 소스에서 직접 설치하는 개발자
+
+직접 빌드할 때 필요한 항목:
 
 - Git, 로그인된 Codex 및 app-server를 제공하는 Codex 실행 파일
 - `rust-toolchain.toml`에 고정된 Rust 1.97.1
@@ -55,7 +72,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-discord-bot.ps1
 ```
 
-`install.ps1`이 소스를 빌드해 `target\release\cdr-runtime.exe`까지 만듭니다.
+소스 저장소의 `install.ps1`은 소스를 빌드해 `target\release\cdr-runtime.exe`까지 만듭니다.
+다운로드판의 같은 도구는 검사된 실행 파일을 사용하며 빌드하지 않습니다.
 별도로 `cargo build`를 실행할 필요는 없습니다. 실행 파일 제작·설치까지만
 하려면 `setup-discord-bot.ps1`은 아직 실행하지 마세요. 이 두 번째 단계는
 토큰을 저장하고 자동 실행을 등록한 뒤 실제 봇을 시작합니다.

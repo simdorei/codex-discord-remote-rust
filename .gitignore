@@ -43,6 +43,7 @@ generated_images/
 .release-evidence/
 .codex-remote-mcp/
 target/
+dist/
 crates/cdr-remote-agent/%SystemDrive%/
 
 # Local runtime, credentials, work records and generated build output.

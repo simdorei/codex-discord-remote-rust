@@ -71,7 +71,6 @@ function Invoke-CdrNative {
     $utf8 = [System.Text.UTF8Encoding]::new($false)
     $startInfo.StandardOutputEncoding = $utf8
     $startInfo.StandardErrorEncoding = $utf8
-    if ($startInfo.RedirectStandardInput) { $startInfo.StandardInputEncoding = $utf8 }
 
     $extension = [System.IO.Path]::GetExtension($exe).ToLowerInvariant()
     if ($extension -eq '.ps1') {
@@ -116,8 +115,16 @@ function Invoke-CdrNative {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     try {
-        if (-not $process.Start()) {
-            throw "Codex CLI process did not start: $exe"
+        # .NET Framework creates an autoflushing stdin writer at process start.
+        # A host UTF-8 encoding with a BOM otherwise prefixes even BaseStream writes.
+        $previousInputEncoding = [Console]::InputEncoding
+        try {
+            if ($startInfo.RedirectStandardInput) { [Console]::InputEncoding = $utf8 }
+            if (-not $process.Start()) {
+                throw "Codex CLI process did not start: $exe"
+            }
+        } finally {
+            if ($startInfo.RedirectStandardInput) { [Console]::InputEncoding = $previousInputEncoding }
         }
         # Cache the OS image name while the child exists. A hard-link launcher
         # such as cargo.exe can actually be reported as rustup.exe by Windows.
@@ -135,7 +142,11 @@ function Invoke-CdrNative {
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if ($startInfo.RedirectStandardInput) {
-            $process.StandardInput.Write($InputText)
+            # Windows PowerShell 5.1 lacks ProcessStartInfo.StandardInputEncoding.
+            # Write UTF-8 bytes directly so tokens and non-ASCII paths remain exact.
+            $inputBytes = $utf8.GetBytes($InputText)
+            $process.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
+            $process.StandardInput.BaseStream.Flush()
             $process.StandardInput.Close()
         }
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {

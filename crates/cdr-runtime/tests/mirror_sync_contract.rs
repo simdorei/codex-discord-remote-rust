@@ -29,6 +29,10 @@ mod exact_cleanup;
 mod missing_cleanup;
 #[path = "support/mirror_owned_cleanup.rs"]
 mod owned_cleanup;
+#[path = "support/mirror_rollout_delivery.rs"]
+mod rollout_delivery;
+#[path = "support/mirror_rollout_recovery.rs"]
+mod rollout_recovery;
 
 #[derive(Default)]
 struct RemoteState {

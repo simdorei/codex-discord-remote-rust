@@ -47,6 +47,7 @@ twilight-model = "=0.17.1"
 url = { version = "2.5.8", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
+zstd = { version = "0.13.3", default-features = false }
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
