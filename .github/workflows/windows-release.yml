@@ -1,0 +1,67 @@
+name: Windows release
+
+on:
+  push:
+    branches: [main, 'feat/windows-release-*']
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'install*'
+      - 'scripts/**'
+      - '.github/workflows/windows-release.yml'
+      - 'docs/windows-release.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select release version
+        run: |
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0-dev.' + $env:GITHUB_SHA.Substring(0, 12) }
+          "CDR_RELEASE_VERSION=$version" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build portable Windows executables and ZIP
+        run: ./scripts/New-WindowsRelease.ps1 -Version $env:CDR_RELEASE_VERSION
+      - name: Test extracted installation without developer tools or startup
+        run: |
+          $archive = (Get-ChildItem -LiteralPath dist -Filter '*.zip').FullName
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-WindowsRelease.ps1 -Archive $archive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-release
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: windows-latest
+    timeout-minutes: 80
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-release
+          path: dist
+      - name: Require exact-commit checks and publish assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/Publish-WindowsRelease.ps1

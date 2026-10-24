@@ -4,6 +4,7 @@ param(
     [string]$CodexHome = $env:CODEX_HOME,
     [ValidateSet('rust')][string]$Runtime = 'rust',
     [string]$BinaryPath,
+    [switch]$Prebuilt,
     [switch]$SkipBuild,
     [switch]$SkipDependencies,
     [switch]$SkipEnvFile,
@@ -13,6 +14,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding
 $ScriptDir = $PSScriptRoot
 $CodexExeWasExplicit = $PSBoundParameters.ContainsKey('CodexExe')
 $EnvPath = Join-Path $ScriptDir '.env'
@@ -21,6 +24,16 @@ Import-Module (Join-Path $ScriptDir 'scripts\CdrNativeProcess.psm1') -Force
 Import-Module (Join-Path $ScriptDir 'scripts\CdrInstallEnvironment.psm1') -Force
 Import-Module (Join-Path $ScriptDir 'scripts\CdrInstallPluginHelper.psm1') -Force
 Import-Module (Join-Path $ScriptDir 'scripts\CdrInstallRuntime.psm1') -Force
+if ($Prebuilt -or (Test-Path -LiteralPath (Join-Path $ScriptDir 'release-manifest.json'))) {
+    if ($PSBoundParameters.ContainsKey('BinaryPath')) {
+        throw 'A Windows release uses its verified bundled binaries; BinaryPath cannot override them.'
+    }
+    Import-Module (Join-Path $ScriptDir 'scripts\CdrWindowsBundle.psm1') -Force
+    $release = Test-CdrWindowsBundle -Root $ScriptDir
+    $BinaryPath = Join-Path $ScriptDir 'bin\cdr-runtime.exe'
+    $SkipBuild = $true
+    Write-Output "Verified Windows release $($release.version). No build tools are required."
+}
 $savedHome = Get-EnvFileValue -EnvPath $EnvPath -Name 'CODEX_HOME'
 $homeInput = if (-not $PSBoundParameters.ContainsKey('CodexHome') -and $savedHome) { $savedHome } else { $CodexHome }
 $installationHome = Resolve-CodexHomePath -CodexHome $homeInput
