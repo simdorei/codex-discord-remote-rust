@@ -61,9 +61,78 @@ async fn compressed_sync_preserves_valid_cursor_context_and_existing_room_on_ret
 }
 
 #[tokio::test]
-async fn invalid_cursor_stops_sync_without_publishing_or_resetting_it() {
+async fn mid_record_cursor_rewinds_to_the_containing_record_without_skipping_history() {
     for compressed in [false, true] {
-        for cursor in [-1, 1, 999_999] {
+        let temp = tempfile::tempdir().unwrap();
+        let (sync, remote) = fixture(&temp);
+        let bytes = history("thread-a");
+        fs::write(temp.path().join("rollout.jsonl"), &bytes).unwrap();
+        let expected = bytes.iter().position(|byte| *byte == b'\n').unwrap() + 1;
+        let cursor = expected + 17;
+        assert_ne!(bytes[cursor - 1], b'\n');
+        if compressed {
+            archive(&temp, &bytes);
+        }
+        save_cursor(&temp, i64::try_from(cursor).unwrap());
+        let db = temp.path().join("mirror.sqlite");
+
+        let result = sync.sync(99, Some(1)).await.unwrap();
+
+        assert_eq!((result.threads, result.unavailable), (1, 0));
+        assert_eq!(
+            get_offset(&db, "thread-a").unwrap().unwrap().cursor,
+            i64::try_from(expected).unwrap()
+        );
+        assert_eq!(
+            get_cursor_turn(&db, "thread-a").unwrap(),
+            Some("existing-turn".into())
+        );
+        assert_eq!(fs::read(temp.path().join("rollout.jsonl")).unwrap(), bytes);
+        assert_eq!(thread_channels(&db, "thread-a").unwrap(), Some((20, 30)));
+        assert_eq!(remote.0.lock().unwrap().creates, 0);
+        assert_eq!(remote.0.lock().unwrap().deletes, 0);
+
+        sync.sync(99, Some(1)).await.unwrap();
+        assert_eq!(
+            get_offset(&db, "thread-a").unwrap().unwrap().cursor,
+            i64::try_from(expected).unwrap(),
+            "retries must not rewind an already valid cursor"
+        );
+    }
+}
+
+#[tokio::test]
+async fn mid_record_cursor_in_malformed_json_is_preserved_for_explicit_recovery() {
+    for compressed in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let (sync, remote) = fixture(&temp);
+        let mut bytes = history("thread-a");
+        bytes.extend_from_slice(b"{\"type\":broken}\n");
+        fs::write(temp.path().join("rollout.jsonl"), &bytes).unwrap();
+        let malformed_start = history("thread-a").len();
+        let cursor = malformed_start + 8;
+        if compressed {
+            archive(&temp, &bytes);
+        }
+        save_cursor(&temp, i64::try_from(cursor).unwrap());
+        let db = temp.path().join("mirror.sqlite");
+        let before = get_offset(&db, "thread-a").unwrap();
+
+        let error = sync.sync(99, Some(1)).await.unwrap_err().to_string();
+
+        assert!(error.contains("automatic rewind refused"), "{error}");
+        assert_eq!(get_offset(&db, "thread-a").unwrap(), before);
+        assert_eq!(temp.path().join("rollout.jsonl").exists(), !compressed);
+        assert_eq!(thread_channels(&db, "thread-a").unwrap(), Some((20, 30)));
+        assert_eq!(remote.0.lock().unwrap().creates, 0);
+        assert_eq!(remote.0.lock().unwrap().deletes, 0);
+    }
+}
+
+#[tokio::test]
+async fn out_of_range_cursor_stops_sync_without_publishing_or_resetting_it() {
+    for compressed in [false, true] {
+        for cursor in [-1, 999_999] {
             let temp = tempfile::tempdir().unwrap();
             let (sync, remote) = fixture(&temp);
             let bytes = history("thread-a");

@@ -62,3 +62,50 @@ async fn manual_sync_then_new_answer_uses_existing_room_once_without_replaying_h
         fs::metadata(plain).unwrap().len()
     );
 }
+
+#[tokio::test]
+async fn recovered_mid_record_cursor_reuses_delivery_dedup_without_resending_history() {
+    for compressed in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let (sync, _) = fixture(&temp);
+        let bytes = history("thread-a");
+        let plain = temp.path().join("rollout.jsonl");
+        fs::write(&plain, &bytes).unwrap();
+        let record_start = bytes.iter().position(|byte| *byte == b'\n').unwrap() + 1;
+        save_cursor(&temp, i64::try_from(record_start).unwrap());
+        let db = temp.path().join("mirror.sqlite");
+        Connection::open(&db)
+            .unwrap()
+            .execute(
+                "DELETE FROM mirror_threads WHERE codex_thread_id<>'thread-a'",
+                [],
+            )
+            .unwrap();
+        let sender = Arc::new(Sender::default());
+        let worker = SessionMirrorWorker::new(
+            temp.path().join("state.sqlite"),
+            db.clone(),
+            Arc::clone(&sender),
+        );
+        assert_eq!(worker.poll_once().await.unwrap().sent, 1);
+        assert_eq!(sender.0.lock().unwrap().len(), 1);
+
+        let broken_cursor = record_start + 17;
+        save_cursor(&temp, i64::try_from(broken_cursor).unwrap());
+        if compressed {
+            archive(&temp, &bytes);
+        }
+        sync.sync(99, Some(1)).await.unwrap();
+        assert_eq!(
+            get_offset(&db, "thread-a").unwrap().unwrap().cursor,
+            i64::try_from(record_start).unwrap()
+        );
+
+        assert_eq!(worker.poll_once().await.unwrap().sent, 0);
+        assert_eq!(sender.0.lock().unwrap().len(), 1);
+        assert_eq!(
+            get_offset(&db, "thread-a").unwrap().unwrap().cursor,
+            i64::try_from(bytes.len()).unwrap()
+        );
+    }
+}
