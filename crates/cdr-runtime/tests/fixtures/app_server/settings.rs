@@ -29,12 +29,17 @@ fn update_effective_settings(mode: &str, request: &Value, settings: &mut Value) 
     for key in ["model", "effort", "serviceTier"] {
         if let Some(value) = request["params"].get(key) {
             // Reproduce the installed server's effective default-tier observation.
-            settings[key] =
-                if key == "serviceTier" && mode == "reserve-default-tier" && value.is_null() {
-                    json!("default")
-                } else {
-                    value.clone()
-                };
+            settings[key] = if key == "serviceTier"
+                && matches!(
+                    mode,
+                    "reserve-default-tier" | "standard-noop" | "standard-clear"
+                )
+                && value.is_null()
+            {
+                json!("default")
+            } else {
+                value.clone()
+            };
         }
     }
     match mode {
@@ -54,8 +59,11 @@ pub(super) fn run() -> Result {
     if mode == "reserve-active" {
         settings["model"] = json!("gpt-reserve");
     }
-    if mode == "reserve-default-tier" {
+    if matches!(mode.as_str(), "reserve-default-tier" | "standard-noop") {
         settings["serviceTier"] = json!("default");
+    }
+    if mode == "standard-clear" {
+        settings["serviceTier"] = json!("priority");
     }
     if mode.starts_with("reserve-noop") {
         settings = json!({"model":"gpt-reserve","effort":"xhigh","serviceTier":"default"});
@@ -103,7 +111,8 @@ pub(super) fn run() -> Result {
                 }
                 let previous = settings.clone();
                 update_effective_settings(&mode, &request, &mut settings);
-                let unchanged = mode.starts_with("reserve-noop") && settings == previous;
+                let unchanged = (mode.starts_with("reserve-noop") || mode == "standard-noop")
+                    && settings == previous;
                 if !unchanged
                     && !matches!(
                         mode.as_str(),
