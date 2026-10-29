@@ -51,15 +51,12 @@ fn update_effective_settings(mode: &str, request: &Value, settings: &mut Value) 
     }
 }
 
-pub(super) fn run() -> Result {
-    let mode = env("SETTINGS_TEST_MODE");
-    let log = env("SETTINGS_TEST_LOG");
-    let root = Path::new(&log).parent().unwrap();
+fn initial_settings(mode: &str) -> Value {
     let mut settings = json!({"model":"model-a","effort":"high","serviceTier":null});
     if mode == "reserve-active" {
         settings["model"] = json!("gpt-reserve");
     }
-    if matches!(mode.as_str(), "reserve-default-tier" | "standard-noop") {
+    if matches!(mode, "reserve-default-tier" | "standard-noop") {
         settings["serviceTier"] = json!("default");
     }
     if mode == "standard-clear" {
@@ -68,6 +65,14 @@ pub(super) fn run() -> Result {
     if mode.starts_with("reserve-noop") {
         settings = json!({"model":"gpt-reserve","effort":"xhigh","serviceTier":"default"});
     }
+    settings
+}
+
+pub(super) fn run() -> Result {
+    let mode = env("SETTINGS_TEST_MODE");
+    let log = env("SETTINGS_TEST_LOG");
+    let root = Path::new(&log).parent().unwrap();
+    let mut settings = initial_settings(&mode);
     serve(Path::new(&log), Logging::All, |request| {
         let thread = thread(&request);
         let result = match method(&request) {
