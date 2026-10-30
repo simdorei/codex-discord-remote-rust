@@ -26,8 +26,7 @@ pub(super) fn run() -> Result {
                 json!({})
             }
             "test/stale-on-second-read" => {
-                stale_on_second = true;
-                reads = 0;
+                (stale_on_second, reads) = (true, 0);
                 json!({})
             }
             "test/drop-reply" => {
@@ -66,12 +65,14 @@ pub(super) fn run() -> Result {
                 json!({})
             }
             "thread/turns/list" if params["itemsView"] == "notLoaded" => {
+                advance_read(&mut latest, &mut reads, stale_on_second);
                 turn_index(params, goal, &latest, active, &history_kind)
             }
             "thread/turns/list" => {
                 turn_history(params, active, &mut latest, &mut reads, stale_on_second)
             }
             "thread/goal/get" => goal_snapshot(goal, goal_complete),
+            "thread/read" if skip_read(params, &history_kind, reads) => return Ok(()),
             "thread/read" => history_snapshot(goal, &latest, active, &history_kind),
             "turn/steer" => {
                 assert!(active);
@@ -83,10 +84,7 @@ pub(super) fn run() -> Result {
                 json!({"turnId":"original"})
             }
             "turn/start" => {
-                assert!(!active);
-                assert_eq!(params["threadId"], "thread-b");
-                active = true;
-                latest = "answer-turn".into();
+                begin_answer(params, &mut active, &mut latest);
                 if drop_reply {
                     return Ok(());
                 }
@@ -104,6 +102,13 @@ pub(super) fn run() -> Result {
     })
 }
 
+fn begin_answer(params: &serde_json::Value, active: &mut bool, latest: &mut String) {
+    assert!(!*active);
+    assert_eq!(params["threadId"], "thread-b");
+    *active = true;
+    *latest = "answer-turn".into();
+}
+
 fn turn_history(
     params: &serde_json::Value,
     active: bool,
@@ -114,10 +119,7 @@ fn turn_history(
     assert_eq!(params["threadId"], "thread-b");
     assert_eq!(params["sortDirection"], "desc");
     assert_eq!(params["limit"], 1);
-    *reads += 1;
-    if stale_on_second && *reads >= 2 {
-        *latest = "newer".into();
-    }
+    advance_read(latest, reads, stale_on_second);
     json!({"data":[{"id":latest,"status":if active {"inProgress"} else {"completed"},"items":[]}],"nextCursor":null})
 }
 
@@ -148,6 +150,14 @@ fn history_snapshot(goal: bool, latest: &str, active: bool, kind: &str) -> serde
     let mut result = thread_snapshot(goal, latest, active);
     let turns = result["thread"]["turns"].as_array_mut().unwrap();
     match kind {
+        "heavy-paged" => {
+            for i in 0..200 {
+                turns.insert(
+                    i,
+                    json!({"id":format!("older-{i}"),"status":"completed","items":[]}),
+                );
+            }
+        }
         "prior" | "successor" => {
             turns.insert(
                 0,
@@ -190,15 +200,32 @@ fn turn_index(
     assert_eq!(params["sortDirection"], "desc");
     assert_eq!(params["limit"], 100);
     let snapshot = history_snapshot(goal, latest, active, kind);
-    let data = snapshot["thread"]["turns"].as_array().map(|turns| {
-        turns
-            .iter()
-            .rev()
-            .map(|turn| {
-                json!({"id":turn["id"],"status":turn["status"],
-                        "items":[],"itemsStatus":"notLoaded"})
-            })
-            .collect::<Vec<_>>()
+    let offset = params["cursor"]
+        .as_str()
+        .and_then(|v| v.strip_prefix("page-"))
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let turns = snapshot["thread"]["turns"].as_array();
+    let data = turns.map(|turns| {
+        turns.iter().rev().skip(offset).take(100).map(|turn|
+        json!({"id":turn["id"],"status":turn["status"],"items":[],"itemsStatus":"notLoaded"})
+    ).collect::<Vec<_>>()
     });
-    json!({"data":data,"nextCursor":null})
+    let next = turns
+        .filter(|turns| offset + 100 < turns.len())
+        .map(|_| format!("page-{}", offset + 100));
+    json!({"data":data,"nextCursor":next})
+}
+
+fn advance_read(latest: &mut String, reads: &mut usize, stale_on_second: bool) {
+    *reads += 1;
+    if stale_on_second && *reads >= 2 {
+        *latest = "newer".into();
+    }
+}
+
+fn skip_read(params: &serde_json::Value, kind: &str, reads: usize) -> bool {
+    kind == "metadata-timeout"
+        || (kind == "second-read-timeout" && reads > 0)
+        || (kind == "heavy-paged" && params["includeTurns"] == true)
 }

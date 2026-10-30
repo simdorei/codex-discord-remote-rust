@@ -10,7 +10,7 @@ use serde_json::Value;
 mod async_history;
 mod async_terminal;
 mod fresh_thread;
-mod turn_index;
+pub(crate) mod turn_index;
 
 use crate::queue_runner::{BackendFailure, BoxBackendFuture, TurnBackend, TurnRecord};
 

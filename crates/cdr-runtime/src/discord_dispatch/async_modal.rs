@@ -8,6 +8,31 @@ use std::path::Path;
 use twilight_model::http::interaction::InteractionResponse;
 use twilight_model::id::Id;
 
+pub(super) fn answer_target(
+    database: &Path,
+    request: &super::custody::StageRequest<'_>,
+) -> Result<Option<String>, cdr_store::StoreError> {
+    let RoutedWork::Component(
+        ComponentId::AsyncChoice { question_id, .. }
+        | ComponentId::AsyncTextAnswer { question_id, .. },
+    ) = request.work
+    else {
+        return Ok(None);
+    };
+    let q = async_question::get(database, question_id)?;
+    if u64::try_from(q.channel_id).ok() != Some(request.channel_id)
+        || u64::try_from(q.owner_user_id).ok() != Some(request.user_id)
+        || request.source_message_id.is_none()
+        || request.source_message_id.map(|id| id.to_string()) != q.message_id
+    {
+        return Err(cdr_store::StoreError::Integrity(
+            "question actor, channel or source message does not match".into(),
+        ));
+    }
+    async_question::require_current_mapping(database, &q)?;
+    Ok(Some(q.thread_id))
+}
+
 pub(super) fn response(database: &Path, routed: &RoutedInteraction) -> Option<InteractionResponse> {
     let Some(RoutedWork::Component(ComponentId::AsyncTextInput { question_id })) = &routed.work
     else {

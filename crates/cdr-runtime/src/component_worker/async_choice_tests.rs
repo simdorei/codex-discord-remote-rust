@@ -331,6 +331,9 @@ mod integrated;
 #[path = "async_inherited_tests.rs"]
 mod inherited;
 
+#[path = "async_answer_read_tests.rs"]
+mod read_path;
+
 #[tokio::test]
 async fn free_text_reaches_only_original_question_once_without_parsing_as_choices() {
     let http = approval_http::start().await;

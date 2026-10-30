@@ -67,9 +67,7 @@ pub fn begin_dispatch(path: &Path, c: &Claim<'_>) -> Result<Question> {
             ));
         }
         if !jobs.is_empty() {
-            return Err(invalid(
-                "original final delivery or later work is still pending; no new turn started",
-            ));
+            return Err(crate::StoreError::AsyncQuestionPendingWork);
         }
         let job_id = format!("async-question:{}", q.id);
         crate::queue::enqueue_in_transaction(

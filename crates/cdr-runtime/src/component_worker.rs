@@ -79,6 +79,8 @@ impl PreparedComponentConfirmation {
 
 #[derive(Debug, Error)]
 pub enum ComponentWorkerError {
+    #[error(transparent)]
+    AsyncAnswerNotDispatched(cdr_store::ingress::AsyncAnswerRefusal),
     #[error("saved-request disposition held: {0}")]
     Abandonment(String),
     #[error(
