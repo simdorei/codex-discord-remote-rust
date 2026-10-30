@@ -9,14 +9,14 @@ use cdr_app_server::{
     outcomes::{TurnStatus, parse_thread_turn_states},
     requests::{AppRequest, read_thread_with_timeout, start_turn, steer_turn},
 };
-use cdr_store::async_question::{self as store, DispatchMode, Question};
+use cdr_store::async_question::{self as store, Answer, DispatchMode, Question};
 use serde_json::json;
 use std::time::Duration;
 
 pub(super) async fn handle<B: TurnBackend>(
     work: &InboundInteractionWork,
     id: &str,
-    option: usize,
+    answer: Answer,
     executor: &ActionExecutor<B>,
     server: &ResidentAppServer,
 ) -> Result<ConfirmationPlan, ComponentWorkerError> {
@@ -34,7 +34,7 @@ pub(super) async fn handle<B: TurnBackend>(
     if u64::try_from(q.channel_id).ok() != Some(work.channel_id.get())
         || u64::try_from(q.owner_user_id).ok() != Some(work.user_id.get())
         || q.message_id.as_deref() != Some(&message)
-        || option >= q.body.options.len()
+        || answer.validate(&q).is_err()
     {
         return Err(invalid(
             "질문의 사용자·방·메시지·선택지가 일치하지 않아 답변하지 않았습니다.",
@@ -42,7 +42,7 @@ pub(super) async fn handle<B: TurnBackend>(
     }
     store::require_current_mapping(db, &q)?;
     if q.state == "submitted" {
-        if q.chosen != Some(option) {
+        if store::chosen_answer(&q)? != answer {
             return Err(ComponentWorkerError::AlreadyHandled);
         }
         return Ok(confirmation(&q)); // Display recovery only, never another RPC.
@@ -58,7 +58,7 @@ pub(super) async fn handle<B: TurnBackend>(
     }
     let prepared = preflight(server, &q).await?;
     let mode = prepared.0;
-    let prompt = answer_prompt(&q, option)?;
+    let prompt = store::answer_prompt_with(&q, &answer)?;
     store::begin_dispatch(
         db,
         &store::Claim {
@@ -68,7 +68,7 @@ pub(super) async fn handle<B: TurnBackend>(
             channel: q.channel_id,
             actor: q.owner_user_id,
             message: &message,
-            option,
+            answer,
             mode,
             baseline_turn_ids: prepared.1.clone(),
             prompt: &prompt,
@@ -245,13 +245,6 @@ async fn start_baseline(
         ));
     }
     Ok(states.into_keys().collect())
-}
-
-fn answer_prompt(q: &Question, option: usize) -> Result<String, ComponentWorkerError> {
-    if option >= q.body.options.len() {
-        return Err(ComponentWorkerError::InvalidComponent);
-    }
-    Ok(store::answer_prompt(q, option)?)
 }
 
 fn confirmation(q: &Question) -> ConfirmationPlan {
