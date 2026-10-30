@@ -44,10 +44,8 @@ pub(super) fn run() -> Result {
                 json!({})
             }
             "test/history-kind" => {
-                params["kind"]
-                    .as_str()
-                    .unwrap()
-                    .clone_into(&mut history_kind);
+                let kind = params["kind"].as_str().unwrap();
+                kind.clone_into(&mut history_kind);
                 json!({})
             }
             "test/complete-answer" => {
@@ -66,6 +64,9 @@ pub(super) fn run() -> Result {
             "test/question" => {
                 emit_question(&latest)?;
                 json!({})
+            }
+            "thread/turns/list" if params["itemsView"] == "notLoaded" => {
+                turn_index(params, goal, &latest, active, &history_kind)
             }
             "thread/turns/list" => {
                 turn_history(params, active, &mut latest, &mut reads, stale_on_second)
@@ -176,4 +177,28 @@ pub(super) fn emit_question(turn_id: &str) -> Result {
             "questions":[{"title":"프로젝트 A?","options":["허용","보류"]},{"title":"프로젝트 B?","options":["허용","보류"]}]
         }}}),
     )
+}
+
+fn turn_index(
+    params: &serde_json::Value,
+    goal: bool,
+    latest: &str,
+    active: bool,
+    kind: &str,
+) -> serde_json::Value {
+    assert_eq!(params["threadId"], "thread-b");
+    assert_eq!(params["sortDirection"], "desc");
+    assert_eq!(params["limit"], 100);
+    let snapshot = history_snapshot(goal, latest, active, kind);
+    let data = snapshot["thread"]["turns"].as_array().map(|turns| {
+        turns
+            .iter()
+            .rev()
+            .map(|turn| {
+                json!({"id":turn["id"],"status":turn["status"],
+                        "items":[],"itemsStatus":"notLoaded"})
+            })
+            .collect::<Vec<_>>()
+    });
+    json!({"data":data,"nextCursor":null})
 }
