@@ -26,14 +26,14 @@ pub(crate) fn observe(
         return Ok(());
     };
     let structured = !parsed.questions.is_empty();
-    let source_text = if !structured {
+    let source_text = if structured {
+        parsed.text.clone()
+    } else {
         parsed.questions.push(async_questions::AsyncQuestion {
             title: parsed.text.clone(),
             options: vec![],
         });
         String::new()
-    } else {
-        parsed.text.clone()
     };
     let generation = i64::try_from(generation)
         .map_err(|_| CompletionWorkerError::Delivery("invalid question generation".into()))?;

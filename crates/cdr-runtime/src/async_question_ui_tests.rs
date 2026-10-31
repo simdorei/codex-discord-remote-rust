@@ -10,6 +10,10 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the question-shape matrix and its once-only delivery assertions together."
+)]
 async fn async_question_shapes_preserve_context_and_render_only_valid_answers() {
     let temp = tempfile::tempdir().unwrap();
     let remote = approval_http::start().await;
