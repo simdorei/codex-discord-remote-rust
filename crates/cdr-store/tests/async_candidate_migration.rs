@@ -33,6 +33,7 @@ fn legacy_candidate_keeps_original_generation_only_and_never_inherits_by_migrati
                 turn_id: "T2",
                 item_id: "item",
                 body: &aq::QuestionBody {
+                    free_text_only: false,
                     index: 0,
                     source_text: String::new(),
                     title: "?".into(),
@@ -80,6 +81,7 @@ fn invalid_observation_identity_never_creates_a_candidate() {
         (1, "thread", "turn", " "),
     ] {
         let body = aq::QuestionBody {
+            free_text_only: false,
             index: 0,
             source_text: String::new(),
             title: "?".into(),

@@ -49,6 +49,7 @@ fn question(db: &std::path::Path) -> String {
             turn_id: "original-turn",
             item_id: "question-item",
             body: &aq::QuestionBody {
+                free_text_only: false,
                 index: 0,
                 source_text: String::new(),
                 title: "Which?".into(),

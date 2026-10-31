@@ -3,7 +3,14 @@ use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle
 
 /// Preserve all 25 choices, reserving room for the explicit free-text action.
 pub fn async_answer_rows(id: &str, options: &[String]) -> Result<Vec<Component>, ComponentError> {
-    let mut rows = async_choice_rows(id, options)?;
+    if !valid_fingerprint(id, 64) {
+        return Err(ComponentError::Invalid);
+    }
+    let mut rows = if options.is_empty() {
+        Vec::new()
+    } else {
+        async_choice_rows(id, options)?
+    };
     if options.len() == 25 {
         let values = options.iter().enumerate().map(|(index, option)| serde_json::json!({
             "label":format!("{}. {}", index + 1, option).chars().take(100).collect::<String>(),
@@ -22,7 +29,14 @@ pub fn async_answer_rows(id: &str, options: &[String]) -> Result<Vec<Component>,
         custom_id: Some(format!("codex_async_other:{id}")),
         disabled: false,
         emoji: None,
-        label: Some("다른 답변 입력".into()),
+        label: Some(
+            if options.is_empty() {
+                "답변 입력"
+            } else {
+                "다른 답변 입력"
+            }
+            .into(),
+        ),
         style: ButtonStyle::Secondary,
         url: None,
         sku_id: None,
@@ -93,7 +107,7 @@ mod tests {
     #[test]
     fn other_input_fits_discord_rows_without_losing_any_of_25_choices() {
         let id = "a".repeat(64);
-        for count in 1..=25 {
+        for count in 0..=25 {
             let options: Vec<_> = (0..count).map(|i| format!("option {i}")).collect();
             let rows = serde_json::to_value(async_answer_rows(&id, &options).unwrap()).unwrap();
             assert!(rows.as_array().unwrap().len() <= 5);
@@ -115,5 +129,7 @@ mod tests {
             assert_eq!(choices, count);
             assert_eq!(other, 1);
         }
+        assert!(async_answer_rows("invalid", &[]).is_err());
+        assert!(async_choice_rows(&id, &[]).is_err());
     }
 }

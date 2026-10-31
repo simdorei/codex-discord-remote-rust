@@ -1,6 +1,20 @@
 use cdr_store::{async_question as aq, delivery_receipt, queue, schema::open_initialized};
 use rusqlite::params;
 
+#[test]
+fn legacy_question_body_encoding_stays_unchanged_and_text_only_is_explicit() {
+    let old = r#"{"index":0,"source_text":"","title":"Input","options":[]}"#;
+    let mut body: aq::QuestionBody = serde_json::from_str(old).unwrap();
+    assert!(!body.free_text_only);
+    assert_eq!(serde_json::to_string(&body).unwrap(), old);
+    body.free_text_only = true;
+    let encoded = serde_json::to_string(&body).unwrap();
+    assert_eq!(
+        serde_json::from_str::<aq::QuestionBody>(&encoded).unwrap(),
+        body
+    );
+}
+
 fn fixture() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("store.sqlite");
@@ -32,6 +46,7 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf, String) {
     )
     .unwrap();
     let body = aq::QuestionBody {
+        free_text_only: false,
         index: 1,
         source_text: String::new(),
         title: "프로젝트 B?".into(),

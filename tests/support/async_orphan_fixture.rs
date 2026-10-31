@@ -36,6 +36,7 @@ pub fn dispatching(db: &Path, runtime: &str) -> String {
             turn_id: "original",
             item_id: "question-call",
             body: &aq::QuestionBody {
+                free_text_only: false,
                 index: 0,
                 source_text: "original context".into(),
                 title: "Continue?".into(),

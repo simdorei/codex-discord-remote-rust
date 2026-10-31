@@ -6,6 +6,7 @@ fn setup() -> (tempfile::TempDir, std::path::PathBuf, aq::QuestionBody) {
     let db = dir.path().join("store.sqlite");
     enqueue(&db, "origin", "T1");
     let body = aq::QuestionBody {
+        free_text_only: false,
         index: 0,
         source_text: "조건을 읽고 선택하세요".into(),
         title: "계속?".into(),

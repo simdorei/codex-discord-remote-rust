@@ -35,6 +35,7 @@ fn fixture(bound: bool) -> (tempfile::TempDir, PathBuf, String) {
             turn_id: turn,
             item_id: "item",
             body: &aq::QuestionBody {
+                free_text_only: false,
                 index: 0,
                 source_text: String::new(),
                 title: "?".into(),

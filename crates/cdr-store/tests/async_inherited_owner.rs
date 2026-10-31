@@ -46,6 +46,7 @@ fn journal(db: &Path, generation: i64) -> String {
             turn_id: "T2",
             item_id: "item",
             body: &aq::QuestionBody {
+                free_text_only: false,
                 index: 0,
                 source_text: String::new(),
                 title: "Continue?".into(),
@@ -217,6 +218,7 @@ fn another_generation_owner_is_not_hidden_during_candidate_selection_or_claim() 
             assert!(aq::begin_dispatch(&db, &claim(&id)).is_err());
         } else {
             let body = aq::QuestionBody {
+                free_text_only: false,
                 index: 0,
                 source_text: String::new(),
                 title: "?".into(),

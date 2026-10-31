@@ -34,6 +34,10 @@ pub const ANSWER_PREFIX: &str = "The user answered exactly this earlier async qu
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QuestionBody {
+    /// Only an explicit structured question may accept input without choices.
+    /// Missing/malformed question metadata must keep its unsupported fallback.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub free_text_only: bool,
     pub index: usize,
     #[serde(default)]
     pub source_text: String,
@@ -93,7 +97,7 @@ pub(crate) fn read(db: &Connection, id: &str) -> Result<Question> {
         [id], |r| Ok((Question {
             id:id.into(), runtime_id:r.get(0)?, generation:r.get(1)?, thread_id:r.get(2)?,
             turn_id:r.get(3)?, item_id:r.get(4)?, origin_job_id:r.get(5)?, channel_id:r.get(6)?,
-            owner_user_id:r.get(7)?, body:QuestionBody{index:0,source_text:String::new(),title:String::new(),options:vec![]},
+            owner_user_id:r.get(7)?, body:QuestionBody{free_text_only: false,index:0,source_text:String::new(),title:String::new(),options:vec![]},
             state:r.get(9)?, message_id:r.get(10)?, chosen:r.get::<_,Option<u16>>(11)?.map(usize::from), reply_job_id:r.get(12)?, error:r.get(13)?, chosen_text:r.get(14)?,
         }, r.get(8)?)))?;
     q.body = serde_json::from_str(&payload)?;

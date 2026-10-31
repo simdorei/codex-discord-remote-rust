@@ -335,6 +335,74 @@ mod inherited;
 mod read_path;
 
 #[tokio::test]
+async fn free_text_only_questions_deliver_exact_answers_once() {
+    let http = approval_http::start().await;
+    let temp = tempfile::tempdir().unwrap();
+    let f = fixture(&temp, http_client(&http.address)).await;
+    control(&f, "test/active-turn").await;
+    let (_, mut work) = question(&f).await;
+    let db = f.executor.mirror_db();
+    for (index, body) in [
+        json!({"title":"입력해 주세요"}),
+        json!({"title":"입력해 주세요","options":null}),
+        json!({"title":"입력해 주세요","options":[]}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let item = format!("text-only-{index}");
+        crate::async_question_ui::observe(
+            db,
+            f.server.instance_id(),
+            1,
+            &json!({"threadId":"thread-b","turnId":"original","item":{
+                "id":item,"type":"agentMessage","delivery":"async","text":"",
+                "questions":[body]
+            }}),
+        )
+        .unwrap();
+        crate::async_question_ui::deliver_pending(db, f.server.instance_id(), 1, &f.http)
+            .await
+            .unwrap();
+        let id = aq::occurrence_id("thread-b", "original", &item, 0).unwrap();
+        let q = aq::get(db, &id).unwrap();
+        assert_eq!(q.state, "open");
+        assert!(q.body.free_text_only);
+        work.source_message_id = Some(Id::new(q.message_id.unwrap().parse().unwrap()));
+        let answer = format!("직접 입력 {index}\n1 | = 🙂");
+        let component = ComponentId::AsyncTextAnswer {
+            question_id: id.clone(),
+            text: answer.clone(),
+        };
+        work.work = cdr_discord::interaction::RoutedWork::Component(component.clone());
+        for _ in 0..2 {
+            handle_component_work(&work, &component, &f.executor, &f.server)
+                .await
+                .unwrap();
+        }
+        let q = aq::get(db, &id).unwrap();
+        assert_eq!(q.state, "submitted");
+        assert_eq!(q.chosen_text.as_deref(), Some(answer.as_str()));
+    }
+    f.server.close().await.unwrap();
+    http.stop.send(()).unwrap();
+    http.task.await.unwrap();
+    let rpc = app_fixture::rpc_log(&temp.path().join("rpc.jsonl"));
+    let steers: Vec<_> = rpc.iter().filter(|r| r["method"] == "turn/steer").collect();
+    assert_eq!(steers.len(), 3);
+    for (index, steer) in steers.into_iter().enumerate() {
+        assert_eq!(steer["params"]["expectedTurnId"], "original");
+        let prompt = steer["params"]["input"][0]["text"].as_str().unwrap();
+        let data: serde_json::Value =
+            serde_json::from_str(prompt.split_once('\n').unwrap().1).unwrap();
+        assert_eq!(data["question_item_id"], format!("text-only-{index}"));
+        assert_eq!(data["question_index"], 0);
+        assert_eq!(data["answer_text"], format!("직접 입력 {index}\n1 | = 🙂"));
+        assert!(data.get("selected_option").is_none());
+    }
+}
+
+#[tokio::test]
 async fn free_text_reaches_only_original_question_once_without_parsing_as_choices() {
     let http = approval_http::start().await;
     let temp = tempfile::tempdir().unwrap();
