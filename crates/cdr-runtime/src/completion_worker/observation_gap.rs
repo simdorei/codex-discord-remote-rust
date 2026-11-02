@@ -100,7 +100,10 @@ fn question_effects(params: &serde_json::Value) -> Result<Vec<Effect>, Completio
     else {
         return Ok(vec![Effect::Unconfirmed]);
     };
-    let source_text = if parsed.questions.is_empty() {
+    let structured = !parsed.questions.is_empty();
+    let source_text = if structured {
+        parsed.text.clone()
+    } else {
         parsed
             .questions
             .push(cdr_app_server::async_questions::AsyncQuestion {
@@ -108,8 +111,6 @@ fn question_effects(params: &serde_json::Value) -> Result<Vec<Effect>, Completio
                 options: vec![],
             });
         String::new()
-    } else {
-        parsed.text.clone()
     };
     if parsed.questions.len() > store::PAGE_SIZE {
         return Ok(vec![Effect::Unconfirmed]);
@@ -120,6 +121,7 @@ fn question_effects(params: &serde_json::Value) -> Result<Vec<Effect>, Completio
         .enumerate()
         .map(|(index, q)| {
             let body = QuestionBody {
+                free_text_only: structured && q.options.is_empty(),
                 index,
                 source_text: source_text.clone(),
                 title: q.title,

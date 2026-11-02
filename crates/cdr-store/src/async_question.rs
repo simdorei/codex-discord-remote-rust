@@ -34,6 +34,10 @@ pub const ANSWER_PREFIX: &str = "The user answered exactly this earlier async qu
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QuestionBody {
+    /// Only an explicit structured question may accept input without choices.
+    /// Missing/malformed question metadata must keep its unsupported fallback.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub free_text_only: bool,
     pub index: usize,
     #[serde(default)]
     pub source_text: String,
@@ -93,7 +97,7 @@ pub(crate) fn read(db: &Connection, id: &str) -> Result<Question> {
         [id], |r| Ok((Question {
             id:id.into(), runtime_id:r.get(0)?, generation:r.get(1)?, thread_id:r.get(2)?,
             turn_id:r.get(3)?, item_id:r.get(4)?, origin_job_id:r.get(5)?, channel_id:r.get(6)?,
-            owner_user_id:r.get(7)?, body:QuestionBody{index:0,source_text:String::new(),title:String::new(),options:vec![]},
+            owner_user_id:r.get(7)?, body:QuestionBody{free_text_only: false,index:0,source_text:String::new(),title:String::new(),options:vec![]},
             state:r.get(9)?, message_id:r.get(10)?, chosen:r.get::<_,Option<u16>>(11)?.map(usize::from), reply_job_id:r.get(12)?, error:r.get(13)?, chosen_text:r.get(14)?,
         }, r.get(8)?)))?;
     q.body = serde_json::from_str(&payload)?;
@@ -102,7 +106,7 @@ pub(crate) fn read(db: &Connection, id: &str) -> Result<Question> {
 
 pub fn pending(path: &Path, runtime: &str) -> Result<Vec<Question>> {
     let db = open_initialized(path)?;
-    let ids = db.prepare("SELECT id FROM cdr_async_questions WHERE runtime_id=? AND state='observed' ORDER BY created_at,json_extract(body,'$.index'),id LIMIT 100")?
+    let ids = db.prepare("SELECT id FROM cdr_live_cdr_async_questions WHERE runtime_id=? AND state='observed' ORDER BY created_at,json_extract(body,'$.index'),id LIMIT 100")?
         .query_map([runtime], |r| r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     ids.iter().map(|id| read(&db, id)).collect()
 }
@@ -176,7 +180,11 @@ pub(crate) fn validate_mapping(db: &Connection, q: &Question) -> Result<()> {
     let matches: bool = db.query_row("SELECT COUNT(*)=1 AND MIN(codex_thread_id)=?2 FROM mirror_threads WHERE discord_thread_id=?1",
         params![q.channel_id,q.thread_id], |r|r.get(0))?;
     let fenced: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM cdr_cleanup_fences WHERE channel_id=?1) OR EXISTS(SELECT 1 FROM codex_dead_generation_holds WHERE target_thread_id=?2) OR EXISTS(SELECT 1 FROM codex_archive_fences WHERE target_thread_id=?2)",params![q.channel_id,q.thread_id],|r|r.get(0))?;
-    if !matches || fenced {
+    if !matches
+        || fenced
+        || crate::archived_cleanup::record_retired_in(db, "cdr_async_questions", &q.id)?
+        || crate::archived_cleanup::blocked_in(db, Some(q.channel_id), Some(&q.thread_id))?
+    {
         return Err(invalid(
             "question mapping changed or target is fenced; no answer sent",
         ));

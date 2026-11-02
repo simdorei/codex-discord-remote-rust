@@ -10,7 +10,11 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[tokio::test]
-async fn async_question_unsupported_shapes_preserve_context_once_across_replay() {
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the question-shape matrix and its once-only delivery assertions together."
+)]
+async fn async_question_shapes_preserve_context_and_render_only_valid_answers() {
     let temp = tempfile::tempdir().unwrap();
     let remote = approval_http::start().await;
     let http = Arc::new(
@@ -47,14 +51,28 @@ async fn async_question_unsupported_shapes_preserve_context_once_across_replay()
     queue::begin_attempt(db, "origin", &[], 1).unwrap();
     queue::mark_running(db, "origin", "original", 1).unwrap();
     let shapes = [
-        json!(null),
-        json!([{"title":"자유 입력?","options":null}]),
-        json!([{"title":"잘못된 선택지?","options":[{"label":"예"}]}]),
-        json!([{"title":"너무 많은 선택지?","options":(0..26).map(|i|format!("선택 {i}")).collect::<Vec<_>>()}]),
+        (json!(null), false),
+        (json!([{"title":"자유 입력?","options":null}]), true),
+        (
+            json!([{"title":"잘못된 선택지?","options":[{"label":"예"}]}]),
+            false,
+        ),
+        (
+            json!([{"title":"너무 많은 선택지?","options":(0..26).map(|i|format!("선택 {i}")).collect::<Vec<_>>()}]),
+            false,
+        ),
+        (json!([{"title":"선택지 생략"}]), true),
+        (json!([{"title":"빈 선택지","options":[]}]), true),
+        (json!([{"title":"빈 라벨","options":[""]}]), false),
+        (json!([{"title":"빈 원문도 입력 가능","options":[]}]), true),
     ];
-    for (i, questions) in shapes.into_iter().enumerate() {
+    for (i, (questions, supported)) in shapes.into_iter().enumerate() {
         let id = format!("shape-{i}");
-        let text = format!("원문 보존 조건 {i}");
+        let text = if i == 7 {
+            String::new()
+        } else {
+            format!("원문 보존 조건 {i}")
+        };
         let params = json!({"threadId":"thread-b","turnId":"original","item":{"id":id,"type":"agentMessage","delivery":"async","phase":"final_answer","text":text,"questions":questions}});
         for _ in 0..2 {
             observe(db, server.instance_id(), 1, &params).unwrap();
@@ -63,12 +81,15 @@ async fn async_question_unsupported_shapes_preserve_context_once_across_replay()
                 .unwrap();
         }
         let key = store::occurrence_id("thread-b", "original", &id, 0).unwrap();
-        assert_eq!(store::get(db, &key).unwrap().state, "unsupported");
+        assert_eq!(
+            store::get(db, &key).unwrap().state,
+            if supported { "open" } else { "unsupported" }
+        );
     }
     server.close().await.unwrap();
     remote.stop.send(()).unwrap();
     let traffic = remote.task.await.unwrap();
-    for i in 0..4 {
+    for i in 0..7 {
         assert_eq!(
             traffic
                 .iter()
@@ -90,11 +111,24 @@ async fn async_question_unsupported_shapes_preserve_context_once_across_replay()
             .count(),
         4
     );
-    assert!(
-        traffic
-            .iter()
-            .all(|(_, b)| b["components"].as_array().is_none_or(Vec::is_empty))
-    );
+    let inputs: Vec<_> = traffic
+        .iter()
+        .flat_map(|(_, b)| {
+            b["components"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|row| row["components"].as_array().into_iter().flatten())
+        })
+        .collect();
+    assert_eq!(inputs.len(), 4);
+    assert!(inputs.iter().all(|input| {
+        input["label"] == "답변 입력"
+            && input["custom_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("codex_async_other:")
+    }));
     assert!(
         traffic
             .iter()

@@ -25,14 +25,15 @@ pub(crate) fn observe(
     else {
         return Ok(());
     };
-    let source_text = if parsed.questions.is_empty() {
+    let structured = !parsed.questions.is_empty();
+    let source_text = if structured {
+        parsed.text.clone()
+    } else {
         parsed.questions.push(async_questions::AsyncQuestion {
             title: parsed.text.clone(),
             options: vec![],
         });
         String::new()
-    } else {
-        parsed.text.clone()
     };
     let generation = i64::try_from(generation)
         .map_err(|_| CompletionWorkerError::Delivery("invalid question generation".into()))?;
@@ -50,6 +51,7 @@ pub(crate) fn observe(
                 turn_id: &parsed.turn_id,
                 item_id: &parsed.item_id,
                 body: &store::QuestionBody {
+                    free_text_only: structured && question.options.is_empty(),
                     index,
                     source_text: source_text.clone(),
                     title: question.title,
@@ -160,16 +162,24 @@ pub(crate) async fn deliver_one(
         let _ = write!(body, "\n{}. {option}", index + 1);
     }
     // Renderability does not alter question/final classification or erase its text.
-    let (rows, controls) = match cdr_discord::components::async_answer_rows(&q.id, &q.body.options)
-    {
+    let answer_rows = if q.body.options.is_empty() && !q.body.free_text_only {
+        Err(cdr_discord::components::ComponentError::Invalid)
+    } else {
+        cdr_discord::components::async_answer_rows(&q.id, &q.body.options)
+    };
+    let (rows, controls) = match answer_rows {
         Ok(rows) => (
             rows,
-            format!("질문 {}의 답변을 선택하세요.", q.body.index + 1),
+            if q.body.options.is_empty() {
+                format!("질문 {}의 답변을 입력하세요.", q.body.index + 1)
+            } else {
+                format!("질문 {}의 답변을 선택하세요.", q.body.index + 1)
+            },
         ),
         Err(error) => (
             vec![],
             format!(
-                "질문 {}: 선택 버튼을 만들 수 없습니다 ({error}). 자유 입력 또는 1~25개 범위를 벗어난 선택지는 이 버튼 경로에서 지원하지 않습니다. 새 메시지로 답해주세요.",
+                "질문 {}: 선택 버튼을 만들 수 없습니다 ({error}). 질문 형식 또는 선택지 개수를 지원하지 않습니다. 새 메시지로 답해주세요.",
                 q.body.index + 1
             ),
         ),
