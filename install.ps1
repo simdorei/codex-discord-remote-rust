@@ -105,8 +105,8 @@ if (-not $SkipBuild) {
             throw 'An installed runtime exists at the build destination; build externally and use verified deployment.'
         }
         Import-Module (Join-Path $ScriptDir 'scripts/CdrBuildProvenance.psm1') -Force
-        $null = Invoke-CdrRuntimeBuild -Root $ScriptDir -BinaryPath $canonical `
-            -CargoArguments @('build','--release','--locked','-p','cdr-runtime','--bin','cdr-runtime','--target-dir',(Join-Path $ScriptDir 'target'))
+        $null = Invoke-CdrRuntimeBuild -Root $ScriptDir -BinaryPath $buildOutput `
+            -CargoArguments @('build','--release','--locked','-p','cdr-runtime','--bin','cdr-runtime','--target-dir',$target)
     }
 }
 if (-not $DryRun -and -not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
