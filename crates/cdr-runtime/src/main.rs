@@ -20,6 +20,10 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<(), (u8, String)> {
     let raw_args: Vec<_> = std::env::args_os().skip(1).collect();
+    if raw_args.len() == 1 && raw_args[0] == "--build-info" {
+        println!("{}", cdr_runtime::build_info::JSON);
+        return Ok(());
+    }
     if raw_args.first().is_some_and(|arg| arg == "--admin") {
         let output = cdr_runtime::admin::run(raw_args.into_iter().skip(1))
             .await

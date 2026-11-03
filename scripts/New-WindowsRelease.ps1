@@ -12,6 +12,7 @@ Import-Module (Join-Path $PSScriptRoot 'CdrNativeProcess.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'CdrWindowsExecutable.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'CdrWindowsBundle.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'CdrReleasePayload.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'CdrBuildProvenance.psm1') -Force
 $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
 if (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path $repo $target }
 $built = [IO.Path]::GetFullPath((Join-Path $target 'x86_64-pc-windows-msvc\release'))
@@ -21,22 +22,23 @@ if (-not $SkipBuild -and $BinaryDirectory -ine $built) { throw 'Use -SkipBuild f
 $name = "codex-discord-remote-$Version-windows-x64"
 $archive = Join-Path $output ($name + '.zip')
 if ([IO.File]::Exists($archive) -or [IO.File]::Exists($archive + '.sha256')) { throw "Release already exists: $archive" }
-$commit = (& git -C $repo rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Could not identify release source commit' }
-$dirty = @(& git -C $repo status --porcelain).Count -gt 0
+$source = Get-CdrBuildSourceState $repo
+$commit = $source.Commit
+$dirty = $source.State -eq 'dirty'
 if ($dirty -and $Version -notmatch '-dev($|\.)') {
     throw 'Publishable releases require a clean source commit. Use a -dev version for local packaging tests.'
 }
 if (-not $SkipBuild) {
     Push-Location $repo
     try {
-        Invoke-CdrNative -Executable 'cargo' -Arguments @('build', '--release', '--locked', '--target',
+        $source = Invoke-CdrRuntimeBuild -Root $repo -BinaryPath (Join-Path $BinaryDirectory 'cdr-runtime.exe') -CargoArguments @('build', '--release', '--locked', '--target',
             'x86_64-pc-windows-msvc', '-p', 'cdr-runtime', '-p', 'cdr-pro', '--bin', 'cdr-runtime', '--bin', 'cdr-pro-helper') `
-            -TimeoutSeconds 3600 -EnvironmentOverrides @{
+            -EnvironmentOverrides @{
                 CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS='-C target-feature=+crt-static'; VSLANG='1033'
             }
     } finally { Pop-Location }
 }
+$embedded = Assert-CdrBuildSource -Path (Join-Path $BinaryDirectory 'cdr-runtime.exe') -Source $source
 foreach ($binary in @('cdr-runtime.exe', 'cdr-pro-helper.exe')) {
     Test-CdrWindowsExecutable -Path (Join-Path $BinaryDirectory $binary)
 }
@@ -51,7 +53,7 @@ try {
     $files = @(Get-ChildItem -LiteralPath $payload -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
         [ordered]@{path=$_.FullName.Substring($prefix.Length).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}
     })
-    $manifest = [ordered]@{schema_version=1; version=$Version; platform='windows-x64'; source_commit=$commit; source_tree_dirty=$dirty; files=$files}
+    $manifest = [ordered]@{schema_version=1; version=$Version; platform='windows-x64'; source_commit=$embedded.source_commit; source_tree_dirty=($embedded.source_state -eq 'dirty'); build_info=$embedded; files=$files}
     [IO.File]::WriteAllText((Join-Path $payload 'release-manifest.json'), ($manifest | ConvertTo-Json -Depth 5), $utf8)
     $null = Test-CdrWindowsBundle -Root $payload
     Add-Type -AssemblyName System.IO.Compression.FileSystem
