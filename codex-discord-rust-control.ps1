@@ -48,10 +48,96 @@ function Get-CdrArtifactHash {
     finally { $stream.Dispose(); $sha.Dispose() }
 }
 
+function Test-CdrOwnedCutoverState {
+    param(
+        [string]$Path,
+        $OwnedTransaction = $null,
+        [string]$OwnedIdentity = ''
+    )
+    if ($null -eq $OwnedTransaction -or [string]::IsNullOrWhiteSpace($OwnedIdentity)) {
+        return $false
+    }
+    $txIdProp = $OwnedTransaction.PSObject.Properties['TransactionId']
+    if ($null -eq $txIdProp -or [string]::IsNullOrWhiteSpace([string]$txIdProp.Value)) {
+        return $false
+    }
+    $expectedTxId = [string]$txIdProp.Value
+    $txOwnerProp = $OwnedTransaction.PSObject.Properties['OwnerIdentity']
+    $expectedTxOwner = if ($null -ne $txOwnerProp) { [string]$txOwnerProp.Value } else { '' }
+    if (-not [IO.File]::Exists($Path)) { return $false }
+    $values = @{}
+    try {
+        foreach ($line in [IO.File]::ReadAllLines($Path)) {
+            if ([string]$line -match '^([^=]+)=(.*)$') {
+                $values[[string]$Matches[1]] = [string]$Matches[2]
+            }
+        }
+    } catch {
+        return $false
+    }
+    foreach ($key in @('transaction_id', 'owner_identity', 'source_runtime', 'target_runtime', 'phase')) {
+        if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$values[$key])) {
+            return $false
+        }
+    }
+    if ([string]$values['source_runtime'] -cne 'rust' -or [string]$values['target_runtime'] -cne 'rust') {
+        return $false
+    }
+    if ([string]$values['transaction_id'] -cne $expectedTxId) {
+        return $false
+    }
+    $diskOwner = [string]$values['owner_identity']
+    if ($diskOwner -ceq $OwnedIdentity) {
+        return $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($expectedTxOwner) -and $diskOwner -ceq $expectedTxOwner) {
+        if ($diskOwner -match '^(\d+)\|(\d+)$') {
+            $priorPid = [int]$Matches[1]
+            $priorProc = $null
+            try {
+                $priorProc = Get-Process -Id $priorPid -ErrorAction Stop
+            } catch {
+                if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*' -or
+                    $_.CategoryInfo.Category -eq [Management.Automation.ErrorCategory]::ObjectNotFound -or
+                    $_.Exception.Message -match 'Cannot find a process with the process identifier') {
+                    return $true
+                }
+                return $false
+            }
+            if ($null -eq $priorProc) {
+                return $false
+            }
+            try {
+                if ($priorProc.PSObject.Properties['HasExited'] -and $priorProc.HasExited) {
+                    return $true
+                }
+                $ticks = $priorProc.StartTime.ToUniversalTime().Ticks
+                if ($ticks -le 0) { return $false }
+                $ticks -= ($ticks % 10)
+                if ("$priorPid|$ticks" -ceq $diskOwner) {
+                    return $false
+                }
+                return $true
+            } catch {
+                return $false
+            } finally {
+                if ($priorProc -is [IDisposable]) {
+                    $priorProc.Dispose()
+                }
+            }
+        }
+    }
+    return $false
+}
+
 # Caller holds the common control lock. Unrelated operations cannot adopt even
 # a prepared journal; the original recovery entry owns all journal phases.
 function Assert-CdrNoPendingRestart {
-    param([string]$Root)
+    param(
+        [string]$Root,
+        $OwnedCutoverTransaction = $null,
+        [string]$OwnedCutoverIdentity = ''
+    )
     Assert-CdrNoMaintenanceV2 -Root $Root
     foreach ($name in @('.codex_discord_rust.restart.launch',
         '.codex_discord_rust.force.launch',
@@ -62,6 +148,12 @@ function Assert-CdrNoPendingRestart {
         }
     }
     Assert-CdrNoOrphanRestartClaim -Root $Root
+    $cutoverPath = Join-Path $Root '.codex_discord_runtime.cutover'
+    if (Test-Path -LiteralPath $cutoverPath) {
+        if (-not (Test-CdrOwnedCutoverState -Path $cutoverPath -OwnedTransaction $OwnedCutoverTransaction -OwnedIdentity $OwnedCutoverIdentity)) {
+            throw 'Pending restart operation preserved (restart fence); unrelated maintenance refused'
+        }
+    }
 }
 
 function Assert-CdrNoMaintenanceV2 {

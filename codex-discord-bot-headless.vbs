@@ -5,6 +5,7 @@ Dim shell
 Dim scriptDir
 Dim target
 Dim tray
+Dim journalScript
 Dim logPath
 Dim logFile
 Dim stamp
@@ -15,6 +16,7 @@ Set shell = CreateObject("WScript.Shell")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 target = fso.BuildPath(scriptDir, "codex-discord-bot.cmd")
 tray = fso.BuildPath(scriptDir, "codex-discord-tray.ps1")
+journalScript = fso.BuildPath(scriptDir, "scripts\CdrLaunchJournal.ps1")
 logPath = fso.BuildPath(scriptDir, "discord_launcher.log")
 stamp = Year(Now) & "-" & Pad2(Month(Now)) & "-" & Pad2(Day(Now)) & "T" & Pad2(Hour(Now)) & ":" & Pad2(Minute(Now)) & ":" & Pad2(Second(Now))
 
@@ -28,9 +30,13 @@ Err.Clear
 On Error GoTo 0
 
 shell.CurrentDirectory = scriptDir
-shell.Run """" & target & """", 0, False
-If fso.FileExists(tray) Then
-    shell.Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Quote(tray), 0, False
+If fso.FileExists(journalScript) Then
+    shell.Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& { . " & PsSingleQuote(journalScript) & "; Invoke-CdrAppLaunch -RepoRoot " & PsSingleQuote(scriptDir) & " | Out-Null }""", 0, False
+Else
+    shell.Run """" & target & """", 0, False
+    If fso.FileExists(tray) Then
+        shell.Run "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Quote(tray), 0, False
+    End If
 End If
 
 Function Pad2(value)
@@ -43,4 +49,8 @@ End Function
 
 Function Quote(value)
     Quote = """" & value & """"
+End Function
+
+Function PsSingleQuote(value)
+    PsSingleQuote = "'" & Replace(value, "'", "''") & "'"
 End Function

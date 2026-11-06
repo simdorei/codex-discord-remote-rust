@@ -2,6 +2,7 @@
 param(
     [string]$RepoRoot,
     [switch]$DryRun,
+    [switch]$SkipWatchdogTask,
     [string]$BotId = '123456789012345678',
     [string]$BinaryPath
 )
@@ -45,7 +46,7 @@ function Register-DiscordWatchdogTask {
         -RepetitionInterval (New-TimeSpan -Minutes 1) `
         -RepetitionDuration (New-TimeSpan -Days 3650)
     $settings = New-ScheduledTaskSettingsSet `
-        -MultipleInstances IgnoreNew `
+        -MultipleInstances Parallel `
         -StartWhenAvailable `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
@@ -88,4 +89,6 @@ if ($DryRun) {
         $secureToken.Dispose()
     }
 }
-Register-DiscordWatchdogTask
+if (-not $SkipWatchdogTask) {
+    Register-DiscordWatchdogTask
+}

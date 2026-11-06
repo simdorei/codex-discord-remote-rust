@@ -3,17 +3,44 @@
 # while its owner is alive. The normal watchdog resumes an interrupted launch.
 function Test-CdrCallerInsideRuntime {
     param([string]$Identity)
-    if ($Identity -notmatch '^(\d+)\|(\d+)$') { return $false }
-    $runtimePid=[int]$Matches[1]; $runtimeTicks=[long]$Matches[2]
-    $inventory=@(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate)
-    $cursor=$inventory | Where-Object ProcessId -eq $PID | Select-Object -First 1
-    for ($i=0; $i -lt 64 -and $null -ne $cursor; $i++) {
-        if ($cursor.ProcessId -eq $runtimePid) {
-            return [math]::Abs(($cursor.CreationDate.ToUniversalTime().Ticks - $runtimeTicks)) -le 10
+    $runtimePid = 0
+    $runtimeTicks = [long]0
+    if ($Identity -match '^(\d+)\|(\d+)$') {
+        $runtimePid = [int]$Matches[1]
+        $runtimeTicks = [long]$Matches[2]
+    }
+    $mcpPid = 0
+    $mcpTicks = [long]0
+    if ($RepoRoot -and (Get-Command Get-CdrComponentObservation -ErrorAction SilentlyContinue)) {
+        try {
+            $mcpObs = Get-CdrComponentObservation -RepoRoot $RepoRoot -Component 'mcp'
+            if ($mcpObs.State -eq 'running' -and $mcpObs.ProcessIdentity -match '^(\d+)\|(\d+)$') {
+                $mcpPid = [int]$Matches[1]
+                $mcpTicks = [long]$Matches[2]
+            }
+        } catch { }
+    }
+    $inventory = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate,Name,ExecutablePath)
+    $cursor = $inventory | Where-Object ProcessId -eq $PID | Select-Object -First 1
+    for ($i = 0; $i -lt 64 -and $null -ne $cursor; $i++) {
+        if ($runtimePid -gt 0 -and $cursor.ProcessId -eq $runtimePid) {
+            if ([math]::Abs(($cursor.CreationDate.ToUniversalTime().Ticks - $runtimeTicks)) -le 10) {
+                return $true
+            }
         }
-        $parent=$inventory | Where-Object ProcessId -eq $cursor.ParentProcessId | Select-Object -First 1
+        if ($mcpPid -gt 0 -and $cursor.ProcessId -eq $mcpPid) {
+            if ([math]::Abs(($cursor.CreationDate.ToUniversalTime().Ticks - $mcpTicks)) -le 10) {
+                return $true
+            }
+        }
+        $cursorName = if ($cursor.PSObject.Properties['Name'] -and $cursor.Name) { [string]$cursor.Name } else { '' }
+        $cursorExe = if ($cursor.PSObject.Properties['ExecutablePath'] -and $cursor.ExecutablePath) { [IO.Path]::GetFileName([string]$cursor.ExecutablePath) } else { '' }
+        if ($cursorName -ieq 'cdr-remote-agent.exe' -or $cursorExe -ieq 'cdr-remote-agent.exe') {
+            return $true
+        }
+        $parent = $inventory | Where-Object ProcessId -eq $cursor.ParentProcessId | Select-Object -First 1
         if ($null -eq $parent -or $parent.CreationDate -gt $cursor.CreationDate) { return $false }
-        $cursor=$parent
+        $cursor = $parent
     }
     return $false
 }

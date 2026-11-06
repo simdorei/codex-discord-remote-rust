@@ -26,6 +26,10 @@ $BinaryPath = [IO.Path]::GetFullPath(
     (Join-Path $RepoRoot 'target\release\cdr-runtime.exe')
 )
 Import-Module (Join-Path $RepoRoot 'scripts/CdrRuntimeIdentity.psm1') -Force
+$cdrLaunchJournalScript = Join-Path $RepoRoot 'scripts/CdrLaunchJournal.ps1'
+if ([IO.File]::Exists($cdrLaunchJournalScript)) {
+    . $cdrLaunchJournalScript
+}
 # Capture once, before any deferred/independent handoff or readiness wait.
 $artifact=Get-CdrRuntimeArtifact $BinaryPath $ExpectedBinaryHash $ExpectedSourceCommit
 $ExpectedBinaryHash=$artifact.ArtifactHash
@@ -118,6 +122,10 @@ function Invoke-BoundRustRestart {
     }
     if ($EffectiveDelaySeconds -gt 0) {
         Start-Sleep -Seconds $EffectiveDelaySeconds
+    }
+    if ((Get-Command Test-CdrManualStopRequested -ErrorAction SilentlyContinue) -and
+        (Test-CdrManualStopRequested -RepoRoot $RepoRoot -Component 'bot')) {
+        throw 'Manual stop intent became active during restart delay; restart aborted'
     }
     if ((Get-VerifiedRustIdentity) -ne $Identity) {
         throw 'restart no longer matches the requested Rust process'
@@ -222,9 +230,10 @@ $command = (
     "-ExpectedBinaryHash '$ExpectedBinaryHash' -ExpectedSourceCommit '$ExpectedSourceCommit' " +
     "-QuietSeconds $EffectiveQuietSeconds -WaitTimeoutSeconds $WaitTimeoutSeconds"
 )
-Start-Process -FilePath 'powershell.exe' `
+Start-CdrDetachedProcess -FilePath 'powershell.exe' `
     -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $command) `
-    -WindowStyle Hidden
+    -WorkingDirectory $RepoRoot `
+    -WindowStyle 'Hidden' | Out-Null
 Write-Output (
     "restart_queued: runtime=rust delay_seconds=$EffectiveDelaySeconds " +
     "quiet_seconds=$EffectiveQuietSeconds wait_timeout_seconds=$WaitTimeoutSeconds"

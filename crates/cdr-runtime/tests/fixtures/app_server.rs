@@ -56,6 +56,36 @@ pub fn run() -> Result {
     }
 }
 
+#[allow(dead_code)]
+pub fn run_standalone_double() -> Result {
+    let log_path = std::env::var_os("CDR_ACTION_RPC_LOG").map(std::path::PathBuf::from);
+    for line in std::io::stdin().lock().lines() {
+        let request: Value = serde_json::from_str(&line?)?;
+        if let Some(log) = &log_path {
+            let _ = append(log, &request);
+        }
+        let Some(id) = request.get("id") else {
+            continue;
+        };
+        let thread = request["params"]["threadId"].as_str().unwrap_or("thread-1");
+        let result = match method(&request) {
+            "initialize" => json!({"userAgent": "standalone-double/1"}),
+            "model/list" => {
+                json!({"data": [{"model": "gpt-5.4", "displayName": "GPT-5.4", "supportedReasoningEfforts": [{"reasoningEffort": "high"}]}]})
+            }
+            "experimentalFeature/list" => json!({"data": []}),
+            "thread/read" | "thread/resume" => {
+                json!({"thread": {"id": thread, "updatedAt": 1, "status": {"type": "notLoaded"}, "turns": []}})
+            }
+            "thread/start" => json!({"thread": {"id": "new-thread", "turns": []}}),
+            "turn/start" => json!({"turn": {"id": "turn-1", "status": "inProgress"}}),
+            _ => json!({}),
+        };
+        emit(&json!({"id": id, "result": result}))?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 enum Logging {
     All,

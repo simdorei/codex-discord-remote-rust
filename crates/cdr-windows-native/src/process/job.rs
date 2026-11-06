@@ -97,6 +97,11 @@ pub fn kill(job: &OwnedHandle) -> Result<(), NativeError> {
 }
 
 fn create_and_assign(process: &OwnedHandle) -> Result<OwnedHandle, NativeError> {
+    // Ordinary terminal children are strictly bound to an unnamed Job Object with
+    // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so they never leak when a command finishes,
+    // times out, or is cancelled. Bot/MCP lifecycle control scripts intentionally
+    // escape this Job Object by delegating detached daemon launches to WMI
+    // Win32_Process.Create (WmiPrvSE.exe).
     // SAFETY: null security attributes and name request an unnamed Job Object.
     let raw_job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
     let job = OwnedHandle::new(raw_job).ok_or_else(|| api_error("CreateJobObjectW"))?;

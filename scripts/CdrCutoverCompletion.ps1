@@ -27,7 +27,7 @@ function Complete-CutoverState {
     param($Transaction)
     $control = Enter-CdrControl -Root $RepoRoot
     try {
-        Assert-CdrNoPendingRestart -Root $RepoRoot
+        Assert-CdrNoPendingRestart -Root $RepoRoot -OwnedCutoverTransaction $Transaction -OwnedCutoverIdentity $CutoverIdentity
         foreach ($name in @('.codex_discord_rust.stop', '.codex_discord_bot.stop')) {
             if (Test-Path -LiteralPath (Join-Path $RepoRoot $name)) {
                 throw 'New maintenance intent prevents cutover completion'

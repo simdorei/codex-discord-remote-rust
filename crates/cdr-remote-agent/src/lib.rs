@@ -16,3 +16,5 @@ pub mod restart_handoff;
 pub mod runner;
 pub mod status;
 pub mod terminal;
+
+pub use cdr_remote_protocol as protocol;

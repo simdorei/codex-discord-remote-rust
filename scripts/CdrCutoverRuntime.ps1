@@ -125,7 +125,7 @@ function Backup-Store {
 function Stop-Rust {
     $control = Enter-CdrControl -Root $RepoRoot
     try {
-        Assert-CdrNoPendingRestart -Root $RepoRoot
+        Assert-CdrNoPendingRestart -Root $RepoRoot -OwnedCutoverTransaction $script:CdrOwnedCutoverTransaction -OwnedCutoverIdentity $CutoverIdentity
         if ($null -eq (Get-VerifiedRustProcess)) { return }
         $script:CutoverStopText = "cutover_stop_owner=$CutoverIdentity`n"
         Write-NewCdrMarker -Path $RustStop -Text $script:CutoverStopText
@@ -148,7 +148,7 @@ function Start-Rust {
         if (Test-Path -LiteralPath $RustRestart) {
             throw 'Existing restart fence preserved; cutover startup refused'
         }
-        Assert-CdrNoPendingRestart -Root $RepoRoot
+        Assert-CdrNoPendingRestart -Root $RepoRoot -OwnedCutoverTransaction $script:CdrOwnedCutoverTransaction -OwnedCutoverIdentity $CutoverIdentity
         if (Test-Path -LiteralPath $RustStop) {
             if ([string]::IsNullOrWhiteSpace($script:CutoverStopText)) {
                 throw 'Unowned stop marker preserved; cutover startup refused'
@@ -157,7 +157,15 @@ function Start-Rust {
             [IO.File]::Delete($RustStop)
         }
     } finally { $control.Dispose() }
-    & $RustWatchdog -RepoRoot $RepoRoot -BinaryPath $BinaryPath -EnvPath $EnvPath
+    $txId = if ($null -ne $script:CdrOwnedCutoverTransaction -and $script:CdrOwnedCutoverTransaction.PSObject.Properties['TransactionId']) {
+        [string]$script:CdrOwnedCutoverTransaction.TransactionId
+    } else { '' }
+    $watchdogCmd = Get-Command -Name $RustWatchdog -ErrorAction SilentlyContinue
+    if (-not [string]::IsNullOrWhiteSpace($txId) -and ($null -eq $watchdogCmd -or $null -eq $watchdogCmd.Parameters -or $watchdogCmd.Parameters.Count -eq 0 -or $watchdogCmd.Parameters.ContainsKey('OwnedCutoverTransactionId'))) {
+        & $RustWatchdog -RepoRoot $RepoRoot -BinaryPath $BinaryPath -EnvPath $EnvPath -OwnedCutoverTransactionId $txId
+    } else {
+        & $RustWatchdog -RepoRoot $RepoRoot -BinaryPath $BinaryPath -EnvPath $EnvPath
+    }
     if ($LASTEXITCODE -ne 0 -or $null -eq (Get-VerifiedRustProcess)) {
         throw 'Rust watchdog did not start a verified runtime.'
     }

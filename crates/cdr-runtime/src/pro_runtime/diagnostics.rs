@@ -43,6 +43,15 @@ pub(super) fn connection_failure() -> ProError {
     )
 }
 
+pub(super) fn external_connection_failure(detail: &str) -> ProError {
+    failure(
+        DiagnosticCode::RemoteMcpConnectionFailed,
+        "The local PC connection did not become ready.",
+        "Verify the standalone remote MCP runtime is running and connected, then retry !pro.",
+        detail,
+    )
+}
+
 pub(super) fn restart_failure(mut error: ProError, source: &AppServerError) -> ProError {
     let ProError::Preflight(diagnostic) = &mut error;
     let _ = write!(

@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::time::Duration;
 
-use cdr_remote_agent::config::{ConfigError as RemoteConfigError, RemoteMcpConfig};
+pub use cdr_remote_agent::config::{
+    ConfigError as RemoteConfigError, RemoteMcpConfig, RemoteMcpOwnership,
+};
 use thiserror::Error;
 
 const FALSE_VALUES: [&str; 4] = ["0", "false", "no", "off"];

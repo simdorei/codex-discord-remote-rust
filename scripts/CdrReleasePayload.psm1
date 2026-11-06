@@ -31,7 +31,7 @@ function Copy-CdrReleasePayload {
         [IO.File]::Copy($source, $target, $false)
     }
     $null = [IO.Directory]::CreateDirectory((Join-Path $Destination 'bin'))
-    foreach ($name in @('cdr-runtime.exe', 'cdr-pro-helper.exe')) {
+    foreach ($name in @('cdr-runtime.exe', 'cdr-remote-agent.exe', 'cdr-pro-helper.exe')) {
         [IO.File]::Copy((Join-Path $BinaryDirectory $name), (Join-Path $Destination ('bin\' + $name)), $false)
     }
 }

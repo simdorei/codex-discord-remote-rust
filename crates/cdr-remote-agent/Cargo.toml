@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "cdr-remote-agent"
+path = "src/main.rs"
+
+[build-dependencies]
+serde_json.workspace = true
+
 [dependencies]
 base64.workspace = true
 cdr-core.workspace = true

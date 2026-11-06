@@ -50,5 +50,98 @@ switch ($CaseName) {
         $script:CutoverStopText=$null
         if(Test-Path $RustStop){throw 'next invocation would be blocked'}
     }
+    'test_owned_cutover_startup_handoff_and_unobservable_prior_owner_guard' {
+        $CutoverStatePath = Join-Path $RepoRoot '.codex_discord_runtime.cutover'
+        $oldIdentity = '2147483000|1234560'
+        $tx = [pscustomobject]@{ TransactionId = 'owned-test-tx'; OwnerIdentity = $oldIdentity; SourceRuntime = 'rust'; TargetRuntime = 'rust'; Phase = 'target_starting' }
+        [IO.File]::WriteAllText($CutoverStatePath, "transaction_id=owned-test-tx`nowner_identity=$oldIdentity`nsource_runtime=rust`ntarget_runtime=rust`nphase=target_starting`n")
+        function Get-Process {
+            [CmdletBinding()]
+            param([int]$Id)
+            Write-Error 'simulated process observation access denied' -Category PermissionDenied
+        }
+        $acceptedUnknown = Test-CdrOwnedCutoverState -Path $CutoverStatePath -OwnedTransaction $tx -OwnedIdentity '123|999'
+        Remove-Item Function:Get-Process
+        if ($acceptedUnknown) { throw 'unobservable prior owner was accepted as exited' }
+
+        $self = [Diagnostics.Process]::GetCurrentProcess()
+        try {
+            $ticks = $self.StartTime.ToUniversalTime().Ticks
+            $ticks -= ($ticks % 10)
+            $CutoverIdentity = "$PID|$ticks"
+        } finally {
+            $self.Dispose()
+        }
+        $BinaryPath = Join-Path $RepoRoot 'fixture-bot.exe'
+        $EnvPath = Join-Path $RepoRoot '.env'
+        [IO.File]::WriteAllText($BinaryPath, 'fixture')
+        [IO.File]::WriteAllText($EnvPath, "DISCORD_BOT_TOKEN=x`n")
+        $activeTx = [pscustomobject]@{ TransactionId = 'active-cutover-tx'; OwnerIdentity = $CutoverIdentity; SourceRuntime = 'rust'; TargetRuntime = 'rust'; Phase = 'target_starting' }
+        Set-CutoverPhase -Transaction $activeTx -Phase 'target_starting'
+
+        $RustWatchdog = Join-Path $RepoRoot 'real-watchdog-boundary.ps1'
+        $watchdogBoundaryCode = @'
+[CmdletBinding()]
+param(
+    [string]$RepoRoot,
+    [string]$BinaryPath,
+    [string]$EnvPath,
+    [string]$OwnedCutoverTransactionId = ''
+)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $env:PUBLISH_SOURCE 'codex-discord-rust-control.ps1')
+$watchdogProcess = [Diagnostics.Process]::GetCurrentProcess()
+try {
+    $watchdogTicks = $watchdogProcess.StartTime.ToUniversalTime().Ticks
+    $watchdogTicks -= ($watchdogTicks % 10)
+} finally {
+    $watchdogProcess.Dispose()
+}
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $env:PUBLISH_SOURCE 'codex-discord-rust-watchdog.ps1'), [ref]$tokens, [ref]$errors)
+$startFn = $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Start-RustRuntime' }, $false) | Select-Object -First 1
+Invoke-Expression $startFn.Extent.Text
+function Get-CdrRuntimeArtifact { param($Path, $Hash, $Commit) [pscustomobject]@{ ArtifactHash = '0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF'; RequireStartupRecord = $false; BuildInfo = $null } }
+function Get-CdrRuntimeArtifactPin { param($Path, $Hash) [pscustomobject]@{} | Add-Member ScriptMethod Dispose {} -PassThru }
+function Invoke-CdrProductionCheckedLaunch { param($DeadlineUtc, [scriptblock]$Launch) & $Launch }
+function Enter-CdrIntentLock { param($RepoRoot, $TimeoutMs) $null }
+function Exit-CdrIntentLock { param($Lock) }
+function Set-CdrLaunchStarting { [IO.File]::WriteAllText((Join-Path $RepoRoot 'handoff-admitted.txt'), $OwnedCutoverTransactionId) }
+function Start-CdrDetachedProcess { [pscustomobject]@{ Id = 77; HasExited = $false } }
+function Set-CdrLaunchChild { param($Process) }
+function Get-VerifiedRuntimeProcess { [pscustomobject]@{ Id = 77 } }
+function Get-RustProcessIdentity { param($Process) '77|99' }
+function Wait-CdrReplacementReady { param($ExpectedIdentity, $Artifact, $TimeoutSeconds) }
+function Write-RustWatchdogLog { param($Message) }
+$controlGuard = Enter-CdrControl -Root $RepoRoot -Purpose 'watchdog'
+try {
+    Start-RustRuntime
+} finally {
+    $controlGuard.Dispose()
+}
+exit 0
+'@
+        [IO.File]::WriteAllText($RustWatchdog, $watchdogBoundaryCode)
+        function Get-VerifiedRustProcess {
+            if ([IO.File]::Exists((Join-Path $RepoRoot 'handoff-admitted.txt'))) {
+                return [pscustomobject]@{ Id = 77 }
+            }
+            return $null
+        }
+        Start-Rust
+        if ([IO.File]::ReadAllText((Join-Path $RepoRoot 'handoff-admitted.txt')).Trim() -cne 'active-cutover-tx') {
+            throw 'owned cutover transaction id was not handed off across & $RustWatchdog'
+        }
+        [IO.File]::Delete((Join-Path $RepoRoot 'handoff-admitted.txt'))
+        $unownedRejected = $false
+        try {
+            & $RustWatchdog -RepoRoot $RepoRoot -BinaryPath $BinaryPath -EnvPath $EnvPath
+        } catch {
+            if ($_.Exception.Message -match 'mcp_cutover_pending') { $unownedRejected = $true } else { throw }
+        }
+        if (-not $unownedRejected) {
+            throw 'watchdog launch without explicit OwnedCutoverTransactionId bypassed cutover fence'
+        }
+    }
     default { throw "Unknown cutover fixture: $CaseName" }
 }

@@ -18,10 +18,30 @@ mod client;
 mod io;
 pub mod workers;
 pub use client::{connect_and_serve, connect_and_serve_until, connect_and_serve_until_with_status};
-use io::{receive_gateway, send_json};
+use io::{GatewayFrame, receive_gateway, receive_gateway_frame, send_json, send_ping};
 
 const MAX_WORKERS: usize = 4;
 const MAX_PENDING: usize = 16;
+const DEFAULT_BRIDGE_PING_INTERVAL_MS: u64 = 1_500;
+const DEFAULT_BRIDGE_LIVENESS_TIMEOUT_MS: u64 = 4_500;
+
+fn bridge_ping_interval() -> std::time::Duration {
+    let ms = std::env::var("CDR_REMOTE_MCP_PING_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&v| (100..=30_000).contains(&v))
+        .unwrap_or(DEFAULT_BRIDGE_PING_INTERVAL_MS);
+    std::time::Duration::from_millis(ms)
+}
+
+fn bridge_liveness_timeout() -> std::time::Duration {
+    let ms = std::env::var("CDR_REMOTE_MCP_LIVENESS_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&v| (200..=60_000).contains(&v))
+        .unwrap_or(DEFAULT_BRIDGE_LIVENESS_TIMEOUT_MS);
+    std::time::Duration::from_millis(ms)
+}
 
 #[derive(Debug, Error)]
 pub enum BridgeError {
@@ -35,6 +55,8 @@ pub enum BridgeError {
     DuplicateHello,
     #[error("the bridge connection timed out")]
     ConnectTimeout,
+    #[error("the bridge peer stopped responding within the liveness deadline")]
+    LivenessTimeout,
     #[error("the device authorization token is not a valid HTTP header value")]
     InvalidAuthorization,
     #[error("local bridge generation error: {0}")]
@@ -75,7 +97,7 @@ where
     serve_socket_until_with_status(socket, device_id, dispatcher, generation, shutdown, None).await
 }
 
-async fn serve_socket_until_with_status<S>(
+pub async fn serve_socket_until_with_status<S>(
     mut socket: WebSocketStream<S>,
     device_id: &str,
     dispatcher: Arc<LocalProjectDispatcher>,
@@ -142,8 +164,12 @@ where
         cancelled,
         &mut workers,
         shutdown,
+        status,
     )
     .await;
+    if let Some(status) = status {
+        status.set_disconnected();
+    }
     let _ = cancel.send(true);
     while let Some(completed) = workers.join_next().await {
         if let Err(error) = completed
@@ -162,10 +188,17 @@ async fn serve_commands<S>(
     cancelled: watch::Receiver<bool>,
     workers: &mut BoundedWorkers<BridgeResult>,
     shutdown: &mut watch::Receiver<bool>,
+    status: Option<&RemoteAgentStatus>,
 ) -> Result<(), BridgeError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    let ping_every = bridge_ping_interval();
+    let liveness_timeout = bridge_liveness_timeout();
+    let mut ping_interval =
+        tokio::time::interval_at(tokio::time::Instant::now() + ping_every, ping_every);
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_inbound_at = tokio::time::Instant::now();
     loop {
         tokio::select! {
             changed = shutdown.changed() => {
@@ -179,25 +212,46 @@ where
                     .map_err(|error| BridgeError::Worker(error.to_string()))?;
                 send_json(socket, &BridgeInboundMessage::Result(result)).await?;
             }
-            message = receive_gateway(socket, false) => {
-                let Some(message) = message? else {
-                    return Ok(());
-                };
-                match message {
-                    GatewayInboundMessage::HelloAck { .. } => {
-                        return Err(BridgeError::DuplicateHello);
+            () = tokio::time::sleep_until(last_inbound_at + liveness_timeout) => {
+                if let Some(status) = status {
+                    status.set_disconnected();
+                }
+                return Err(BridgeError::LivenessTimeout);
+            }
+            _ = ping_interval.tick() => {
+                send_ping(socket).await?;
+            }
+            frame = receive_gateway_frame(socket, false) => {
+                match frame? {
+                    GatewayFrame::Closed => return Ok(()),
+                    GatewayFrame::ControlAck => {
+                        last_inbound_at = tokio::time::Instant::now();
+                        if let Some(status) = status {
+                            status.record_bridge_inbound(generation);
+                        }
                     }
-                    GatewayInboundMessage::ProjectAck { .. } => {}
-                    GatewayInboundMessage::Command(command) => {
-                        submit_command(
-                            socket,
-                            dispatcher,
-                            generation,
-                            cancelled.clone(),
-                            workers,
-                            command,
-                        )
-                        .await?;
+                    GatewayFrame::Message(message) => {
+                        last_inbound_at = tokio::time::Instant::now();
+                        if let Some(status) = status {
+                            status.record_bridge_inbound(generation);
+                        }
+                        match message {
+                            GatewayInboundMessage::HelloAck { .. } => {
+                                return Err(BridgeError::DuplicateHello);
+                            }
+                            GatewayInboundMessage::ProjectAck { .. } => {}
+                            GatewayInboundMessage::Command(command) => {
+                                submit_command(
+                                    socket,
+                                    dispatcher,
+                                    generation,
+                                    cancelled.clone(),
+                                    workers,
+                                    command,
+                                )
+                                .await?;
+                            }
+                        }
                     }
                 }
             }

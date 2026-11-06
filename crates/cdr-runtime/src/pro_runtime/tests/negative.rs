@@ -112,3 +112,138 @@ async fn ordinary_text_does_not_require_pro_plugins_or_remote_connection() {
     );
     server.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn external_ownership_mode_ignores_embedded_status_and_requires_verified_external_status() {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Arc::new(
+        crate::test_support::app_fixture::start_fake_server(&temp, &temp.path().join("rpc.jsonl"))
+            .await,
+    );
+    let connected = connection::Connection::start().await;
+    let mut external_config = connected.config.clone();
+    external_config.ownership = cdr_remote_agent::config::RemoteMcpOwnership::External;
+    let pro = ProPromptRuntime::capture(
+        temp.path().to_owned(),
+        temp.path().join("absent.sqlite"),
+        plugins::installed(temp.path()),
+        server.clone(),
+        Some(external_config),
+        connected.status.clone(),
+    )
+    .await;
+    let err = pro
+        .prepare("!pro external status missing", "thread-b")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("connection did not become ready"), "{err}");
+    connected.close().await;
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn external_ownership_mode_rejects_fresh_process_heartbeat_when_bridge_connection_liveness_is_stale()
+ {
+    let temp = tempfile::tempdir().unwrap();
+    let server = Arc::new(
+        crate::test_support::app_fixture::start_fake_server(&temp, &temp.path().join("rpc.jsonl"))
+            .await,
+    );
+
+    let connected = connection::Connection::start().await;
+    let mut external_config = connected.config.clone();
+    external_config.ownership = cdr_remote_agent::config::RemoteMcpOwnership::External;
+
+    let current_exe = std::env::current_exe().unwrap();
+    let pid = std::process::id();
+    let process_identity = cdr_windows_native::current_process_identity().unwrap();
+    let exe_sha = cdr_remote_agent::status::sha256_file_hex(&current_exe).unwrap();
+
+    let maint_dir = temp.path().join(".cdr-maintenance");
+    std::fs::create_dir_all(&maint_dir).unwrap();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    std::fs::write(
+        maint_dir.join("mcp-ownership-state.json"),
+        serde_json::json!({
+            "schema_version": 1,
+            "mode": "external",
+            "state": "committed",
+            "committed": true,
+            "owner_pid": pid,
+            "owner_identity": process_identity,
+            "updated_at_ms": now_ms,
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let bot_data = temp.path().join("bot_data");
+    std::fs::create_dir_all(&bot_data).unwrap();
+    let status_path = bot_data.join("remote_mcp_status.json");
+    let stale_conn_ms = now_ms - 8_000;
+    let stale_record = cdr_remote_agent::status::ExternalMcpStatusRecord {
+        schema_version: cdr_remote_agent::status::EXTERNAL_MCP_STATUS_SCHEMA_VERSION,
+        component: "mcp".into(),
+        install_root: cdr_remote_agent::status::normalize_install_root(temp.path()),
+        process_identity: process_identity.clone(),
+        pid,
+        executable_path: current_exe.display().to_string(),
+        artifact_sha256: exe_sha,
+        build_info: cdr_remote_agent::status::ExternalMcpBuildInfo {
+            schema_version: 1,
+            package_version: "0.1.0".into(),
+            source_commit: None,
+            source_tree: None,
+            source_state: "clean".into(),
+        },
+        // Simulate a live local process rewriting heartbeat_at_ms every second while bridge connection is stale
+        updated_at_ms: stale_conn_ms,
+        heartbeat_at_ms: now_ms,
+        connection_verified_at_ms: Some(stale_conn_ms),
+        device_id: external_config.device_id.clone(),
+        bridge_fingerprint: external_config.bridge_fingerprint(),
+        hello_ack: true,
+        ready: true,
+        draining: false,
+        generation: 1,
+    };
+    cdr_remote_agent::status::write_external_mcp_status_atomic(&status_path, &stale_record)
+        .unwrap();
+
+    let pro = ProPromptRuntime::capture(
+        temp.path().to_owned(),
+        temp.path().join("state.sqlite"),
+        plugins::installed(temp.path()),
+        server.clone(),
+        Some(external_config),
+        connected.status.clone(),
+    )
+    .await;
+
+    let err = pro
+        .prepare(
+            "!pro stale bridge connection with fresh heartbeat",
+            "thread-b",
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("connection did not become ready"), "{err}");
+
+    // Even if updated_at_ms were spoofed to now_ms while connection_verified_at_ms is stale, !pro must still refuse
+    let mut spoofed_updated = stale_record.clone();
+    spoofed_updated.updated_at_ms = chrono::Utc::now().timestamp_millis();
+    spoofed_updated.heartbeat_at_ms = spoofed_updated.updated_at_ms;
+    cdr_remote_agent::status::write_external_mcp_status_atomic(&status_path, &spoofed_updated)
+        .unwrap();
+    let err2 = pro
+        .prepare("!pro stale connection_verified_at_ms", "thread-b")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err2.contains("connection did not become ready"), "{err2}");
+
+    connected.close().await;
+    server.close().await.unwrap();
+}

@@ -71,6 +71,7 @@ impl ManagedRemoteAgent {
         )
         .await;
         if self.control.restart_handoff_requested() {
+            self.status.mark_draining();
             let now = Utc::now();
             let prepared = self
                 .handoff
@@ -81,6 +82,7 @@ impl ManagedRemoteAgent {
                 eprintln!("remote_mcp_restart_handoff_prepared projects={count}");
             }
         }
+        self.status.mark_shutting_down();
         Ok(())
     }
 }

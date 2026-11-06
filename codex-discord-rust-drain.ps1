@@ -71,13 +71,16 @@ function Test-RestartDrainFenceMatch {
 }
 
 function Write-AtomicRestartMarker {
-    param([string]$Path, [string]$Text)
+    param([string]$Path, [string]$Text, [scriptblock]$OnBeforePublish = $null)
     $temporary = Join-Path ([IO.Path]::GetDirectoryName($Path)) (
         '.' + [IO.Path]::GetFileName($Path) + '.tmp.' + [guid]::NewGuid().ToString('N')
     )
     $utf8NoBom = [Text.UTF8Encoding]::new($false)
     try {
         [IO.File]::WriteAllText($temporary, $Text, $utf8NoBom)
+        if ($null -ne $OnBeforePublish) {
+            & $OnBeforePublish $Path $temporary $Text
+        }
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             [IO.File]::Replace($temporary, $Path, [System.Management.Automation.Language.NullString]::Value)
         } else {
@@ -115,6 +118,7 @@ function Enter-RestartDrain {
     }
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastMcpTick = [DateTime]::MinValue
     do {
         if ((Get-VerifiedRuntimeIdentity) -ne $ExpectedProcessIdentity) {
             throw 'Rust process changed while waiting for restart drain acknowledgement.'
@@ -128,6 +132,11 @@ function Enter-RestartDrain {
         if (Test-RestartDrainFenceMatch -Left $ack -Right $fence) { return $fence }
         if ($null -ne $ack) {
             throw 'Restart drain acknowledgement does not match the active prepare nonce.'
+        }
+        if (((Get-Date) - $lastMcpTick).TotalMilliseconds -ge 1000 -and
+            (Get-Command Invoke-CdrMcpWatchdog -ErrorAction SilentlyContinue)) {
+            $lastMcpTick = Get-Date
+            try { Invoke-CdrMcpWatchdog -RepoRoot $RepoRoot | Out-Null } catch { }
         }
         Start-Sleep -Milliseconds 100
     } while ((Get-Date) -lt $deadline)

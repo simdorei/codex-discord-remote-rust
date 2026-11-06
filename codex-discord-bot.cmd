@@ -4,26 +4,38 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 set "DISABLE_FILE=%SCRIPT_DIR%.codex_discord_bot.disabled"
 set "LAUNCHER_LOG_PATH=%SCRIPT_DIR%discord_launcher.log"
-if not exist "%DISABLE_FILE%" goto runtime_selection
-echo Codex Discord bot launch is disabled by marker: "%DISABLE_FILE%"
-set "LAUNCHER_LOG_MESSAGE=direct_launch_disabled marker=%DISABLE_FILE%"
-call :log_launcher
-exit /b 0
-
-:runtime_selection
 set "SCRIPT_ARGS=%*"
 set "ENV_FILE=%SCRIPT_DIR%.env"
 set "RUNTIME_MODE=%CODEX_DISCORD_RUNTIME%"
 set "RUNTIME_MODE_FILE=%SCRIPT_DIR%.codex_discord_runtime"
 if not defined RUNTIME_MODE if exist "%RUNTIME_MODE_FILE%" set /p RUNTIME_MODE=<"%RUNTIME_MODE_FILE%"
 if not defined RUNTIME_MODE set "RUNTIME_MODE=rust"
-if /I "%RUNTIME_MODE%"=="rust" goto run_rust
+if /I "%RUNTIME_MODE%"=="rust" goto mode_ok
 echo ERROR: This installation only supports the Rust runtime.
 echo Unsupported runtime selection: "%RUNTIME_MODE%".
 exit /b 1
 
-:run_rust
+:mode_ok
 set "RUST_BINARY=%SCRIPT_DIR%target\release\cdr-runtime.exe"
+if not exist "%RUST_BINARY%" if exist "%SCRIPT_DIR%bin\win-x64\cdr-runtime.exe" set "RUST_BINARY=%SCRIPT_DIR%bin\win-x64\cdr-runtime.exe"
+if /I "%~1"=="--app-launch" goto app_launch
+if "%~1"=="" goto app_launch
+if not exist "%DISABLE_FILE%" goto run_rust
+echo Codex Discord bot launch is disabled by marker: "%DISABLE_FILE%"
+set "LAUNCHER_LOG_MESSAGE=direct_launch_disabled marker=%DISABLE_FILE%"
+call :log_launcher
+exit /b 0
+
+:app_launch
+if exist "%DISABLE_FILE%" (
+  echo Codex Discord bot launch is disabled by marker: "%DISABLE_FILE%"
+  set "LAUNCHER_LOG_MESSAGE=direct_launch_disabled marker=%DISABLE_FILE%"
+  call :log_launcher
+)
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -Command "& { $root = [IO.Path]::GetFullPath($env:SCRIPT_DIR).TrimEnd('\'); . (Join-Path $root 'scripts\CdrLaunchJournal.ps1'); Invoke-CdrAppLaunch -RepoRoot $root -BotBinaryPath $env:RUST_BINARY | ConvertTo-Json -Compress }"
+exit /b %errorlevel%
+
+:run_rust
 if not exist "%RUST_BINARY%" (
   echo ERROR: Rust runtime not found: "%RUST_BINARY%"
   echo Run .\install.ps1 -Runtime rust first.

@@ -84,6 +84,8 @@ async fn wait_for_exit(process: &CapturedWindowProcess) -> Result<i32, ProcessEr
 }
 
 async fn close_owned_job(mut process: CapturedWindowProcess) -> Result<(), ProcessError> {
+    // Terminate any remaining in-job descendants on normal exit, cancellation, or timeout.
+    // Detached bot/MCP daemons launched via WMI Win32_Process.Create reside outside this job.
     tokio::task::spawn_blocking(move || process.terminate_tree(PROCESS_CLEANUP_TIMEOUT))
         .await
         .map_err(|error| ProcessError::Cleanup(format!("cleanup worker failed: {error}")))??;
