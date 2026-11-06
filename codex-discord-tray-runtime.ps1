@@ -1,3 +1,51 @@
+function Get-TrayCodexExecutableVersion {
+    param([string]$Path, [datetime]$ProcessStartedAt)
+    try {
+        if (-not [IO.File]::Exists($Path)) { return 'unavailable' }
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        if ($item.LastWriteTimeUtc -gt $ProcessStartedAt.ToUniversalTime().AddSeconds(1)) {
+            return 'file changed; restart to verify'
+        }
+        $start = New-Object Diagnostics.ProcessStartInfo
+        $start.FileName = $Path
+        $start.Arguments = '--version'
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardOutput = $true
+        $process = [Diagnostics.Process]::Start($start)
+        try {
+            if (-not $process.WaitForExit(5000)) { $process.Kill(); return 'unavailable' }
+            $output = $process.StandardOutput.ReadToEnd().Trim()
+            if ($process.ExitCode -ne 0 -or $output -notmatch '^codex-cli\s+([A-Za-z0-9][A-Za-z0-9.+_-]{0,79})$') {
+                return 'unavailable'
+            }
+            return $Matches[1]
+        } finally { $process.Dispose() }
+    } catch { return 'unavailable' }
+}
+
+function Get-TrayCodexVersions {
+    try {
+        $processes = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='codex.exe' OR Name='ChatGPT.exe'" -ErrorAction Stop)
+        $desktopIds = @($processes | Where-Object {
+            $_.Name -ieq 'ChatGPT.exe' -and [string]$_.ExecutablePath -match '(?i)[\\/]WindowsApps[\\/]OpenAI\.Codex_'
+        } | ForEach-Object { [int]$_.ProcessId })
+        $servers = @($processes | Where-Object {
+            $_.Name -ieq 'codex.exe' -and [string]$_.CommandLine -match '(?i)(?:^|\s)app-server(?:\s|$)'
+        })
+        $desktop = @($servers | Where-Object { [int]$_.ParentProcessId -in $desktopIds })
+        $botStatus = Get-BotStatus
+        $discord = @(if ($botStatus.Running) { $servers | Where-Object { [int]$_.ParentProcessId -eq [int]$botStatus.Pid } })
+        $desktopVersion = if ($desktop.Count -eq 1) {
+            Get-TrayCodexExecutableVersion -Path $desktop[0].ExecutablePath -ProcessStartedAt $desktop[0].CreationDate
+        } elseif ($desktop.Count -gt 1) { 'multiple instances' } else { 'not running' }
+        $discordVersion = if ($discord.Count -eq 1) {
+            Get-TrayCodexExecutableVersion -Path $discord[0].ExecutablePath -ProcessStartedAt $discord[0].CreationDate
+        } elseif ($discord.Count -gt 1) { 'multiple instances' } elseif ($botStatus.State -eq 'unknown') { 'unavailable' } else { 'not running' }
+        return [pscustomobject]@{Desktop=$desktopVersion;Discord=$discordVersion;BotPid=$(if ($botStatus.Running) { [int]$botStatus.Pid } else { 0 })}
+    } catch { return [pscustomobject]@{Desktop='unavailable';Discord='unavailable';BotPid=0} }
+}
+
 function Resolve-TrayRuntimeMode {
     $mode = [string]$env:CODEX_DISCORD_RUNTIME
     $modePath = Join-Path $ScriptDir '.codex_discord_runtime'
