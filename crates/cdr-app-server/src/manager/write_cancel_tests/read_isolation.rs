@@ -29,6 +29,7 @@ impl Fixture {
         state.generation = 1;
         let client = AppServerClient {
             inner: Arc::new(Inner {
+                _executable_files: vec![],
                 child: AsyncMutex::new(None),
                 closed: AtomicBool::new(false),
                 diagnostics: Mutex::new(BoundedDiagnostics::default()),

@@ -44,6 +44,10 @@ pub struct AppServerConfig {
     pub client_name: String,
     pub client_title: String,
     pub client_version: String,
+    /// One initial launch only; the resident clears this after successful initialization.
+    pub startup_deadline: Option<std::time::Instant>,
+    /// Read leases prevent the selected executable/bundle from being replaced while in use.
+    pub retained_executable_files: Vec<Arc<std::fs::File>>,
 }
 
 impl AppServerConfig {
@@ -64,6 +68,8 @@ impl AppServerConfig {
             client_name: DEFAULT_CLIENT_NAME.to_owned(),
             client_title: DEFAULT_CLIENT_TITLE.to_owned(),
             client_version: env!("CARGO_PKG_VERSION").to_owned(),
+            startup_deadline: None,
+            retained_executable_files: vec![],
         }
     }
 
@@ -78,6 +84,7 @@ impl AppServerConfig {
 }
 
 pub(crate) struct Inner {
+    pub(crate) _executable_files: Vec<Arc<std::fs::File>>,
     pub(crate) child: AsyncMutex<Option<AppServerProcess>>,
     pub(crate) closed: AtomicBool,
     pub(crate) diagnostics: Mutex<BoundedDiagnostics>,

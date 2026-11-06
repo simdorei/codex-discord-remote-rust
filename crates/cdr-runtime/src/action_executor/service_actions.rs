@@ -21,10 +21,40 @@ impl<B: TurnBackend> ActionExecutor<B> {
         } else {
             "미확인: app-server 연결 없음".into()
         };
-        Ok(immediate(format!(
+        let mut text = format!(
             "{text}\napp_server: {lifecycle}\nruntime_pid: {}",
             std::process::id()
-        )))
+        );
+        #[cfg(windows)]
+        if let (Some(selection), Some(server)) = (&self.codex_selection, &self.server) {
+            let snapshot = server.lifecycle_snapshot().await;
+            let observed = snapshot.process_id.and_then(|pid| {
+                cdr_windows_native::query_live_process_metadata(pid)
+                    .ok()
+                    .flatten()
+            });
+            if snapshot.healthy
+                && observed.as_ref().is_some_and(|process| {
+                    process
+                        .executable_path
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                        .eq_ignore_ascii_case(&selection.path.to_string_lossy().replace('\\', "/"))
+                })
+            {
+                use std::fmt::Write;
+                let _ = write!(
+                    text,
+                    "\ncodex_cli: {} ({:?})\ncodex_path: {}\ncodex_tools: NOT_CHECKED (local-tools-v1; this running instance)",
+                    selection.version,
+                    selection.source,
+                    selection.path.display()
+                );
+            } else {
+                text.push_str("\ncodex_cli: UNVERIFIED\ncodex_tools: NOT_CHECKED");
+            }
+        }
+        Ok(immediate(text))
     }
 
     pub(super) async fn settings_options(

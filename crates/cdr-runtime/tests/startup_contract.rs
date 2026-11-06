@@ -116,7 +116,12 @@ fn resolved_codex_home_is_forwarded_to_the_app_server_process() {
     )
     .unwrap();
 
-    assert!(source.contains("AppServerConfig::new(&paths.codex_exe).with_environment"));
-    assert!(source.contains("\"CODEX_HOME\".to_owned()"));
-    assert!(source.contains("paths.codex_home.to_string_lossy().into_owned()"));
+    assert!(source.contains(".app_server_config(startup_deadline)"));
+    let config_source = fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runtime_paths.rs"),
+    )
+    .unwrap();
+    assert!(config_source.contains("AppServerConfig::new(&self.codex_exe).with_environment"));
+    assert!(config_source.contains("\"CODEX_HOME\".into()"));
+    assert!(config_source.contains("self.codex_home.to_string_lossy().into_owned()"));
 }

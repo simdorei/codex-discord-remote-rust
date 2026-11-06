@@ -4,6 +4,8 @@ use cdr_runtime::soak::{SoakConfig, run};
 mod app_server;
 #[path = "../../tests/fixtures/codex_cli.rs"]
 mod codex_cli;
+#[path = "../../tests/fixtures/version_probe.rs"]
+mod version_probe;
 
 #[tokio::main]
 async fn main() {
@@ -14,6 +16,27 @@ async fn main() {
 }
 
 async fn execute() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if std::env::args().any(|arg| arg.contains("Get-AppxPackage"))
+        && let Some(packages) = std::env::var_os("CDR_FIXTURE_STORE_PACKAGES")
+    {
+        println!("{}", packages.to_string_lossy());
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        version_probe::before_version()?;
+        let version = std::env::current_exe()?.with_file_name("probe-version.txt");
+        let version = if version.exists() {
+            std::fs::read_to_string(version)?
+        } else {
+            "0.166.0-alpha.6".to_owned()
+        };
+        println!("codex-cli {}", version.trim());
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--probe-child") {
+        std::thread::sleep(std::time::Duration::from_mins(1));
+        return Ok(());
+    }
     if std::env::args().nth(1).as_deref() == Some("app-server") {
         return app_server::run_standalone_double();
     }

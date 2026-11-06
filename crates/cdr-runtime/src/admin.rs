@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 mod args;
 mod async_recovery;
 pub mod attachment;
+pub(crate) mod codex_tools;
+#[cfg(windows)]
+mod codex_version;
 pub mod env_file;
 mod first_reply;
 mod manual_reserve;
@@ -27,6 +30,30 @@ pub async fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<String
         "list-threads" | "archive-thread" => Box::pin(threads::run(&args, &root)).await,
         "configure-install" => configure_install(&args, &root),
         "discover-codex" => discover_codex(&args, &root),
+        "diagnose-codex-tools" => codex_tools::run(&args, &root).await,
+        #[cfg(windows)]
+        "codex-selection-worker" => {
+            crate::runtime_paths::selection_worker::run(Path::new(args.required("--request-file")?))
+        }
+        #[cfg(windows)]
+        "codex-selected-command" => {
+            let selection = serde_json::from_str(args.required("--selection-json")?)
+                .map_err(|e| format!("invalid selection: {e}"))?;
+            let arguments = serde_json::from_str(args.required("--arguments-json")?)
+                .map_err(|e| format!("invalid command arguments: {e}"))?;
+            let output = crate::runtime_paths::selection_worker::execute_selected_using(
+                &std::env::current_exe().map_err(|e| e.to_string())?,
+                selection,
+                arguments,
+                PathBuf::from(args.required("--codex-home")?),
+                &root,
+                std::time::Instant::now() + std::time::Duration::from_secs(115),
+            )
+            .map_err(|e| e.to_string())?;
+            serde_json::to_string(&output).map_err(|e| e.to_string())
+        }
+        #[cfg(windows)]
+        "codex-version" | "codex-version-worker" => codex_version::run(&args, &root),
         "verify-plugin-inventory" => verify_inventory(&args, &root),
         "retire-automatic-reserve" | "authorize-saved-final" => manual_reserve::run(&args, &root),
         "backup-store" => store::backup(&root),
@@ -63,10 +90,28 @@ fn discover_codex(args: &Args, root: &Path) -> Result<String, String> {
     if let Some(exe) = args.value("--codex-exe") {
         environment.insert("CODEX_EXE".into(), exe.into());
     }
-    let inputs = crate::runtime_paths::discover_inputs(&environment, root.to_path_buf())
-        .map_err(|e| e.to_string())?;
-    let paths = crate::runtime_paths::RuntimePaths::resolve(&environment, &inputs)
-        .map_err(|e| e.to_string())?;
+    if let Some(home) = args.value("--codex-home") {
+        environment.insert("CODEX_HOME".into(), home.into());
+    }
+    let paths = crate::runtime_paths::RuntimePaths::discover(
+        &environment,
+        root,
+        std::time::Instant::now() + std::time::Duration::from_secs(15),
+        std::time::Duration::from_secs(3),
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(format) = args.value("--format") {
+        if format != "json" {
+            return Err("discover-codex --format must be json".into());
+        }
+        #[cfg(windows)]
+        return serde_json::to_string(&paths.codex_selection).map_err(|e| e.to_string());
+        #[cfg(not(windows))]
+        return serde_json::to_string(
+            &serde_json::json!({"path":paths.codex_exe,"source":paths.codex_exe_source}),
+        )
+        .map_err(|e| e.to_string());
+    }
     Ok(paths.codex_exe.display().to_string())
 }
 

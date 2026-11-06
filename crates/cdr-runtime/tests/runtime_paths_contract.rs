@@ -9,7 +9,12 @@ use cdr_runtime::runtime_paths::{
 
 fn touch(path: &std::path::Path) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, b"fixture").unwrap();
+    if cfg!(windows) && path.extension().is_some_and(|ext| ext == "exe") {
+        fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), path).unwrap();
+        fs::write(path.with_file_name("probe-version.txt"), "0.164.0").unwrap();
+    } else {
+        fs::write(path, b"fixture").unwrap();
+    }
     if cfg!(windows) && path.file_name().is_some_and(|name| name == "codex.exe") {
         fs::write(path.with_file_name("codex-code-mode-host.exe"), b"fixture").unwrap();
     }
@@ -72,6 +77,9 @@ fn sandbox_bin_is_preferred_and_latest_codex_state_db_is_selected() {
     touch(&sandbox);
     touch(&path_exe);
     touch(&old_state);
+    if cfg!(windows) {
+        fs::write(sandbox.with_file_name("probe-version.txt"), "0.166.0").unwrap();
+    }
     thread::sleep(Duration::from_millis(20));
     touch(&new_state);
 
@@ -101,6 +109,9 @@ fn blank_codex_exe_uses_newest_local_app_before_sandbox_and_path() {
     touch(&new_local);
     touch(&path_exe);
     let env = BTreeMap::from([("CODEX_EXE".into(), "  \"\"  ".into())]);
+    if cfg!(windows) {
+        fs::write(new_local.with_file_name("probe-version.txt"), "0.166.0").unwrap();
+    }
 
     let paths = RuntimePaths::resolve(
         &env,
@@ -127,6 +138,9 @@ fn newest_local_app_binary_beats_path_and_windowsapps_aliases_are_rejected() {
     thread::sleep(Duration::from_millis(20));
     touch(&new);
     touch(&windowsapps);
+    if cfg!(windows) {
+        fs::write(new.with_file_name("probe-version.txt"), "0.166.0").unwrap();
+    }
     let inputs = PathInputs::new(
         temp.path().join("runtime"),
         temp.path().join("home"),

@@ -6,6 +6,26 @@ use serde_json::json;
 
 const CHILD_ENV: &str = "CDR_STARTUP_BUDGET_FIXTURE";
 
+#[tokio::test]
+async fn exhausted_caller_budget_does_not_attempt_spawn() {
+    let mut config = AppServerConfig::new("must-not-be-spawned-missing-executable");
+    config.startup_deadline = Some(Instant::now() + Duration::from_secs(8));
+    let error = AppServerClient::start(config).await.err().unwrap();
+    assert!(matches!(error, AppServerError::StartupHeld(_)), "{error}");
+}
+
+#[tokio::test]
+async fn spent_discovery_budget_is_not_reset_for_initialization() {
+    let root = tempfile::tempdir().unwrap();
+    let closed = root.path().join("closed");
+    let mut config = config("silent", &closed);
+    let begin = Instant::now();
+    config.startup_deadline = Some(begin + Duration::from_millis(8_500));
+    assert!(AppServerClient::start(config).await.is_err());
+    assert!(begin.elapsed() < Duration::from_secs(4));
+    assert_eq!(std::fs::read(closed).unwrap(), b"closed");
+}
+
 #[test]
 #[ignore = "spawned as an isolated initialization fixture"]
 fn delayed_initialization_fixture() {

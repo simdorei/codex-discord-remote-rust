@@ -15,6 +15,8 @@ pub struct RpcErrorPayload {
 
 #[derive(Debug, Error)]
 pub enum AppServerError {
+    #[error("app-server startup held: {0}")]
+    StartupHeld(String),
     #[error("mutation execution held: {message}")]
     MutationHeld { message: String },
     #[error("app-server mutation {method} outcome remains unknown: {reason}")]

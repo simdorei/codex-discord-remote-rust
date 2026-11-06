@@ -134,6 +134,7 @@ fn shell_installer_stages_external_binary_and_preserves_existing_environment() {
     )
     .unwrap();
     let binary = env!("CARGO_BIN_EXE_cdr-runtime").replace('\\', "/");
+    let codex = env!("CARGO_BIN_EXE_cdr-offline-soak").replace('\\', "/");
     let run = || {
         shell()
             .arg("install.sh")
@@ -143,7 +144,7 @@ fn shell_installer_stages_external_binary_and_preserves_existing_environment() {
                 "--binary-path",
                 &binary,
                 "--codex-exe",
-                &binary,
+                &codex,
             ])
             .current_dir(root.path())
             .env("CODEX_HOME", "ignored-inherited-profile")
@@ -204,7 +205,7 @@ fn run_with_native_absolute_cargo_target(script: &str) {
             "--skip-codex-plugin",
             "--codex-exe",
         ]);
-        command.arg(&binary);
+        command.arg(env!("CARGO_BIN_EXE_cdr-offline-soak"));
     } else {
         command.arg("--dry-run");
     }

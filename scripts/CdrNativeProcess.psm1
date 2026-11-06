@@ -54,7 +54,7 @@ function Invoke-CdrNative {
 
     $exe = $Executable
 
-    $resolvedCommand = Get-Command -Name $exe -ErrorAction SilentlyContinue
+    $resolvedCommand = if (-not [IO.Path]::IsPathRooted($exe)) { Get-Command -Name $exe -ErrorAction SilentlyContinue } else { $null }
     if ($null -ne $resolvedCommand -and
             -not [string]::IsNullOrWhiteSpace($resolvedCommand.Source)) {
         $exe = $resolvedCommand.Source

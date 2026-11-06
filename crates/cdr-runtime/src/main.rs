@@ -4,7 +4,7 @@ use std::time::Duration;
 use cdr_app_server::APP_SERVER_STARTUP_TIMEOUT;
 use cdr_runtime::config::RuntimeConfig;
 use cdr_runtime::discord_runtime;
-use cdr_runtime::runtime_paths::{RuntimePaths, discover_inputs};
+use cdr_runtime::runtime_paths::RuntimePaths;
 use cdr_runtime::startup::{StartupArgs, config_summary, help_text, load_environment};
 
 #[tokio::main]
@@ -51,10 +51,15 @@ async fn run() -> Result<(), (u8, String)> {
                 format!("could not determine the working directory: {error}"),
             )
         })?;
-        let inputs = discover_inputs(&environment, root).map_err(|error| (1, error.to_string()))?;
-        let paths =
-            RuntimePaths::resolve(&environment, &inputs).map_err(|error| (1, error.to_string()))?;
-        cdr_runtime::restart_readiness::wait_for_restart(
+        let startup_deadline = std::time::Instant::now() + APP_SERVER_STARTUP_TIMEOUT;
+        let paths = RuntimePaths::discover(
+            &environment,
+            &root,
+            startup_deadline,
+            Duration::from_secs(8),
+        )
+        .map_err(|error| (1, error.to_string()))?;
+        cdr_runtime::restart_readiness::wait_for_restart_before(
             &paths,
             cdr_runtime::restart_readiness::RestartReadinessOptions {
                 quiet: Duration::from_secs(args.restart_quiet_seconds),
@@ -64,6 +69,7 @@ async fn run() -> Result<(), (u8, String)> {
                 startup_timeout: APP_SERVER_STARTUP_TIMEOUT,
                 close_timeout: Duration::from_secs(8),
             },
+            startup_deadline,
         )
         .await
         .map_err(|error| (1, error.to_string()))?;
@@ -83,11 +89,10 @@ async fn run() -> Result<(), (u8, String)> {
                 format!("could not determine the working directory: {error}"),
             )
         })?;
-        let inputs = discover_inputs(&environment, root).map_err(|error| (1, error.to_string()))?;
-        let paths =
-            RuntimePaths::resolve(&environment, &inputs).map_err(|error| (1, error.to_string()))?;
-        let backup = cdr_store::backup::snapshot(&paths.mirror_db)
+        let database = RuntimePaths::store_database(&environment, &root)
             .map_err(|error| (1, error.to_string()))?;
+        let backup =
+            cdr_store::backup::snapshot(&database).map_err(|error| (1, error.to_string()))?;
         println!("backup_created path={}", backup.display());
         return Ok(());
     }

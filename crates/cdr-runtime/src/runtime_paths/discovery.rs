@@ -13,6 +13,8 @@ pub enum PathDiscoveryError {
     UserHomeMissing,
     #[error("conflicting Windows environment values for {0}")]
     ConflictingEnvironmentValues(String),
+    #[error("cannot observe Codex installation at {path}: {message}")]
+    Observation { path: PathBuf, message: String },
 }
 
 pub fn discover_inputs(
@@ -21,6 +23,13 @@ pub fn discover_inputs(
 ) -> Result<PathInputs, PathDiscoveryError> {
     let user_home = first_path(environment, &["USERPROFILE", "HOME"])?
         .ok_or(PathDiscoveryError::UserHomeMissing)?;
+    #[cfg(windows)]
+    if super::helpers::env_path(environment, "CODEX_EXE")
+        .map(super::helpers::clean_executable)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return Ok(PathInputs::new(root, user_home, vec![], vec![]));
+    }
     let mut local_roots = Vec::new();
     if let Some(local) = first_path(environment, &["LOCALAPPDATA"])? {
         local_roots.push(local.join("OpenAI/Codex/bin"));
@@ -32,15 +41,18 @@ pub fn discover_inputs(
             "/Applications/Codex.app/Contents/Resources/bin",
         ));
     }
-    let local_app_candidates = local_roots
-        .iter()
-        .flat_map(|root| executables_below(root))
-        .collect();
+    let mut local_app_candidates = Vec::new();
+    for root in &local_roots {
+        local_app_candidates.extend(executables_below(root)?);
+    }
     let path_candidates = environment_value(environment, "PATH")?
         .into_iter()
         .flat_map(|raw| env::split_paths(raw))
         .map(|directory| directory.join(executable_name()))
-        .filter(|candidate| candidate.is_file())
+        .map(|candidate| observed_file(&candidate).map(|exists| exists.then_some(candidate)))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
         .collect();
     Ok(PathInputs::new(
         root,
@@ -50,25 +62,87 @@ pub fn discover_inputs(
     ))
 }
 
-fn executables_below(root: &Path) -> Vec<PathBuf> {
+#[cfg(windows)]
+fn executables_below(root: &Path) -> Result<Vec<PathBuf>, PathDiscoveryError> {
     let direct = root.join(executable_name());
-    let mut output = direct
-        .is_file()
+    let mut output = observed_file(&direct)?
         .then_some(direct)
         .into_iter()
         .collect::<Vec<_>>();
-    let children = fs::read_dir(root)
+    let children = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(output),
+        Err(error) => {
+            return Err(PathDiscoveryError::Observation {
+                path: root.to_owned(),
+                message: error.to_string(),
+            });
+        }
+    };
+    for child in children {
+        let child = child.map_err(|error| PathDiscoveryError::Observation {
+            path: root.to_owned(),
+            message: error.to_string(),
+        })?;
+        if !child
+            .metadata()
+            .map_err(|error| PathDiscoveryError::Observation {
+                path: child.path(),
+                message: error.to_string(),
+            })?
+            .is_dir()
+        {
+            continue;
+        }
+        let candidate = child.path().join(executable_name());
+        if observed_file(&candidate)? {
+            output.push(candidate);
+        }
+    }
+    Ok(output)
+}
+
+#[cfg(windows)]
+fn observed_file(path: &Path) -> Result<bool, PathDiscoveryError> {
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.is_file()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(PathDiscoveryError::Observation {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }),
+    }
+}
+
+#[cfg(not(windows))]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "preserve portable discovery while sharing the Windows interface"
+)]
+fn observed_file(path: &Path) -> Result<bool, PathDiscoveryError> {
+    Ok(path.is_file())
+}
+
+#[cfg(not(windows))]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "preserve portable discovery while sharing the Windows interface"
+)]
+fn executables_below(root: &Path) -> Result<Vec<PathBuf>, PathDiscoveryError> {
+    let direct = root.join(executable_name());
+    let mut output: Vec<_> = direct.is_file().then_some(direct).into_iter().collect();
+    for child in fs::read_dir(root)
         .ok()
         .into_iter()
         .flatten()
-        .filter_map(Result::ok);
-    for child in children {
+        .filter_map(Result::ok)
+    {
         let candidate = child.path().join(executable_name());
         if candidate.is_file() {
             output.push(candidate);
         }
     }
-    output
+    Ok(output)
 }
 
 fn environment_value<'a>(

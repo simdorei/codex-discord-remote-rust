@@ -1,26 +1,17 @@
 function Get-TrayCodexExecutableVersion {
-    param([string]$Path, [datetime]$ProcessStartedAt)
+    param([string]$Path, [datetime]$ProcessStartedAt, [int]$ProcessId, [string]$BotIdentity)
     try {
-        if (-not [IO.File]::Exists($Path)) { return 'unavailable' }
-        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
-        if ($item.LastWriteTimeUtc -gt $ProcessStartedAt.ToUniversalTime().AddSeconds(1)) {
-            return 'file changed; restart to verify'
-        }
-        $start = New-Object Diagnostics.ProcessStartInfo
-        $start.FileName = $Path
-        $start.Arguments = '--version'
-        $start.UseShellExecute = $false
-        $start.CreateNoWindow = $true
-        $start.RedirectStandardOutput = $true
-        $process = [Diagnostics.Process]::Start($start)
-        try {
-            if (-not $process.WaitForExit(5000)) { $process.Kill(); return 'unavailable' }
-            $output = $process.StandardOutput.ReadToEnd().Trim()
-            if ($process.ExitCode -ne 0 -or $output -notmatch '^codex-cli\s+([A-Za-z0-9][A-Za-z0-9.+_-]{0,79})$') {
-                return 'unavailable'
-            }
-            return $Matches[1]
-        } finally { $process.Dispose() }
+        $binary = @('target\release\cdr-runtime.exe','bin\win-x64\cdr-runtime.exe','bin\cdr-runtime.exe') |
+            ForEach-Object { Join-Path $ScriptDir $_ } | Where-Object { [IO.File]::Exists($_) } | Select-Object -First 1
+        if (-not $binary -or $ProcessId -le 0) { return 'unavailable' }
+        Import-Module (Join-Path $ScriptDir 'scripts\CdrNativeProcess.psm1') -ErrorAction Stop
+        $ticks = $ProcessStartedAt.ToUniversalTime().Ticks
+        $ticks -= ($ticks % 10)
+        $arguments = @('--admin','codex-version','--repo-root',$ScriptDir,'--pid',[string]$ProcessId,'--identity',"$ProcessId|$ticks")
+        if ($BotIdentity) { $arguments += @('--bot-identity',$BotIdentity) }
+        $version = [string](Invoke-CdrNative -Executable $binary -Arguments $arguments -TimeoutSeconds 6)
+        if ($version.Trim() -notmatch '^[A-Za-z0-9][A-Za-z0-9.+_-]{0,79}$') { return 'unavailable' }
+        return $version.Trim()
     } catch { return 'unavailable' }
 }
 
@@ -37,10 +28,10 @@ function Get-TrayCodexVersions {
         $botStatus = Get-BotStatus
         $discord = @(if ($botStatus.Running) { $servers | Where-Object { [int]$_.ParentProcessId -eq [int]$botStatus.Pid } })
         $desktopVersion = if ($desktop.Count -eq 1) {
-            Get-TrayCodexExecutableVersion -Path $desktop[0].ExecutablePath -ProcessStartedAt $desktop[0].CreationDate
+            Get-TrayCodexExecutableVersion -Path $desktop[0].ExecutablePath -ProcessStartedAt $desktop[0].CreationDate -ProcessId $desktop[0].ProcessId
         } elseif ($desktop.Count -gt 1) { 'multiple instances' } else { 'not running' }
         $discordVersion = if ($discord.Count -eq 1) {
-            Get-TrayCodexExecutableVersion -Path $discord[0].ExecutablePath -ProcessStartedAt $discord[0].CreationDate
+            Get-TrayCodexExecutableVersion -Path $discord[0].ExecutablePath -ProcessStartedAt $discord[0].CreationDate -ProcessId $discord[0].ProcessId -BotIdentity (Get-RustTrayProcessIdentity -Process (Get-RustTrayProcess))
         } elseif ($discord.Count -gt 1) { 'multiple instances' } elseif ($botStatus.State -eq 'unknown') { 'unavailable' } else { 'not running' }
         return [pscustomobject]@{Desktop=$desktopVersion;Discord=$discordVersion;BotPid=$(if ($botStatus.Running) { [int]$botStatus.Pid } else { 0 })}
     } catch { return [pscustomobject]@{Desktop='unavailable';Discord='unavailable';BotPid=0} }

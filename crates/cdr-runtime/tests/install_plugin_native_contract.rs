@@ -160,12 +160,27 @@ fn native_cmd_and_ps1_shims_preserve_literal_path_arguments() {
                 .env("CDR_CLI_WARN", "plugin_list");
         });
         let result = text(&out);
-        assert!(out.status.success(), "{shim}: {result}");
+        assert!(!out.status.success(), "{shim}: script pin must hold");
         assert!(
-            result.contains("Verified Codex plugin inventory")
-                && result.contains("한글")
-                && !result.contains("NativeCommandError")
+            result.contains("script launcher cannot certify executable identity"),
+            "{result}"
         );
+        assert!(!root.join("cli-calls.jsonl").exists());
+        // The generic wrapper still preserves literal shim arguments; only the
+        // validated installer selection refuses an unbound script launcher.
+        let script = root.join("native-shim.ps1");
+        fs::write(&script, "$ErrorActionPreference='Stop'\n[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\nImport-Module (Join-Path $PSScriptRoot 'scripts/CdrNativeProcess.psm1') -Force\nInvoke-CdrNative -Executable $env:CDR_TEST_LAUNCHER -Arguments @('plugin','marketplace','add',$env:CDR_CODEX_CLI_FIXTURE_ROOT)\n").unwrap();
+        let mut command = std::process::Command::new("powershell.exe");
+        command
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(script)
+            .env("CDR_TEST_CODEX_REAL", &exe)
+            .env("CDR_TEST_LAUNCHER", &launcher)
+            .env("CDR_CODEX_CLI_FIXTURE_ROOT", &root)
+            .current_dir(&root);
+        let out = fixture::bounded(command);
+        assert!(out.status.success(), "{shim}: {}", text(&out));
+        assert!(!text(&out).contains("NativeCommandError"));
         let first: serde_json::Value = serde_json::from_str(
             fs::read_to_string(root.join("cli-calls.jsonl"))
                 .unwrap()

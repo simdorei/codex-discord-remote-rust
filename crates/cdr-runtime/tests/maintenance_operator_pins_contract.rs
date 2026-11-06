@@ -14,6 +14,8 @@ fn environment_overrides_rejected_before_database_or_rpc_without_operator_opt_in
     for path in [&state, &mirror, &codex] {
         fs::write(path, bytes).unwrap();
     }
+    #[cfg(windows)]
+    fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), &codex).unwrap();
     let base = BTreeMap::from([
         ("CODEX_HOME".into(), home.to_str().unwrap().into()),
         ("CODEX_STATE_DB".into(), state.to_str().unwrap().into()),

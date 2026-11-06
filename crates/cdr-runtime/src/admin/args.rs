@@ -28,7 +28,14 @@ impl Args {
                 "--marketplace-name",
                 "--plugin-id",
             ],
-            "discover-codex" => &["--codex-exe"],
+            "discover-codex" => &["--codex-exe", "--codex-home", "--format"],
+            "diagnose-codex-tools" => &["--codex-exe", "--codex-home", "--run-probes"],
+            #[cfg(windows)]
+            "codex-selection-worker" => &["--request-file"],
+            #[cfg(windows)]
+            "codex-selected-command" => &["--selection-json", "--arguments-json", "--codex-home"],
+            #[cfg(windows)]
+            "codex-version" | "codex-version-worker" => &["--pid", "--identity", "--bot-identity"],
             "backup-store" | "active-queue-count" | "retire-automatic-reserve" => &[],
             "authorize-saved-final" => &["--request-file"],
             "list-threads" => &["--limit"],
