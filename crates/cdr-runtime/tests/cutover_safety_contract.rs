@@ -140,3 +140,11 @@ fn primary_error_survives_seal_control_lock_failure() {
         "test_primary_error_survives_seal_control_lock_failure",
     );
 }
+
+#[test]
+fn owned_cutover_startup_handoff_and_unobservable_prior_owner_guard() {
+    run_case(
+        "maintenance_publication.ps1",
+        "test_owned_cutover_startup_handoff_and_unobservable_prior_owner_guard",
+    );
+}

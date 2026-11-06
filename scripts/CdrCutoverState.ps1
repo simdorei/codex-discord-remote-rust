@@ -1,4 +1,5 @@
 # Rust-only cutover support; loaded by codex-discord-runtime-cutover.ps1.
+$script:CdrOwnedCutoverTransaction = $null
 function Write-AtomicUtf8 {
     param([string]$Path, [string]$Content)
     $temporary = "$Path.tmp.$PID"
@@ -48,6 +49,7 @@ function Set-CutoverPhase {
     param($Transaction, [string]$Phase)
     $Transaction.OwnerIdentity = $CutoverIdentity
     $Transaction.Phase = $Phase
+    $script:CdrOwnedCutoverTransaction = $Transaction
     $content = (
         "transaction_id=$($Transaction.TransactionId)`n" +
         "owner_identity=$($Transaction.OwnerIdentity)`n" +
@@ -70,7 +72,7 @@ function Enter-CutoverMaintenance {
     param($Transaction)
     $control = Enter-CdrControl -Root $RepoRoot
     try {
-    Assert-CdrNoPendingRestart -Root $RepoRoot
+    Assert-CdrNoPendingRestart -Root $RepoRoot -OwnedCutoverTransaction $Transaction -OwnedCutoverIdentity $CutoverIdentity
     $owner = Get-DisableOwner
     if ($null -ne $owner) {
         if (
@@ -109,7 +111,7 @@ function Ensure-CutoverRecoveryDisabled {
     param($Transaction)
     $control = Enter-CdrControl -Root $RepoRoot
     try {
-    Assert-CdrNoPendingRestart -Root $RepoRoot
+    Assert-CdrNoPendingRestart -Root $RepoRoot -OwnedCutoverTransaction $Transaction -OwnedCutoverIdentity $CutoverIdentity
     if (Test-Path -LiteralPath $DisablePath -PathType Leaf) { return }
     Write-NewCdrMarker -Path $DisablePath -Text (
         "kind=cutover_recovery`n" +

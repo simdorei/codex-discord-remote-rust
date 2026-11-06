@@ -7,21 +7,33 @@ mod resolve;
 mod stdio;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs::File;
-use std::path::Path;
+use std::os::windows::ffi::OsStringExt;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
-use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+use windows_sys::Win32::Foundation::{
+    ERROR_INVALID_PARAMETER, FILETIME, GetLastError, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
+use windows_sys::Win32::System::Threading::{
+    GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, WaitForSingleObject,
+};
 
 use handle::OwnedHandle;
 
 use crate::error::{NativeError, api_error};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiveProcessMetadata {
+    pub pid: u32,
+    pub process_identity: String,
+    pub executable_path: PathBuf,
+}
+
 /// Same PID + UTC .NET creation ticks used by the Windows restart controller.
 pub fn current_process_identity() -> Result<String, NativeError> {
-    use windows_sys::Win32::Foundation::FILETIME;
-    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
     let mut creation = FILETIME::default();
     let mut exit = FILETIME::default();
     let mut kernel = FILETIME::default();
@@ -40,14 +52,71 @@ pub fn current_process_identity() -> Result<String, NativeError> {
     {
         return Err(api_error("GetProcessTimes(current process)"));
     }
+    Ok(format_process_identity(std::process::id(), creation))
+}
+
+/// Inspects a running OS process by PID and returns its exact `<pid>|<dotnet_ticks>` identity
+/// and image path if the process is currently alive.
+pub fn query_live_process_metadata(pid: u32) -> Result<Option<LiveProcessMetadata>, NativeError> {
+    if pid == 0 {
+        return Ok(None);
+    }
+    // SAFETY: querying limited information for an arbitrary process ID is valid.
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    let Some(handle) = OwnedHandle::new(raw) else {
+        // SAFETY: GetLastError has no preconditions and is read immediately after OpenProcess.
+        let code = unsafe { GetLastError() };
+        if code == ERROR_INVALID_PARAMETER {
+            return Ok(None);
+        }
+        return Err(NativeError::Api {
+            operation: "OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)",
+            source: std::io::Error::from_raw_os_error(code.cast_signed()),
+        });
+    };
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: `handle` is a live process handle with query-limited rights; outputs are writable.
+    if unsafe {
+        GetProcessTimes(
+            handle.raw(),
+            &raw mut creation,
+            &raw mut exit,
+            &raw mut kernel,
+            &raw mut user,
+        )
+    } == 0
+    {
+        return Err(api_error("GetProcessTimes(target process)"));
+    }
+    if exit.dwLowDateTime != 0 || exit.dwHighDateTime != 0 {
+        return Ok(None);
+    }
+    let mut size: u32 = 32_768;
+    let mut buffer = vec![0_u16; 32_768];
+    // SAFETY: `handle` is live and `buffer`/`size` are writable and bounded.
+    if unsafe { QueryFullProcessImageNameW(handle.raw(), 0, buffer.as_mut_ptr(), &raw mut size) }
+        == 0
+    {
+        return Err(api_error("QueryFullProcessImageNameW"));
+    }
+    let executable_path = PathBuf::from(OsString::from_wide(
+        &buffer[..usize::try_from(size).unwrap_or_default()],
+    ));
+    Ok(Some(LiveProcessMetadata {
+        pid,
+        process_identity: format_process_identity(pid, creation),
+        executable_path,
+    }))
+}
+
+fn format_process_identity(pid: u32, creation: FILETIME) -> String {
     let windows_ticks =
         (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
     let dotnet_ticks = windows_ticks + 504_911_232_000_000_000;
-    Ok(format!(
-        "{}|{}",
-        std::process::id(),
-        dotnet_ticks - dotnet_ticks % 10
-    ))
+    format!("{pid}|{}", dotnet_ticks - dotnet_ticks % 10)
 }
 
 pub struct WindowProcess {

@@ -38,7 +38,7 @@ function Test-CdrWindowsBundle {
             throw "RELEASE_DAMAGED: checksum mismatch: $relative. Extract the downloaded ZIP again."
         }
     }
-    foreach ($required in @('bin/cdr-runtime.exe', 'bin/cdr-pro-helper.exe', 'install.ps1', 'install.cmd',
+    foreach ($required in @('bin/cdr-runtime.exe', 'bin/cdr-remote-agent.exe', 'bin/cdr-pro-helper.exe', 'install.ps1', 'install.cmd',
         'setup-discord-bot.ps1', '.env.example', '.agents/plugins/marketplace.json',
         'plugins/codex-discord-remote/.codex-plugin/plugin.json', 'scripts/CdrWindowsBundle.psm1')) {
         if (-not $seen.Contains($required)) { throw "RELEASE_INCOMPLETE: manifest omits required file: $required" }

@@ -26,6 +26,7 @@ Get-FileHash .\codex-discord-remote-버전-windows-x64.zip -Algorithm SHA256
 
 ```powershell
 .\target\release\cdr-runtime.exe --help
+.\target\release\cdr-remote-agent.exe --help
 ```
 
 `-DryRun`은 파일을 변경하지 않고 검사합니다.
@@ -70,8 +71,9 @@ Pro 연결, 원격 MCP 서버, 개발·성능 진단은 각 기능 문서의 별
 ```
 
 빌드는 공용 C 실행 구성요소를 실행 파일에 포함하며, 별도 VC++ 재배포 패키지에
-대한 의존성이 남지 않았는지 검사합니다. 패키지에는 실행 파일 두 개, 설치·운영
-스크립트, Codex 플러그인, 예제 설정과 안내가 들어갑니다. 개인 `.env`, DB, 로그,
+대한 의존성이 남지 않았는지 검사합니다. 패키지에는 실행 파일 세 개(`cdr-runtime.exe`,
+`cdr-remote-agent.exe`, `cdr-pro-helper.exe`), 설치·운영 스크립트, 단일 트레이 제어(`전체 종료`),
+Codex 플러그인, 예제 설정과 안내가 들어갑니다. 개인 `.env`, DB, 로그,
 첨부파일, 인증 정보는 포함하지 않습니다. 실행 파일은 Git 소스 이력에 넣지 않습니다.
 
 `Windows release` GitHub Actions는 빌드·압축 해제·설치 검사를 수행하고 다운로드

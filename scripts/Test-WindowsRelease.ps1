@@ -37,7 +37,7 @@ try {
     foreach ($file in $manifest.files) {
         Assert-Release ($file.path -notmatch '(^|/)(\.env|\.git|auth\.json|target)(/|$)|\.(sqlite|sqlite3|db|log)$') 'Release contains local state or build output'
     }
-    foreach ($name in @('cdr-runtime.exe', 'cdr-pro-helper.exe')) {
+    foreach ($name in @('cdr-runtime.exe', 'cdr-remote-agent.exe', 'cdr-pro-helper.exe')) {
         Test-CdrWindowsExecutable -Path (Join-Path $root ('bin\' + $name))
         $checks++
     }
@@ -77,6 +77,12 @@ try {
     Assert-Release ((Get-FileHash -LiteralPath $installedRuntime).Hash -ceq (Get-FileHash -LiteralPath (Join-Path $root 'bin\cdr-runtime.exe')).Hash) 'Wrong runtime installed'
     $help = [string](Invoke-CdrNative -Executable $installedRuntime -Arguments @('--help'))
     Assert-Release ($help.Length -gt 20) 'Installed runtime cannot print help'
+    $installedMcp = Join-Path $root 'target\release\cdr-remote-agent.exe'
+    Assert-Release ((Get-FileHash -LiteralPath $installedMcp).Hash -ceq (Get-FileHash -LiteralPath (Join-Path $root 'bin\cdr-remote-agent.exe')).Hash) 'Wrong remote MCP binary installed'
+    $mcpHelp = [string](Invoke-CdrNative -Executable $installedMcp -Arguments @('--help'))
+    Assert-Release ($mcpHelp.Contains('cdr-remote-agent')) 'Installed remote MCP binary cannot print help'
+    $mcpBuildInfo = [string](Invoke-CdrNative -Executable $installedMcp -Arguments @('--build-info'))
+    Assert-Release ($mcpBuildInfo.Contains('source_commit')) 'Installed remote MCP binary cannot print build-info'
     foreach ($name in @('.codex_discord_rust.runtime.lock', '.codex_discord_rust.heartbeat', '.codex_discord_bot.disabled')) {
         Assert-Release (-not (Test-Path -LiteralPath (Join-Path $root $name))) 'Installation started or changed bot operation'
     }

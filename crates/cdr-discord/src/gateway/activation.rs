@@ -201,11 +201,30 @@ impl GatewayRuntime {
     ) -> Result<Self, GatewayStartError> {
         let (ingress, ingress_receivers) = GatewayIngress::new(GatewayIngressConfig::default())?;
         let ingress_publish_outcomes = GatewayIngressPublishOutcomes::default();
-        let http = Arc::new(Client::new(token.clone()));
+        let http = Arc::new(
+            match std::env::var("CDR_DISCORD_HTTP_PROXY")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+            {
+                Some(proxy) => Client::builder()
+                    .token(token.clone())
+                    .proxy(proxy, true)
+                    .ratelimiter(None)
+                    .build(),
+                None => Client::new(token.clone()),
+            },
+        );
+        let gateway_proxy = std::env::var("CDR_DISCORD_GATEWAY_PROXY_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
         let config = Config::new(token, gateway_intents(message_content));
-        let shards =
-            twilight_gateway::create_recommended(&http, config, |_, builder| builder.build())
-                .await?;
+        let shards = twilight_gateway::create_recommended(&http, config, move |_, mut builder| {
+            if let Some(proxy_url) = gateway_proxy.clone() {
+                builder = builder.proxy_url(proxy_url);
+            }
+            builder.build()
+        })
+        .await?;
         let (shutdown, shutdown_rx) = watch::channel(false);
         let (shard_exit_sender, shard_exits) = mpsc::channel(1);
         let tasks = shards

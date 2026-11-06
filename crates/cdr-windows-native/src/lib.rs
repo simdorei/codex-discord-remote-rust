@@ -33,7 +33,10 @@ pub use data_protection::{protect_current_user, unprotect_current_user};
 #[cfg(windows)]
 pub use error::NativeError;
 #[cfg(windows)]
-pub use process::{CapturedWindowProcess, WindowProcess, current_process_identity};
+pub use process::{
+    CapturedWindowProcess, LiveProcessMetadata, WindowProcess, current_process_identity,
+    query_live_process_metadata,
+};
 #[cfg(windows)]
 pub use single_instance::SingleInstance;
 #[cfg(windows)]

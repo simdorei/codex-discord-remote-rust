@@ -15,6 +15,7 @@ param(
     [string]$ExpectedRuntimeIdentity,
     [string]$ExpectedBinaryHash,
     [string]$ExpectedSourceCommit,
+    [string]$OwnedCutoverTransactionId = '',
     [int]$RestartQuietSeconds = 90,
     [int]$RestartWaitTimeoutSeconds = 900,
     [int]$HealthCpuPercent = 95,
@@ -207,6 +208,7 @@ function Wait-RustRuntimeExit {
     )
     if ($null -eq $Process) { return }
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastMcpTick = [DateTime]::MinValue
     while ((Get-Date) -lt $deadline) {
         if ($Process.HasExited) {
             Write-RustWatchdogLog "graceful_exit reason=$Reason identity=$ExpectedIdentity"
@@ -218,6 +220,11 @@ function Wait-RustRuntimeExit {
         if ($current -ne $ExpectedIdentity) {
             Write-RustWatchdogLog "graceful_exit reason=$Reason identity=$ExpectedIdentity replacement=$current"
             return
+        }
+        if (((Get-Date) - $lastMcpTick).TotalMilliseconds -ge 1000 -and
+            (Get-Command Invoke-CdrMcpWatchdog -ErrorAction SilentlyContinue)) {
+            $lastMcpTick = Get-Date
+            try { Invoke-CdrMcpWatchdog -RepoRoot $RepoRoot | Out-Null } catch { }
         }
         Start-Sleep -Milliseconds 250
         $Process.Refresh()
@@ -277,12 +284,43 @@ function Wait-RustThreadsQuietForRestart {
         '--env',
         $EnvPath
     )
-    Push-Location -LiteralPath $RepoRoot
-    try {
-        & $BinaryPath @arguments
-        $probeExitCode = $LASTEXITCODE
-    } finally {
-        Pop-Location
+    $probeExitCode = 0
+    if ([IO.File]::Exists($BinaryPath)) {
+        $psi = New-Object Diagnostics.ProcessStartInfo
+        $psi.FileName = $BinaryPath
+        $psi.Arguments = if (Get-Command Format-CdrWindowsCommandLine -ErrorAction SilentlyContinue) {
+            $fullCmd = Format-CdrWindowsCommandLine -FilePath $BinaryPath -ArgumentList $arguments
+            $exePart = Format-CdrWindowsCommandLine -FilePath $BinaryPath -ArgumentList @()
+            $fullCmd.Substring($exePart.Length).TrimStart()
+        } else {
+            ($arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
+        }
+        $psi.WorkingDirectory = $RepoRoot
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $probeProc = [Diagnostics.Process]::Start($psi)
+        try {
+            [void]$probeProc.Handle
+            $lastMcpTick = [DateTime]::MinValue
+            while (-not $probeProc.WaitForExit(250)) {
+                if (((Get-Date) - $lastMcpTick).TotalMilliseconds -ge 1000 -and
+                    (Get-Command Invoke-CdrMcpWatchdog -ErrorAction SilentlyContinue)) {
+                    $lastMcpTick = Get-Date
+                    try { Invoke-CdrMcpWatchdog -RepoRoot $RepoRoot | Out-Null } catch { }
+                }
+            }
+            $probeExitCode = [int]$probeProc.ExitCode
+        } finally {
+            $probeProc.Dispose()
+        }
+    } else {
+        Push-Location -LiteralPath $RepoRoot
+        try {
+            & $BinaryPath @arguments
+            $probeExitCode = $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
     }
     if ($probeExitCode -ne 0) {
         throw "Rust restart readiness probe failed with exit code $probeExitCode"
@@ -330,17 +368,58 @@ function Start-RustRuntime {
         [Environment]::SetEnvironmentVariable($resumeName, $resumeValue, 'Process')
         if ([DateTimeOffset]::UtcNow -ge $DeadlineUtc) { throw 'maintenance_deadline_exceeded_before_launch' }
         Invoke-CdrProductionCheckedLaunch -DeadlineUtc $DeadlineUtc -Launch {
-        Set-CdrLaunchStarting
-        if ([DateTimeOffset]::UtcNow -ge $DeadlineUtc) { throw 'maintenance_deadline_exceeded_before_process_start' }
-        $process = Start-Process -FilePath $BinaryPath `
-            -ArgumentList @('--env', $quotedEnv) `
-            -WorkingDirectory $RepoRoot `
-            -RedirectStandardOutput $StdoutLog `
-            -RedirectStandardError $StderrLog `
-            -WindowStyle Hidden `
-            -PassThru
-        $script:RustRestartStartedProcess = $process
-        Set-CdrLaunchChild -Process $process
+        $cutoverFencePath = Join-Path $RepoRoot '.codex_discord_runtime.cutover'
+        if ([IO.File]::Exists($cutoverFencePath)) {
+            $isOwnedCutoverLaunch = $false
+            if (-not [string]::IsNullOrWhiteSpace($OwnedCutoverTransactionId) -and
+                $null -ne $controlGuard -and $controlGuard -is [IO.FileStream] -and $controlGuard.CanWrite -and
+                -not $controlGuard.SafeFileHandle.IsClosed -and -not $controlGuard.SafeFileHandle.IsInvalid) {
+                $ownedTx = [pscustomobject]@{
+                    TransactionId = $OwnedCutoverTransactionId
+                    OwnerIdentity = "$PID|$watchdogTicks"
+                }
+                if (Test-CdrOwnedCutoverState -Path $cutoverFencePath -OwnedTransaction $ownedTx -OwnedIdentity "$PID|$watchdogTicks") {
+                    $cutoverRaw = [IO.File]::ReadAllText($cutoverFencePath)
+                    if ($cutoverRaw -match ('(?m)^owner_identity=' + [regex]::Escape("$PID|$watchdogTicks") + '\r?$') -and
+                        $cutoverRaw -match '(?m)^phase=(target_starting|recovery_source_starting)\r?$') {
+                        $isOwnedCutoverLaunch = $true
+                    }
+                }
+            }
+            if (-not $isOwnedCutoverLaunch) {
+                throw 'mcp_cutover_pending: bot launch refused while MCP ownership cutover is pending or held'
+            }
+        }
+        $process = $null
+        $intentLock = Enter-CdrIntentLock -RepoRoot $RepoRoot -TimeoutMs 15000
+        try {
+            Set-CdrLaunchStarting
+            if ([DateTimeOffset]::UtcNow -ge $DeadlineUtc) { throw 'maintenance_deadline_exceeded_before_process_start' }
+            try {
+                $process = Start-CdrDetachedProcess -FilePath $BinaryPath `
+                    -ArgumentList @('--env', $quotedEnv) `
+                    -WorkingDirectory $RepoRoot `
+                    -RedirectStandardOutput $StdoutLog `
+                    -RedirectStandardError $StderrLog `
+                    -WindowStyle 'Hidden'
+                if ($null -eq $process) {
+                    throw 'Detached spawn returned null process object'
+                }
+                $script:RustRestartStartedProcess = $process
+                Set-CdrLaunchChild -Process $process
+            } catch {
+                $errMsg = $_.Exception.Message
+                if (Get-Command Write-CdrComponentLaunchJournal -ErrorAction SilentlyContinue) {
+                    $botIntent = Get-CdrComponentIntent -RepoRoot $RepoRoot -Component 'bot'
+                    Write-CdrComponentLaunchJournal -RepoRoot $RepoRoot -Component 'bot' `
+                        -Phase 'launch_outcome_unknown' -BinaryPath $BinaryPath -Action 'watchdog-start' `
+                        -IntentRevision ([uint64]$botIntent.Revision) -Error $errMsg | Out-Null
+                }
+                throw
+            }
+        } finally {
+            Exit-CdrIntentLock $intentLock
+        }
         $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
         if ($DeadlineUtc -lt $deadline) { $deadline=$DeadlineUtc }
         while ([DateTimeOffset]::UtcNow -lt $deadline) {
@@ -377,6 +456,13 @@ if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
 $script:CdrTrayStartedIdentity = ''
 $script:CdrTrayPollAllowed = $false
 $script:CdrTrayObservedIdentity = ''
+if (-not $DryRun -and -not $ForceRestart -and -not $MaintenanceStatePath -and
+    -not $RecoverDeploymentStatePath -and -not $PrepareRestart -and
+    -not $CheckRestartReady -and -not $CompleteRestartFenceJson -and
+    [string]::IsNullOrWhiteSpace($OwnedCutoverTransactionId) -and
+    (Get-Command Invoke-CdrMcpWatchdog -ErrorAction SilentlyContinue)) {
+    try { Invoke-CdrMcpWatchdog -RepoRoot $RepoRoot | Out-Null } catch { }
+}
 $forceGuard = $null
 if ($ForceRestart -and -not $DryRun) {
     if ($MaintenanceStatePath -or $RecoverDeploymentStatePath -or $PrepareRestart -or
@@ -538,6 +624,12 @@ if (Test-Path -LiteralPath $StopPath) {
 }
 
 if (Test-Path -LiteralPath $DisablePath) {
+    if ($DryRun) { Write-Output 'disabled' }
+    elseif ($LogHealthy) { Write-RustWatchdogLog 'disabled' }
+    exit 0
+}
+if ((Get-Command Get-CdrComponentIntent -ErrorAction SilentlyContinue) -and
+    ((Get-CdrComponentIntent -RepoRoot $RepoRoot -Component 'bot').DesiredState -eq 'stopped')) {
     if ($DryRun) { Write-Output 'disabled' }
     elseif ($LogHealthy) { Write-RustWatchdogLog 'disabled' }
     exit 0

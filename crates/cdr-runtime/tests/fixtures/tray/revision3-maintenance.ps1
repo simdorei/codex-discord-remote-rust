@@ -49,6 +49,10 @@ function Start-Process {
     if($FilePath -cne $BinaryPath){throw 'UNEXPECTED_NONFIXTURE_START'}
     $script:runtimeStarts++;return $fake
 }
+function Start-CdrDetachedProcess {
+    [CmdletBinding()]param($FilePath,$ArgumentList,$WorkingDirectory,$RedirectStandardOutput,$RedirectStandardError,$WindowStyle)
+    Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $RedirectStandardOutput -RedirectStandardError $RedirectStandardError -WindowStyle $WindowStyle -PassThru
+}
 function Write-RustWatchdogLog {param($Message)}
 function Clear-DeadRuntimeArtifacts {param([switch]$PreserveRestartDrain)}
 function Get-VerifiedRuntimeProcess {return $fake}

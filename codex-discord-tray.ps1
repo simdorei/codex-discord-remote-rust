@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([switch]$Once)
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +14,7 @@ $script:LastRunningStatus = $null
 $script:LastTrayIcon = $null
 $script:LastStatusError = $null
 $script:LastStatusErrorAt = [datetime]::MinValue
+$script:ExitAllFailureDiagnostic = $null
 
 function Write-LauncherLog {
     param([string]$Message)
@@ -66,6 +67,19 @@ if ($Once) {
 
 function Update-TrayStatus {
     try {
+        if (-not [string]::IsNullOrWhiteSpace($script:ExitAllFailureDiagnostic)) {
+            $failText = "전체 종료 실패 ($($script:ExitAllFailureDiagnostic))"
+            $statusItem.Text = $failText
+            if ($null -ne $mcpStatusItem -and (Get-Command Get-McpTrayStatus -ErrorAction SilentlyContinue)) {
+                try { $mcpStatusItem.Text = (Get-McpTrayStatus -Root $ScriptDir).Text } catch { }
+            }
+            $notify.Text = Limit-TrayText $failText
+            if ($script:LastTrayIcon -ne 'Error') {
+                $notify.Icon = [Drawing.SystemIcons]::Error
+                $script:LastTrayIcon = 'Error'
+            }
+            return
+        }
         $status = Get-BotStatus
         if ($status.State -eq 'unknown') {
             # An observation error is not a stopped/restarting or healthy result.
@@ -90,6 +104,9 @@ function Update-TrayStatus {
             }
         }
         $statusItem.Text = $status.Text
+        if ($null -ne $mcpStatusItem -and (Get-Command Get-McpTrayStatus -ErrorAction SilentlyContinue)) {
+            try { $mcpStatusItem.Text = (Get-McpTrayStatus -Root $ScriptDir).Text } catch { }
+        }
         $notify.Text = Limit-TrayText $status.Text
         $nextIcon = $status.Icon
         if ($script:LastTrayIcon -ne $nextIcon) {
@@ -109,6 +126,34 @@ function Update-TrayStatus {
         # Even a broken UI object or logging destination cannot escape a timer tick.
         try { $statusItem.Text = 'Codex Discord bridge status unavailable' } catch { }
         try { $notify.Text = 'Codex Discord bridge status unavailable'; $notify.Icon = [Drawing.SystemIcons]::Warning } catch { }
+    }
+}
+
+function Invoke-TrayExitAllAction {
+    param([int]$GraceTimeoutMs = 45000)
+    try {
+        $exitRes = Invoke-CdrTrayExitAll -Root $ScriptDir -GraceTimeoutMs $GraceTimeoutMs
+        if ($exitRes.AllStopped -and -not $exitRes.KeepTrayOpen) {
+            $script:ExitAllFailureDiagnostic = $null
+            try { $notify.Visible = $false } catch { }
+            if ($null -ne [Windows.Forms.Application]) {
+                try { [Windows.Forms.Application]::Exit() } catch { }
+            }
+            return $exitRes
+        } else {
+            $script:ExitAllFailureDiagnostic = "Bot=$($exitRes.BotStopped), MCP=$($exitRes.McpStopped)"
+            Write-LauncherLog "tray_exit_all_partial_failure diagnostic=$($exitRes.Diagnostic)"
+            Update-TrayStatus
+            try {
+                $notify.ShowBalloonTip(4000, 'Codex Discord bridge', '일부 구성요소 종료에 실패하여 트레이를 유지합니다.', [Windows.Forms.ToolTipIcon]::Error)
+            } catch { }
+            return $exitRes
+        }
+    } catch {
+        $script:ExitAllFailureDiagnostic = 'exception'
+        Write-LauncherLog "tray_exit_request_failed type=$($_.Exception.GetType().FullName) error=$($_.Exception.Message)"
+        try { $notify.Icon = [Drawing.SystemIcons]::Error; $script:LastTrayIcon = 'Error' } catch { }
+        throw
     }
 }
 
@@ -137,6 +182,11 @@ try {
     $statusItem.Enabled = $false
     [void]$menu.Items.Add($statusItem)
 
+    $mcpStatusItem = New-Object Windows.Forms.ToolStripMenuItem
+    $mcpStatusItem.Text = 'Codex Remote MCP: checking...'
+    $mcpStatusItem.Enabled = $false
+    [void]$menu.Items.Add($mcpStatusItem)
+
     $openLogItem = New-Object Windows.Forms.ToolStripMenuItem
     $openLogItem.Text = 'Open bot log'
     $openLogItem.Add_Click({
@@ -153,10 +203,45 @@ try {
     })
     [void]$menu.Items.Add($openFolderItem)
 
+    $startBotItem = New-Object Windows.Forms.ToolStripMenuItem
+    $startBotItem.Text = 'Start bot'
+    $startBotItem.Add_Click({
+        try {
+            $script:ExitAllFailureDiagnostic = $null
+            Request-BotStart -Root $ScriptDir
+            $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Bot start requested.', [Windows.Forms.ToolTipIcon]::Info)
+            Update-TrayStatus
+        } catch {
+            Write-LauncherLog "tray_start_bot_failed type=$($_.Exception.GetType().FullName) error=$($_.Exception.Message)"
+            try { $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Bot start request failed. Check discord_launcher.log.', [Windows.Forms.ToolTipIcon]::Error) } catch { }
+        }
+    })
+    [void]$menu.Items.Add($startBotItem)
+
+    $stopBotItem = New-Object Windows.Forms.ToolStripMenuItem
+    $stopBotItem.Text = 'Stop bot'
+    $stopBotItem.Add_Click({
+        try {
+            $script:ExitAllFailureDiagnostic = $null
+            $stopRes = Request-BotStop -Root $ScriptDir
+            if ($stopRes.Stopped) {
+                $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Bot stopped (MCP unaffected).', [Windows.Forms.ToolTipIcon]::Info)
+            } else {
+                $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Bot stop did not complete cleanly.', [Windows.Forms.ToolTipIcon]::Warning)
+            }
+            Update-TrayStatus
+        } catch {
+            Write-LauncherLog "tray_stop_bot_failed type=$($_.Exception.GetType().FullName) error=$($_.Exception.Message)"
+            try { $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Bot stop request failed. Check discord_launcher.log.', [Windows.Forms.ToolTipIcon]::Error) } catch { }
+        }
+    })
+    [void]$menu.Items.Add($stopBotItem)
+
     $restartItem = New-Object Windows.Forms.ToolStripMenuItem
     $restartItem.Text = 'Restart bot'
     $restartItem.Add_Click({
         try {
+            $script:ExitAllFailureDiagnostic = $null
             Request-BotRestart
             $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Restart requested.', [Windows.Forms.ToolTipIcon]::Info)
         } catch {
@@ -169,6 +254,7 @@ try {
     $forceRestartItem.Text = 'Force restart bot + app-server (interrupt work)'
     $forceRestartItem.Add_Click({
         try {
+            $script:ExitAllFailureDiagnostic = $null
             Request-BotForceRestart
             $notify.ShowBalloonTip(3000, 'Codex Discord bridge', 'Force restart requested. Active work will be interrupted.', [Windows.Forms.ToolTipIcon]::Warning)
         } catch {
@@ -179,10 +265,9 @@ try {
     [void]$menu.Items.Add($forceRestartItem)
     [void]$menu.Items.Add((New-Object Windows.Forms.ToolStripSeparator))
     $exitItem = New-Object Windows.Forms.ToolStripMenuItem
-    $exitItem.Text = 'Exit tray icon'
+    $exitItem.Text = '전체 종료'
     $exitItem.Add_Click({
-        try { [Windows.Forms.Application]::Exit() }
-        catch { Write-LauncherLog "tray_exit_request_failed type=$($_.Exception.GetType().FullName)" }
+        try { Invoke-TrayExitAllAction | Out-Null } catch { }
     })
     [void]$menu.Items.Add($exitItem)
     $notify.ContextMenuStrip = $menu

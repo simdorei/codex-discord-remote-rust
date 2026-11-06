@@ -32,14 +32,15 @@ if (-not $SkipBuild) {
     Push-Location $repo
     try {
         $source = Invoke-CdrRuntimeBuild -Root $repo -BinaryPath (Join-Path $BinaryDirectory 'cdr-runtime.exe') -CargoArguments @('build', '--release', '--locked', '--target',
-            'x86_64-pc-windows-msvc', '-p', 'cdr-runtime', '-p', 'cdr-pro', '--bin', 'cdr-runtime', '--bin', 'cdr-pro-helper') `
+            'x86_64-pc-windows-msvc', '-p', 'cdr-runtime', '-p', 'cdr-remote-agent', '-p', 'cdr-pro', '--bin', 'cdr-runtime', '--bin', 'cdr-remote-agent', '--bin', 'cdr-pro-helper') `
             -EnvironmentOverrides @{
                 CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS='-C target-feature=+crt-static'; VSLANG='1033'
             }
     } finally { Pop-Location }
 }
 $embedded = Assert-CdrBuildSource -Path (Join-Path $BinaryDirectory 'cdr-runtime.exe') -Source $source
-foreach ($binary in @('cdr-runtime.exe', 'cdr-pro-helper.exe')) {
+$null = Assert-CdrBuildSource -Path (Join-Path $BinaryDirectory 'cdr-remote-agent.exe') -Source $source
+foreach ($binary in @('cdr-runtime.exe', 'cdr-remote-agent.exe', 'cdr-pro-helper.exe')) {
     Test-CdrWindowsExecutable -Path (Join-Path $BinaryDirectory $binary)
 }
 $null = [IO.Directory]::CreateDirectory($output)

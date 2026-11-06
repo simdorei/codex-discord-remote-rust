@@ -65,4 +65,258 @@ function Assert-CdrStartedArtifact {
     }
 }
 
-Export-ModuleMember -Function Get-CdrRuntimeArtifact,Get-CdrRuntimeArtifactPin,Read-CdrRuntimeStartup,Assert-CdrStartedArtifact
+function Get-CdrProcessIdentity {
+    param($Process = $null, [int]$ProcessId = 0)
+    $target = $Process
+    if ($null -eq $target -and $ProcessId -gt 0) {
+        $target = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $target) { return $null }
+    try {
+        $ticks = $target.StartTime.ToUniversalTime().Ticks
+        if ($ticks -le 0) { return $null }
+        $ticks -= ($ticks % 10)
+        return "$($target.Id)|$ticks"
+    } catch {
+        return $null
+    }
+}
+
+function Get-CdrProcessObservation {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][string]$ExpectedIdentity,
+        [Alias('ExpectedPath')][string]$ExpectedBinaryPath = '',
+        $Process = $null
+    )
+    if ($ProcessId -le 0 -or $ExpectedIdentity -notmatch '^(\d+)\|(\d+)$') {
+        return [pscustomobject]@{
+            State           = 'unknown'
+            Matches         = $false
+            Process         = $null
+            ProcessId       = $ProcessId
+            ProcessIdentity = $ExpectedIdentity
+            BinaryPath      = $ExpectedBinaryPath
+            Reason          = 'invalid_expected_identity'
+        }
+    }
+    if ([int]$Matches[1] -ne $ProcessId) {
+        return [pscustomobject]@{
+            State           = 'unknown'
+            Matches         = $false
+            Process         = $null
+            ProcessId       = $ProcessId
+            ProcessIdentity = $ExpectedIdentity
+            BinaryPath      = $ExpectedBinaryPath
+            Reason          = 'pid_mismatch'
+        }
+    }
+    $proc = $Process
+    if ($null -ne $proc) {
+        try {
+            if ([int]$proc.Id -ne $ProcessId) {
+                $proc = $null
+            }
+        } catch {
+            $proc = $null
+        }
+    }
+    if ($null -eq $proc) {
+        try {
+            $proc = Get-Process -Id $ProcessId -ErrorAction Stop
+        } catch {
+            if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*' -or
+                $_.CategoryInfo.Category -eq [Management.Automation.ErrorCategory]::ObjectNotFound -or
+                $_.Exception.Message -match 'Cannot find a process with the process identifier') {
+                return [pscustomobject]@{
+                    State           = 'stopped'
+                    Matches         = $false
+                    Process         = $null
+                    ProcessId       = $ProcessId
+                    ProcessIdentity = $ExpectedIdentity
+                    BinaryPath      = $ExpectedBinaryPath
+                    Reason          = 'not_found'
+                }
+            }
+            return [pscustomobject]@{
+                State           = 'unknown'
+                Matches         = $false
+                Process         = $null
+                ProcessId       = $ProcessId
+                ProcessIdentity = $ExpectedIdentity
+                BinaryPath      = $ExpectedBinaryPath
+                Reason          = "get_process_failed:$($_.Exception.GetType().FullName)"
+            }
+        }
+    }
+    if ($null -eq $proc) {
+        return [pscustomobject]@{
+            State           = 'stopped'
+            Matches         = $false
+            Process         = $null
+            ProcessId       = $ProcessId
+            ProcessIdentity = $ExpectedIdentity
+            BinaryPath      = $ExpectedBinaryPath
+            Reason          = 'null_process'
+        }
+    }
+    try {
+        try { [void]$proc.Handle } catch { }
+        if ($proc.PSObject.Properties['HasExited'] -and $proc.HasExited) {
+            return [pscustomobject]@{
+                State           = 'stopped'
+                Matches         = $false
+                Process         = $null
+                ProcessId       = $ProcessId
+                ProcessIdentity = $ExpectedIdentity
+                BinaryPath      = $ExpectedBinaryPath
+                Reason          = 'has_exited'
+            }
+        }
+        $actualIdentity = Get-CdrProcessIdentity -Process $proc
+        if ([string]::IsNullOrWhiteSpace($actualIdentity)) {
+            if ($proc.PSObject.Properties['HasExited'] -and $proc.HasExited) {
+                return [pscustomobject]@{
+                    State           = 'stopped'
+                    Matches         = $false
+                    Process         = $null
+                    ProcessId       = $ProcessId
+                    ProcessIdentity = $ExpectedIdentity
+                    BinaryPath      = $ExpectedBinaryPath
+                    Reason          = 'exited_during_start_time'
+                }
+            }
+            return [pscustomobject]@{
+                State           = 'unknown'
+                Matches         = $false
+                Process         = $proc
+                ProcessId       = $ProcessId
+                ProcessIdentity = $ExpectedIdentity
+                BinaryPath      = $ExpectedBinaryPath
+                Reason          = 'start_time_unavailable'
+            }
+        }
+        if ($actualIdentity -cne $ExpectedIdentity) {
+            return [pscustomobject]@{
+                State           = 'stopped'
+                Matches         = $false
+                Process         = $null
+                ProcessId       = $ProcessId
+                ProcessIdentity = $ExpectedIdentity
+                BinaryPath      = $ExpectedBinaryPath
+                Reason          = 'identity_reused'
+            }
+        }
+        $resolvedBinary = $ExpectedBinaryPath
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedBinaryPath)) {
+            $actualPath = $proc.Path
+            if ([string]::IsNullOrWhiteSpace($actualPath) -and $proc.PSObject.Properties['MainModule'] -and $null -ne $proc.MainModule) {
+                $actualPath = $proc.MainModule.FileName
+            }
+            if ([string]::IsNullOrWhiteSpace($actualPath)) {
+                if ($proc.PSObject.Properties['HasExited'] -and $proc.HasExited) {
+                    return [pscustomobject]@{
+                        State           = 'stopped'
+                        Matches         = $false
+                        Process         = $null
+                        ProcessId       = $ProcessId
+                        ProcessIdentity = $ExpectedIdentity
+                        BinaryPath      = $ExpectedBinaryPath
+                        Reason          = 'exited_during_path'
+                    }
+                }
+                return [pscustomobject]@{
+                    State           = 'unknown'
+                    Matches         = $false
+                    Process         = $proc
+                    ProcessId       = $ProcessId
+                    ProcessIdentity = $ExpectedIdentity
+                    BinaryPath      = $ExpectedBinaryPath
+                    Reason          = 'path_unavailable'
+                }
+            }
+            if (-not [StringComparer]::OrdinalIgnoreCase.Equals(
+                [IO.Path]::GetFullPath($actualPath),
+                [IO.Path]::GetFullPath($ExpectedBinaryPath)
+            )) {
+                return [pscustomobject]@{
+                    State           = 'unknown'
+                    Matches         = $false
+                    Process         = $proc
+                    ProcessId       = $ProcessId
+                    ProcessIdentity = $ExpectedIdentity
+                    BinaryPath      = $ExpectedBinaryPath
+                    Reason          = 'path_mismatch'
+                }
+            }
+            $resolvedBinary = [IO.Path]::GetFullPath($actualPath)
+        }
+        return [pscustomobject]@{
+            State           = 'running'
+            Matches         = $true
+            Process         = $proc
+            ProcessId       = [int]$ProcessId
+            ProcessIdentity = $actualIdentity
+            BinaryPath      = $resolvedBinary
+            Reason          = 'matched'
+        }
+    } catch {
+        try {
+            if ($proc.PSObject.Properties['HasExited'] -and $proc.HasExited) {
+                return [pscustomobject]@{
+                    State           = 'stopped'
+                    Matches         = $false
+                    Process         = $null
+                    ProcessId       = $ProcessId
+                    ProcessIdentity = $ExpectedIdentity
+                    BinaryPath      = $ExpectedBinaryPath
+                    Reason          = 'exited_exception'
+                }
+            }
+        } catch { }
+        return [pscustomobject]@{
+            State           = 'unknown'
+            Matches         = $false
+            Process         = $proc
+            ProcessId       = $ProcessId
+            ProcessIdentity = $ExpectedIdentity
+            BinaryPath      = $ExpectedBinaryPath
+            Reason          = "observation_exception:$($_.Exception.GetType().FullName)"
+        }
+    }
+}
+
+function Test-CdrProcessMatchesIdentity {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][string]$ExpectedIdentity,
+        [Alias('ExpectedPath')][string]$ExpectedBinaryPath = '',
+        $Process = $null
+    )
+    return [bool](Get-CdrProcessObservation -ProcessId $ProcessId -ExpectedIdentity $ExpectedIdentity -ExpectedBinaryPath $ExpectedBinaryPath -Process $Process).Matches
+}
+
+function Get-CdrProcessSecurityContext {
+    param([Parameter(Mandatory)][int]$ProcessId)
+    $proc = Get-Process -Id $ProcessId -ErrorAction Stop
+    $sessionId = [int]$proc.SessionId
+    $userSid = ''
+    if ($ProcessId -eq $PID) {
+        $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    } else {
+        $cimProc = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
+        if ($null -ne $cimProc) {
+            $ownerSidRes = Invoke-CimMethod -InputObject $cimProc -MethodName GetOwnerSid -ErrorAction Stop
+            if ($null -ne $ownerSidRes -and $ownerSidRes.ReturnValue -eq 0 -and -not [string]::IsNullOrWhiteSpace($ownerSidRes.Sid)) {
+                $userSid = [string]$ownerSidRes.Sid
+            }
+        }
+    }
+    return [pscustomobject]@{
+        ProcessId = $ProcessId
+        SessionId = $sessionId
+        UserSid   = $userSid
+    }
+}
+
+Export-ModuleMember -Function Get-CdrRuntimeArtifact,Get-CdrRuntimeArtifactPin,Read-CdrRuntimeStartup,Assert-CdrStartedArtifact,Get-CdrProcessIdentity,Get-CdrProcessObservation,Test-CdrProcessMatchesIdentity,Get-CdrProcessSecurityContext

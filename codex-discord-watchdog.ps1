@@ -24,6 +24,15 @@ if ([string]::IsNullOrWhiteSpace($RuntimeMode)) {
     $RuntimeMode = 'rust'
 }
 if ($RuntimeMode -eq 'rust') {
+    if (-not $CheckRestartReady -and -not $DryRun) {
+        $cdrJournal = Join-Path $ScriptDir 'scripts\CdrLaunchJournal.ps1'
+        if (Test-Path -LiteralPath $cdrJournal -PathType Leaf) {
+            try {
+                . $cdrJournal
+                Invoke-CdrMcpWatchdog -RepoRoot $ScriptDir | Out-Null
+            } catch { }
+        }
+    }
     $RustWatchdog = Join-Path $ScriptDir 'codex-discord-rust-watchdog.ps1'
     if (-not (Test-Path -LiteralPath $RustWatchdog)) {
         throw "Rust watchdog was not found: $RustWatchdog"

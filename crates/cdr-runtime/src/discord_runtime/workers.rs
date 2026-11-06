@@ -1,7 +1,7 @@
 use std::{future::Future, path::Path, sync::Arc};
 
 use cdr_remote_agent::{
-    config::RemoteMcpConfig,
+    config::{RemoteMcpConfig, RemoteMcpOwnership},
     restart_handoff::RestartHandoffRuntime,
     runner::{ManagedRemoteAgent, RemoteAgentControl},
     status::RemoteAgentStatus,
@@ -9,6 +9,7 @@ use cdr_remote_agent::{
 use tokio::sync::watch;
 
 use crate::{
+    pro_runtime::effective_remote_mcp_ownership,
     runtime_paths::RuntimePaths,
     session_mirror_worker::{
         DiscordSessionMirrorSender, SessionMirrorWorker, run_session_mirror_worker,
@@ -47,6 +48,9 @@ pub(super) async fn prepare_remote_worker(
     let Some(remote) = config else {
         return Ok(None);
     };
+    if effective_remote_mcp_ownership(root, remote.ownership) == RemoteMcpOwnership::External {
+        return Ok(None);
+    }
     let handoff = RestartHandoffRuntime::system(root)?;
     let control = RemoteAgentControl::default();
     let agent = ManagedRemoteAgent::initialize(remote, status, handoff, control.clone()).await?;
@@ -62,7 +66,10 @@ pub(super) fn start_remote_worker(
         return (None, None);
     };
     let worker = spawn_monitored("remote-mcp", exit_notifier, async move {
-        agent.run(shutdown).await.map_err(Into::into)
+        if let Err(error) = agent.run(shutdown).await {
+            eprintln!("remote_mcp_worker_shutdown_error error={error}");
+        }
+        Ok(())
     });
     (Some(worker), Some(control))
 }
