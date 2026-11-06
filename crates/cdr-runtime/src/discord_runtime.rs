@@ -340,6 +340,8 @@ async fn start_app_server(
     )?);
     let server =
         Arc::new(ResidentAppServer::start_with_dead_generation_fence(config, fence).await?);
+    #[cfg(windows)]
+    crate::runtime_paths::receipt::write(paths, &server, startup_deadline).await?;
     if let Err(error) = crate::idle_release::install(&server, &paths.mirror_db) {
         if let Err(cleanup) = server.close().await {
             return Err(AppServerError::StartupCleanup {
@@ -348,17 +350,6 @@ async fn start_app_server(
             });
         }
         return Err(error);
-    }
-    #[cfg(windows)]
-    if let Err(error) = crate::runtime_paths::receipt::write(paths, &server).await {
-        let cleanup = server.close().await;
-        return Err(match cleanup {
-            Ok(()) => error,
-            Err(cleanup) => AppServerError::StartupCleanup {
-                primary: Box::new(error),
-                cleanup: Box::new(cleanup),
-            },
-        });
     }
     Ok(server)
 }

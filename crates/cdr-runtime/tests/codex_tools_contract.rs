@@ -62,7 +62,23 @@ fn tools_protocol_fixture() {
                 } else {
                     "cua-state-v1"
                 };
-                json!({"isError":mode=="failure","content":[{"type":"text","text":json!({"cdrProbe":marker,"observed":true}).to_string()}]})
+                let inventory = match mode.as_str() {
+                    "inventory-errors" => {
+                        json!({"apps":[],"browsers":[],"errors":["native pipe unavailable", "browser host unavailable"]})
+                    }
+                    "inventory-partial" => {
+                        json!({"apps":[{"name":"Notepad"}],"browsers":[],"errors":["browser host unavailable"]})
+                    }
+                    "inventory-null" => Value::Null,
+                    "inventory-malformed" => json!({"apps":"unavailable","browsers":[]}),
+                    "inventory-bad-entry" => json!({"apps":[null],"browsers":[]}),
+                    "inventory-bad-errors" => json!({"apps":[],"browsers":[],"errors":"unknown"}),
+                    "inventory-populated" => {
+                        json!({"apps":[{"name":"Notepad"}],"browsers":[{"name":"Chrome"}],"errors":[]})
+                    }
+                    _ => json!({"apps":[],"browsers":[]}),
+                };
+                json!({"isError":mode=="failure","content":[{"type":"text","text":json!({"cdrProbe":marker,"observed":true,"inventory":inventory}).to_string()}]})
             }
             other => panic!("unexpected method {other}"),
         };
@@ -133,6 +149,28 @@ async fn successful_markers_cannot_replace_required_plugin_ownership() {
     assert_eq!(exercise("wrong-owner", true).await, (ToolState::Failed, 1));
     assert_eq!(
         exercise("alternate-name", true).await,
+        (ToolState::Verified, 4)
+    );
+}
+
+#[tokio::test]
+async fn incomplete_inventory_is_unverified_despite_successful_calls_and_markers() {
+    for mode in [
+        "inventory-errors",
+        "inventory-partial",
+        "inventory-null",
+        "inventory-malformed",
+        "inventory-bad-entry",
+        "inventory-bad-errors",
+    ] {
+        assert_eq!(
+            exercise(mode, true).await,
+            (ToolState::Unverified, 4),
+            "{mode}"
+        );
+    }
+    assert_eq!(
+        exercise("inventory-populated", true).await,
         (ToolState::Verified, 4)
     );
 }

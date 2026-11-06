@@ -171,6 +171,33 @@ fn valid_marker(result: &Value, marker: &str) -> bool {
         })
 }
 
+fn inventory_state(result: &Value) -> ToolState {
+    let observed = result["content"].as_array().and_then(|content| {
+        let mut markers = content.iter().filter_map(|item| {
+            let value: Value = serde_json::from_str(item["text"].as_str()?).ok()?;
+            (value["cdrProbe"] == "cua-state-v1").then_some(value)
+        });
+        let marker = markers.next()?;
+        markers.next().is_none().then_some(marker)
+    });
+    let valid = result["isError"] != true
+        && observed.is_some_and(|marker| {
+            let inventory = &marker["inventory"];
+            ["apps", "browsers"].iter().all(|key| {
+                inventory[key]
+                    .as_array()
+                    .is_some_and(|items| items.iter().all(Value::is_object))
+            }) && inventory
+                .get("errors")
+                .is_none_or(|errors| errors.as_array().is_some_and(Vec::is_empty))
+        });
+    if valid {
+        ToolState::Verified
+    } else {
+        ToolState::Unverified
+    }
+}
+
 async fn call(
     client: &AppServerClient,
     thread: &str,
@@ -215,13 +242,13 @@ pub async fn inspect(
             let server = check.server.as_deref().expect("observed server");
             let outcome = if check.requirement == "node_repl" {
                 call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'node-js-v1',observed:6*7===42}));","title":"Checking local JavaScript"}), deadline).await
-                    .map(|result| valid_marker(&result, "node-js-v1"))
+                    .map(|result| if valid_marker(&result, "node-js-v1") { ToolState::Verified } else { ToolState::Failed })
             } else {
                 let observed = call(client, thread, server, json!({"code":"var cdrCuaState = await cua.getState();","title":"Checking surface inventory"}), deadline).await;
                 let verified = match observed {
-                    Ok(result) if result["isError"] != true => call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'cua-state-v1',observed:cdrCuaState!==undefined}));","title":"Verifying inventory observation"}), deadline).await
-                        .map(|result| valid_marker(&result, "cua-state-v1")),
-                    Ok(_) => Ok(false),
+                    Ok(result) if result["isError"] != true => call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'cua-state-v1',inventory:cdrCuaState}));","title":"Verifying inventory observation"}), deadline).await
+                        .map(|result| inventory_state(&result)),
+                    Ok(_) => Ok(ToolState::Unverified),
                     Err(error) => Err(error),
                 };
                 let completed = call(
@@ -240,15 +267,15 @@ pub async fn inspect(
                 }
             };
             match outcome {
-                Ok(true) => {
+                Ok(ToolState::Verified) => {
                     check.state = ToolState::Verified;
                     check.reason = "read_only_probe_passed";
                 }
-                Ok(false) => {
+                Ok(ToolState::Failed) => {
                     check.state = ToolState::Failed;
                     check.reason = "probe_result_mismatch";
                 }
-                Err(_) => {
+                Ok(_) | Err(_) => {
                     check.state = ToolState::Unverified;
                     check.reason = "probe_call_unverified";
                 }

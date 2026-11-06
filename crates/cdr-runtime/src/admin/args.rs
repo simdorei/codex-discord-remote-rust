@@ -31,7 +31,7 @@ impl Args {
             "discover-codex" => &["--codex-exe", "--codex-home", "--format"],
             "diagnose-codex-tools" => &["--codex-exe", "--codex-home", "--run-probes"],
             #[cfg(windows)]
-            "codex-selection-worker" => &["--request-file"],
+            "codex-selection-worker" => &["--request-file", "--record-json"],
             #[cfg(windows)]
             "codex-selected-command" => &["--selection-json", "--arguments-json", "--codex-home"],
             #[cfg(windows)]

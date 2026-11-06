@@ -33,7 +33,16 @@ pub async fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<String
         "diagnose-codex-tools" => codex_tools::run(&args, &root).await,
         #[cfg(windows)]
         "codex-selection-worker" => {
-            crate::runtime_paths::selection_worker::run(Path::new(args.required("--request-file")?))
+            match (args.value("--request-file"), args.value("--record-json")) {
+                (Some(_), None) => crate::runtime_paths::selection_worker::run(Path::new(
+                    args.required("--request-file")?,
+                )),
+                (None, Some(record)) => crate::runtime_paths::receipt::persist(&root, record)
+                    .map_err(|error| error.to_string()),
+                _ => {
+                    Err("selection worker requires exactly one request-file or record-json".into())
+                }
+            }
         }
         #[cfg(windows)]
         "codex-selected-command" => {

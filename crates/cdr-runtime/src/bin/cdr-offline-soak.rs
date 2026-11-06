@@ -4,6 +4,9 @@ use cdr_runtime::soak::{SoakConfig, run};
 mod app_server;
 #[path = "../../tests/fixtures/codex_cli.rs"]
 mod codex_cli;
+#[cfg(windows)]
+#[path = "../../tests/fixtures/receipt.rs"]
+mod receipt;
 #[path = "../../tests/fixtures/version_probe.rs"]
 mod version_probe;
 
@@ -16,6 +19,12 @@ async fn main() {
 }
 
 async fn execute() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(windows)]
+    if std::env::args().nth(2).as_deref() == Some("codex-selection-worker")
+        && std::env::args().any(|arg| arg == "--record-json")
+    {
+        return receipt::run();
+    }
     if std::env::args().any(|arg| arg.contains("Get-AppxPackage"))
         && let Some(packages) = std::env::var_os("CDR_FIXTURE_STORE_PACKAGES")
     {
