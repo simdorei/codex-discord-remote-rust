@@ -1,3 +1,6 @@
+# Detached Windows PowerShell can inherit a PowerShell 7 module path.
+# Load the utility module for this host so Get-FileHash remains available.
+Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 if (-not (Get-Command Get-CdrProcessObservation -ErrorAction SilentlyContinue)) {
     $cdrIdentityModule = Join-Path $PSScriptRoot 'CdrRuntimeIdentity.psm1'
     if ([IO.File]::Exists($cdrIdentityModule)) {

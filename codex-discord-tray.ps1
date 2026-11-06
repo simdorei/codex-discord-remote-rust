@@ -2,6 +2,9 @@
 param([switch]$Once)
 
 $ErrorActionPreference = 'Stop'
+# The launcher can pass a PowerShell 7 module path to Windows PowerShell.
+# Load the utility module for this host explicitly before status verification.
+Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TrayRuntimePath = Join-Path $ScriptDir 'codex-discord-tray-runtime.ps1'
 $TrayRestartRuntimePath = Join-Path $ScriptDir 'codex-discord-tray-restart-runtime.ps1'

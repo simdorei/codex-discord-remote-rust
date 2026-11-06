@@ -1709,6 +1709,17 @@ async fn t11_safe_embedded_to_external_cutover_and_manual_rollback_guard() {
 
     let discord_double = DiscordRuntimeDouble::spawn().await;
     let temp = tempfile::tempdir().expect("tempdir");
+    // The legacy readiness process must stay alive until the cutover scans it.
+    // A real running queue row blocks readiness; otherwise the helper may exit
+    // before the test starts, which says nothing about the cutover fence.
+    {
+        let conn = cdr_store::schema::open_initialized(&temp.path().join("discord_mirror.sqlite"))
+            .expect("initialize legacy helper fixture store");
+        conn.execute_batch(
+            "INSERT INTO codex_turn_queue (job_id,target_thread_id,channel_id,prompt,queued,ack_sent,state,attempt_count,baseline_turn_ids,last_error,created_at,updated_at) VALUES ('fixture-job','fixture-thread',1,'fixture',0,0,'running',1,'[]','',1,1);",
+        )
+        .expect("insert blocking fixture job");
+    }
     let project_dir = temp.path().join("project_t11");
     fs::create_dir_all(&project_dir).expect("create project_t11");
     let embedded_bound_ack_path = temp.path().join("bot_data").join("embedded_bound_ack.txt");
@@ -2006,6 +2017,8 @@ Remove-Item -LiteralPath (Join-Path $temp 'discord_launcher.log') -Force -ErrorA
 $admittedOldCmd = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', 'codex-discord-bot.cmd --restart-readiness --restart-quiet-seconds 5 --restart-wait-timeout-seconds 10') -WorkingDirectory $temp -WindowStyle Hidden -PassThru
 try {{
     Start-Sleep -Milliseconds 150
+    $admittedOldCmd.Refresh()
+    if ($admittedOldCmd.HasExited) {{ throw "Legacy helper fixture exited before cutover (exit=$($admittedOldCmd.ExitCode))" }}
     $legacyHelperHeld = $false
     try {{
         Invoke-CdrMcpOwnershipCutover -RepoRoot $temp -McpBinaryPath $mcpBin -LegacyHelperExitTimeoutMs 250 -ReadinessTimeoutMs 500 | Out-Null
@@ -2034,11 +2047,13 @@ try {{
 }} finally {{
     if ($null -ne $admittedOldCmd -and -not $admittedOldCmd.HasExited) {{
         try {{ & taskkill.exe /PID $admittedOldCmd.Id /T /F | Out-Null }} catch {{ }}
+        $admittedOldCmd.WaitForExit(3000) | Out-Null
     }}
     Remove-Item -LiteralPath (Join-Path $temp '.codex_discord_bot.disabled') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $temp '.codex_discord_runtime.cutover') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $temp 'discord_launcher.log') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+    Move-Item -LiteralPath (Join-Path $temp 'discord_mirror.sqlite') -Destination (Join-Path $temp 'legacy-helper-fixture.sqlite') -ErrorAction Stop
 }}
 
 # Case 1: If external MCP readiness fails during cutover, state MUST be held in cutover_failed_hold

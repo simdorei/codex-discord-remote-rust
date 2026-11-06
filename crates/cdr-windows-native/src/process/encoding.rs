@@ -29,7 +29,14 @@ pub fn command_line(executable: &OsStr, arguments: &[String]) -> Result<Vec<u16>
 pub fn environment_block(environment: &HashMap<String, String>) -> Result<Vec<u16>, NativeError> {
     let mut block = Vec::new();
     for (name, value) in normalized_entries(environment) {
-        if name.contains('=') {
+        // cmd.exe carries per-drive working directories as entries such as
+        // `=C:=C:\work`. These are valid Windows environment-block entries.
+        let bytes = name.as_bytes();
+        let drive_directory = bytes.len() == 3
+            && bytes[0] == b'='
+            && bytes[1].is_ascii_alphabetic()
+            && bytes[2] == b':';
+        if name.contains('=') && !drive_directory {
             return Err(NativeError::InvalidInput(
                 "environment variable name contains '='".into(),
             ));
@@ -112,6 +119,18 @@ mod tests {
     #[test]
     fn empty_environment_is_double_nul_terminated() {
         assert_eq!(environment_block(&HashMap::new()).unwrap(), [0, 0]);
+    }
+
+    #[test]
+    fn windows_drive_current_directory_entries_are_preserved() {
+        let vars = HashMap::from([
+            ("=C:".into(), r"C:\work".into()),
+            ("PATH".into(), r"C:\bin".into()),
+        ]);
+        let block = environment_block(&vars).expect("Windows drive entry is valid");
+        let expected: Vec<u16> = "=C:=C:\\work\0PATH=C:\\bin\0\0".encode_utf16().collect();
+        assert_eq!(block, expected);
+        assert!(environment_block(&HashMap::from([("BAD=NAME".into(), "x".into())])).is_err());
     }
 
     #[test]
