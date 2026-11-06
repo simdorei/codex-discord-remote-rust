@@ -29,7 +29,10 @@ pub struct ToolCheck {
 #[derive(Debug, Serialize)]
 pub struct ToolReport {
     pub contract_id: &'static str,
+    pub verification_scope: &'static str,
     pub state: ToolState,
+    pub native_desktop_state: ToolState,
+    pub desktop_app_independence: ToolState,
     pub checks: Vec<ToolCheck>,
     pub catalog_sha256: Option<String>,
 }
@@ -96,7 +99,10 @@ fn report(checks: Vec<ToolCheck>) -> ToolReport {
     .unwrap_or(ToolState::Verified);
     ToolReport {
         contract_id: CONTRACT_ID,
+        verification_scope: "javascript_and_surface_inventory",
         state,
+        native_desktop_state: ToolState::NotChecked,
+        desktop_app_independence: ToolState::NotChecked,
         checks,
         catalog_sha256: None,
     }
@@ -211,9 +217,9 @@ pub async fn inspect(
                 call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'node-js-v1',observed:6*7===42}));","title":"Checking local JavaScript"}), deadline).await
                     .map(|result| valid_marker(&result, "node-js-v1"))
             } else {
-                let observed = call(client, thread, server, json!({"code":"var cdrCuaState = await cua.getState();","title":"Checking native availability"}), deadline).await;
+                let observed = call(client, thread, server, json!({"code":"var cdrCuaState = await cua.getState();","title":"Checking surface inventory"}), deadline).await;
                 let verified = match observed {
-                    Ok(result) if result["isError"] != true => call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'cua-state-v1',observed:cdrCuaState!==undefined}));","title":"Verifying native observation"}), deadline).await
+                    Ok(result) if result["isError"] != true => call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'cua-state-v1',observed:cdrCuaState!==undefined}));","title":"Verifying inventory observation"}), deadline).await
                         .map(|result| valid_marker(&result, "cua-state-v1")),
                     Ok(_) => Ok(false),
                     Err(error) => Err(error),
@@ -222,7 +228,7 @@ pub async fn inspect(
                     client,
                     thread,
                     server,
-                    json!({"completion_summary":"Checked native availability"}),
+                    json!({"completion_summary":"Checked surface inventory"}),
                     deadline,
                 )
                 .await;

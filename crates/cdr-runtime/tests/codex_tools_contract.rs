@@ -95,6 +95,13 @@ async fn exercise(mode: &str, invoke: bool) -> (ToolState, usize) {
     )
     .await
     .unwrap();
+    let serialized = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        serialized["verification_scope"],
+        "javascript_and_surface_inventory"
+    );
+    assert_eq!(serialized["native_desktop_state"], "NOT_CHECKED");
+    assert_eq!(serialized["desktop_app_independence"], "NOT_CHECKED");
     client.close().await.unwrap();
     assert!(report.catalog_sha256.is_some());
     let calls = std::fs::read_to_string(root.path().join("calls.jsonl"))
