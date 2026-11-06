@@ -57,8 +57,22 @@ where
     F: FnOnce(AppServerClient) -> Fut + Send + 'static,
     Fut: Future<Output = Result<(), AppServerError>> + Send + 'static,
 {
+    let initialize_budget =
+        config
+            .startup_deadline
+            .map_or(APP_SERVER_INITIALIZE_TIMEOUT, |deadline| {
+                deadline
+                    .saturating_duration_since(std::time::Instant::now())
+                    .saturating_sub(std::time::Duration::from_secs(8))
+                    .min(APP_SERVER_INITIALIZE_TIMEOUT)
+            });
+    if initialize_budget.is_zero() {
+        return Err(AppServerError::StartupHeld(
+            "startup_deadline_before_spawn".into(),
+        ));
+    }
     let client = spawn_client(&config)?;
-    let cleanup = StartupCleanup::spawn(client.clone(), cleanup);
+    let cleanup = StartupCleanup::spawn(client.clone(), cleanup, config.startup_deadline);
     let observer = match observe(&client) {
         Ok(observer) => observer,
         Err(primary) => return Err(cleanup.fail(primary).await),
@@ -75,12 +89,43 @@ where
             }
     });
     if let Err(primary) = client
-        .request("initialize", initialize, APP_SERVER_INITIALIZE_TIMEOUT)
+        .request(
+            "initialize",
+            initialize,
+            config
+                .startup_deadline
+                .map_or(initialize_budget, |deadline| {
+                    deadline
+                        .saturating_duration_since(std::time::Instant::now())
+                        .saturating_sub(std::time::Duration::from_secs(8))
+                        .min(initialize_budget)
+                }),
+        )
         .await
     {
         return Err(cleanup.fail(primary).await);
     }
-    if let Err(primary) = client.notify("initialized", json!({})).await {
+    let notification = async { client.notify("initialized", json!({})).await };
+    let notification = if let Some(deadline) = config.startup_deadline {
+        match tokio::time::timeout_at(
+            tokio::time::Instant::from_std(
+                deadline
+                    .checked_sub(std::time::Duration::from_secs(8))
+                    .unwrap_or_else(std::time::Instant::now),
+            ),
+            notification,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(AppServerError::StartupHeld(
+                "startup_deadline_at_initialized".into(),
+            )),
+        }
+    } else {
+        notification.await
+    };
+    if let Err(primary) = notification {
         return Err(cleanup.fail(primary).await);
     }
     after_initialized(&client);
@@ -107,6 +152,7 @@ fn spawn_client(config: &AppServerConfig) -> Result<AppServerClient, AppServerEr
     let (notifications, _) = broadcast::channel(1_000);
     let (server_requests, _) = broadcast::channel(500);
     let inner = Arc::new(Inner {
+        _executable_files: config.retained_executable_files.clone(),
         child: tokio::sync::Mutex::new(Some(child)),
         closed: std::sync::atomic::AtomicBool::new(false),
         diagnostics: std::sync::Mutex::new(BoundedDiagnostics::default()),
@@ -127,10 +173,15 @@ fn spawn_client(config: &AppServerConfig) -> Result<AppServerClient, AppServerEr
 struct StartupCleanup {
     commit: Option<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), AppServerError>>,
+    deadline: Option<std::time::Instant>,
 }
 
 impl StartupCleanup {
-    fn spawn<F, Fut>(client: AppServerClient, cleanup: F) -> Self
+    fn spawn<F, Fut>(
+        client: AppServerClient,
+        cleanup: F,
+        deadline: Option<std::time::Instant>,
+    ) -> Self
     where
         F: FnOnce(AppServerClient) -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), AppServerError>> + Send + 'static,
@@ -145,6 +196,7 @@ impl StartupCleanup {
         Self {
             commit: Some(commit),
             task,
+            deadline,
         }
     }
 
@@ -156,7 +208,23 @@ impl StartupCleanup {
 
     async fn fail(mut self, primary: AppServerError) -> AppServerError {
         drop(self.commit.take());
-        let cleanup = match self.task.await {
+        let task = if let Some(deadline) = self.deadline {
+            match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.task).await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    return AppServerError::StartupCleanup {
+                        primary: Box::new(primary),
+                        cleanup: Box::new(AppServerError::StartupHeld(
+                            "cleanup_unconfirmed: startup deadline".into(),
+                        )),
+                    };
+                }
+            }
+        } else {
+            self.task.await
+        };
+        let cleanup = match task {
             Ok(result) => result,
             Err(error) => Err(AppServerError::StartupCleanupTask {
                 message: error.to_string(),

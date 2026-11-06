@@ -41,6 +41,7 @@ async fn close_retries_cleanup_when_client_was_already_marked_closed() {
     let (server_requests, _) = broadcast::channel(8);
     let client = AppServerClient {
         inner: Arc::new(Inner {
+            _executable_files: vec![],
             child: AsyncMutex::new(Some(child.into())),
             closed: AtomicBool::new(true),
             diagnostics: Mutex::new(BoundedDiagnostics::default()),

@@ -1,12 +1,8 @@
 //! One-shot list/archive entry points; reuse the bot's exact lifecycle guards.
 use super::args::Args;
 use crate::{
-    action_executor::ActionExecutor,
-    app_backend::AppServerTurnBackend,
-    bridge_state::BridgeState,
-    command_plan::CommandAction,
-    queue_runner::QueueCoordinator,
-    runtime_paths::{RuntimePaths, discover_inputs},
+    action_executor::ActionExecutor, app_backend::AppServerTurnBackend, bridge_state::BridgeState,
+    command_plan::CommandAction, queue_runner::QueueCoordinator, runtime_paths::RuntimePaths,
 };
 use cdr_app_server::{APP_SERVER_STARTUP_TIMEOUT, AppServerConfig, ResidentAppServer};
 use std::{path::Path, sync::Arc, time::Duration};
@@ -49,19 +45,12 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     };
     let command = validated_action(action)?;
     let environment = super::project_environment(root)?;
-    let paths = RuntimePaths::resolve(
-        &environment,
-        &discover_inputs(&environment, root.into()).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-    let config = AppServerConfig::new(&paths.codex_exe).with_environment([(
-        "CODEX_HOME".into(),
-        paths
-            .codex_home
-            .to_str()
-            .ok_or("Codex home must be UTF-8")?
-            .into(),
-    )]);
+    let deadline = std::time::Instant::now() + APP_SERVER_STARTUP_TIMEOUT;
+    let paths = RuntimePaths::discover(&environment, root, deadline, Duration::from_secs(8))
+        .map_err(|error| error.to_string())?;
+    let config = paths
+        .app_server_config(deadline)
+        .map_err(|error| error.to_string())?;
     execute_command(&paths, command, config).await
 }
 

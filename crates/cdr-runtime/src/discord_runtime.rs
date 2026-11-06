@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cdr_app_server::{AppServerConfig, AppServerError, ResidentAppServer};
+use cdr_app_server::{AppServerError, ResidentAppServer};
 use cdr_discord::gateway::GatewayRuntime;
 use cdr_remote_agent::runner::RemoteAgentControl;
 use cdr_remote_agent::status::RemoteAgentStatus;
@@ -15,7 +15,7 @@ use crate::dead_generation_recovery::RuntimeDeadGenerationFence;
 use crate::interaction_worker::run_interaction_worker;
 use crate::prompt_intake_worker::run_prompt_intake_recovery_worker_with_admission;
 use crate::runtime_instance::{RuntimeInstanceGuard, run_heartbeat};
-use crate::runtime_paths::{RuntimePaths, discover_inputs};
+use crate::runtime_paths::RuntimePaths;
 use crate::server_request_worker::run_server_request_worker;
 
 mod bootstrap;
@@ -63,8 +63,13 @@ pub async fn run(
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), DiscordRuntimeError> {
     let root = std::env::current_dir().map_err(DiscordRuntimeError::CurrentDirectory)?;
-    let inputs = discover_inputs(environment, root)?;
-    let paths = RuntimePaths::resolve(environment, &inputs)?;
+    let startup_deadline = std::time::Instant::now() + cdr_app_server::APP_SERVER_STARTUP_TIMEOUT;
+    let paths = RuntimePaths::discover(
+        environment,
+        &root,
+        startup_deadline,
+        std::time::Duration::from_secs(8),
+    )?;
     let _runtime_instance = RuntimeInstanceGuard::acquire(&paths.root)?;
     let drain_controller = Arc::new(
         crate::restart_readiness::drain_controller::RuntimeDrainController::initialize(
@@ -80,6 +85,7 @@ pub async fn run(
         &paths,
         drain_controller.runtime_id(),
         config.startup_channel_id,
+        startup_deadline,
     )
     .await?;
     resume_recovery::recover(&server, &paths.mirror_db, drain_controller.runtime_id()).await;
@@ -322,11 +328,11 @@ async fn start_app_server(
     paths: &RuntimePaths,
     runtime_id: &str,
     startup_channel_id: Option<u64>,
+    startup_deadline: std::time::Instant,
 ) -> Result<Arc<ResidentAppServer>, AppServerError> {
-    let config = AppServerConfig::new(&paths.codex_exe).with_environment([(
-        "CODEX_HOME".to_owned(),
-        paths.codex_home.to_string_lossy().into_owned(),
-    )]);
+    let config = paths
+        .app_server_config(startup_deadline)
+        .map_err(|e| AppServerError::StartupHeld(e.to_string()))?;
     let fence = Arc::new(RuntimeDeadGenerationFence::new(
         paths.mirror_db.clone(),
         runtime_id.to_owned(),
@@ -334,6 +340,8 @@ async fn start_app_server(
     )?);
     let server =
         Arc::new(ResidentAppServer::start_with_dead_generation_fence(config, fence).await?);
+    #[cfg(windows)]
+    crate::runtime_paths::receipt::write(paths, &server, startup_deadline).await?;
     if let Err(error) = crate::idle_release::install(&server, &paths.mirror_db) {
         if let Err(cleanup) = server.close().await {
             return Err(AppServerError::StartupCleanup {

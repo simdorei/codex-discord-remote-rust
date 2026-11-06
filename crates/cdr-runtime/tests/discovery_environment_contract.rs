@@ -64,10 +64,23 @@ impl Fixture {
     }
 
     fn admin(&self, environment: &BTreeMap<String, String>) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_cdr-runtime"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cdr-runtime"));
+        command.env_clear();
+        #[cfg(windows)]
+        {
+            // Observe a real version without reading the machine's registered Store packages.
+            fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), &self.executable).unwrap();
+            let system_root = self.root.path().join("system");
+            let shell = system_root.join("System32/WindowsPowerShell/v1.0/powershell.exe");
+            fs::create_dir_all(shell.parent().unwrap()).unwrap();
+            fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), &shell).unwrap();
+            command
+                .env("SystemRoot", system_root)
+                .env("CDR_FIXTURE_STORE_PACKAGES", "[]");
+        }
+        command
             .args(["--admin", "discover-codex", "--repo-root"])
             .arg(self.root.path())
-            .env_clear()
             .envs(environment)
             .stdin(Stdio::null())
             .output()
@@ -273,6 +286,7 @@ fn admin_discovery_obeys_platform_path_key_case() {
 fn windows_admin_merge_preserves_exact_keys_and_rejects_conflicts() {
     let fixture = Fixture::new();
     let other = inert_executable(&fixture.root.path().join("project bin"));
+    fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), &other).unwrap();
     for (inherited_key, project_key, expected) in [
         ("Path", "path", None),
         ("Path", "PATH", Some(&other)),
@@ -301,7 +315,7 @@ fn windows_admin_merge_preserves_exact_keys_and_rejects_conflicts() {
             assert!(!output.status.success());
             assert_eq!(
                 String::from_utf8(output.stderr).unwrap().trim(),
-                "ERROR: conflicting Windows environment values for PATH"
+                "ERROR: Codex selection held: ERROR: conflicting Windows environment values for PATH"
             );
         }
     }

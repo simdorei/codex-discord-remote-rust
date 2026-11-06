@@ -66,7 +66,7 @@ fn external_build_is_installed_at_launcher_path_without_overwriting_an_existing_
             ])
             .arg(env!("CARGO_BIN_EXE_cdr-runtime"))
             .arg("-CodexExe")
-            .arg(env!("CARGO_BIN_EXE_cdr-runtime"))
+            .arg(env!("CARGO_BIN_EXE_cdr-offline-soak"))
             .output()
             .unwrap()
     };

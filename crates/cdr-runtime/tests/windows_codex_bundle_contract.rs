@@ -9,7 +9,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use cdr_runtime::runtime_paths::{PathInputs, PathSource, RuntimePathError, RuntimePaths};
 
 #[test]
-fn managed_windows_codex_uses_a_complete_fallback_without_mixing_bundle_files() {
+fn pin_holds_and_automatic_selection_can_use_a_complete_copy_of_the_same_version() {
     for source in [
         PathSource::Environment,
         PathSource::LocalAppBin,
@@ -46,15 +46,23 @@ fn managed_windows_codex_uses_a_complete_fallback_without_mixing_bundle_files() 
             },
         );
         let missing = selected.with_file_name("codex-code-mode-host.exe");
-        let resolved = RuntimePaths::resolve(&environment, &inputs).unwrap();
-        assert_eq!(resolved.codex_exe, alternate);
-        assert_eq!(
-            resolved.codex_exe_source,
-            match source {
-                PathSource::Environment | PathSource::LocalAppBin => PathSource::LocalAppBin,
-                PathSource::SandboxBin | PathSource::Path => PathSource::Path,
-            }
-        );
+        if source == PathSource::Environment {
+            assert_eq!(
+                RuntimePaths::resolve(&environment, &inputs).unwrap_err(),
+                RuntimePathError::CodeModeHostMissing(missing.clone())
+            );
+        } else {
+            let resolved = RuntimePaths::resolve(&environment, &inputs).unwrap();
+            assert_eq!(resolved.codex_exe, alternate);
+            assert_eq!(
+                resolved.codex_exe_source,
+                if source == PathSource::LocalAppBin {
+                    PathSource::LocalAppBin
+                } else {
+                    PathSource::Path
+                }
+            );
+        }
         assert!(!missing.exists());
 
         fs::write(&missing, b"matching host fixture").unwrap();
@@ -66,7 +74,8 @@ fn managed_windows_codex_uses_a_complete_fallback_without_mixing_bundle_files() 
 
 fn inert_executable(path: &Path, with_host: bool, stamp: u64) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, b"inert binary; must never execute").unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_cdr-offline-soak"), path).unwrap();
+    fs::write(path.with_file_name("probe-version.txt"), "0.166.0-alpha.6").unwrap();
     if with_host {
         fs::write(
             path.with_file_name("codex-code-mode-host.exe"),
@@ -164,7 +173,7 @@ fn admin_discovery_reports_missing_host_before_executing_codex() {
 }
 
 #[test]
-fn admin_discovery_falls_back_from_a_pinned_incomplete_bundle_without_changing_env() {
+fn admin_discovery_holds_a_pinned_incomplete_bundle_without_changing_env() {
     let temp = tempfile::tempdir().unwrap();
     let local = temp.path().join("local");
     let selected = local.join("OpenAI/Codex/bin/old/codex.exe");
@@ -184,10 +193,9 @@ fn admin_discovery_falls_back_from_a_pinned_incomplete_bundle_without_changing_e
         .env("LOCALAPPDATA", local)
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(0));
-    let discovered = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(Path::new(discovered.trim()), complete.as_path());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("codex-code-mode-host.exe"));
     assert!(!selected.with_file_name("codex-code-mode-host.exe").exists());
     assert_eq!(
         fs::read_to_string(temp.path().join(".env")).unwrap(),

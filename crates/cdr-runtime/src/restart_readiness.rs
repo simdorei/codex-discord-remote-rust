@@ -58,11 +58,22 @@ pub async fn wait_for_restart(
     paths: &RuntimePaths,
     options: RestartReadinessOptions,
 ) -> Result<(), RestartReadinessError> {
-    let codex_home = paths.codex_home.to_str().ok_or_else(|| {
-        RestartReadinessError::InvalidCodexHome(paths.codex_home.display().to_string())
-    })?;
-    let config = AppServerConfig::new(&paths.codex_exe)
-        .with_environment([("CODEX_HOME".to_owned(), codex_home.to_owned())]);
+    wait_for_restart_before(
+        paths,
+        options,
+        std::time::Instant::now() + options.startup_timeout,
+    )
+    .await
+}
+
+pub async fn wait_for_restart_before(
+    paths: &RuntimePaths,
+    options: RestartReadinessOptions,
+    deadline: std::time::Instant,
+) -> Result<(), RestartReadinessError> {
+    let config = paths
+        .app_server_config(deadline)
+        .map_err(|e| AppServerError::StartupHeld(e.to_string()))?;
     wait_for_restart_with_config(&paths.mirror_db, config, options).await
 }
 

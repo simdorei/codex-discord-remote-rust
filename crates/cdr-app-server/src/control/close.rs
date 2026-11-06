@@ -168,6 +168,7 @@ mod tests {
         let (notifications, _) = broadcast::channel(1);
         let (server_requests, _) = broadcast::channel(1);
         let inner = Arc::new(Inner {
+            _executable_files: vec![],
             child: AsyncMutex::new(Some(child.into())),
             closed: AtomicBool::new(false),
             diagnostics: Mutex::new(BoundedDiagnostics::default()),

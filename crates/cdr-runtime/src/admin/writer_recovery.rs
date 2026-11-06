@@ -3,10 +3,13 @@ use std::path::Path;
 
 pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     let environment = super::project_environment(root)?;
-    let inputs = crate::runtime_paths::discover_inputs(&environment, root.to_path_buf())
-        .map_err(|e| e.to_string())?;
-    let paths = crate::runtime_paths::RuntimePaths::resolve(&environment, &inputs)
-        .map_err(|e| e.to_string())?;
+    let paths = crate::runtime_paths::RuntimePaths::discover(
+        &environment,
+        root,
+        std::time::Instant::now() + std::time::Duration::from_secs(15),
+        std::time::Duration::from_secs(3),
+    )
+    .map_err(|e| e.to_string())?;
     let thread = args.required("--thread-id")?;
     if cdr_codex_state::CodexThreadStore::open(&paths.state_db)
         .map_err(|e| e.to_string())?

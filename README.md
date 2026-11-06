@@ -145,7 +145,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-discord-rust-status.
 테스트에는 Rust, Git, PowerShell, Node.js 24가 필요하며 Windows에서는 Git Bash도
 사용합니다. Python 실행기나 패키지는 필요하지 않습니다. 과거 동작과의 비교에는
 실행하지 않는 고정 JSON·SQL 자료와 Rust로 작성한 가짜 서버를 사용합니다.
-[Windows 자동 검사 설정](.github/workflows/windows-contract.yml)을 참고하세요.
+[Windows 수동 검사 설정](.github/workflows/windows-contract.yml)을 참고하세요.
+GitHub Actions는 push·PR·태그 생성 시 자동 실행하지 않으며, 필요할 때 수동 실행합니다.
 백업 패키징 검사는 대상 저장소의 봇이 꺼져 있는지 확인합니다.
 다른 저장소에서 실행 중인 봇을 해당 검사 대상과 혼동하지 않습니다.
 이 저장소의 테스트를 위해 기존 봇을 자동으로 정지하지 않습니다.

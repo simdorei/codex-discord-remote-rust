@@ -62,6 +62,8 @@ pub struct ActionExecutor<B: TurnBackend> {
     archive_delete_paths: ArchiveDeletePaths,
     prompt_preprocessor: Option<Arc<dyn PromptPreprocessor>>,
     mirror_sync: std::sync::OnceLock<crate::mirror_sync::MirrorSynchronizer>,
+    #[cfg(windows)]
+    codex_selection: Option<Box<crate::runtime_paths::selection::CodexSelection>>,
     #[cfg(test)]
     recovery_root: Option<PathBuf>,
 }
@@ -98,6 +100,8 @@ impl<B: TurnBackend> ActionExecutor<B> {
             archive_delete_paths,
             prompt_preprocessor: None,
             mirror_sync: std::sync::OnceLock::new(),
+            #[cfg(windows)]
+            codex_selection: None,
             #[cfg(test)]
             recovery_root: None,
         }
@@ -106,6 +110,16 @@ impl<B: TurnBackend> ActionExecutor<B> {
     #[must_use]
     pub fn with_server(mut self, server: Arc<ResidentAppServer>) -> Self {
         self.server = Some(server);
+        self
+    }
+
+    #[cfg(windows)]
+    #[must_use]
+    pub fn with_codex_selection(
+        mut self,
+        selection: Option<crate::runtime_paths::selection::CodexSelection>,
+    ) -> Self {
+        self.codex_selection = selection.map(Box::new);
         self
     }
 

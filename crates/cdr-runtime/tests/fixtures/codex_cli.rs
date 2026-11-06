@@ -1,6 +1,9 @@
 //! Only the offline test executable uses this synthetic CLI; never the live bot.
 use std::{fs, io::Write, path::Path};
 pub fn run(root: &Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(log) = std::env::var_os("CDR_CLI_EXECUTABLE_LOG") {
+        fs::write(log, std::env::current_exe()?.display().to_string())?;
+    }
     let args: Vec<_> = std::env::args().skip(1).collect();
     let mut log = fs::OpenOptions::new()
         .create(true)

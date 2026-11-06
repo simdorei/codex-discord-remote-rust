@@ -55,14 +55,21 @@ function Invoke-Admin {
     Invoke-CdrNative -Executable $BinaryPath -Arguments (@('--admin') + $Arguments + @('--repo-root', $ScriptDir))
 }
 
-function Resolve-CodexCommand {
-    if (-not [string]::IsNullOrWhiteSpace($CodexExe)) { return $CodexExe.Trim().Trim('"').Trim("'") }
-    $existing = Get-EnvFileValue -EnvPath $EnvPath -Name 'CODEX_EXE'
-    if ($existing) { return $existing }
-    $command = Get-Command codex -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
-    if ($DryRun) { return 'codex' }
-    return [string](Invoke-Admin -Arguments @('discover-codex'))
+function Invoke-SelectedCodex {
+    param([string[]]$Arguments)
+    if ($null -eq $SelectedCodex -or $SelectedCodex.schema_version -ne 1 -or
+        -not [IO.Path]::IsPathRooted([string]$SelectedCodex.path) -or @($SelectedCodex.artifacts).Count -eq 0 -or
+        [string]$SelectedCodex.artifacts[0].path -cne [string]$SelectedCodex.path) {
+        throw 'INSTALL_INCOMPLETE: validated Codex selection is unavailable.'
+    }
+    $selectionJson = ConvertTo-Json -InputObject $SelectedCodex -Depth 10 -Compress
+    $argumentsJson = ConvertTo-Json -InputObject @($Arguments) -Compress
+    $result = ([string](Invoke-Admin -Arguments @('codex-selected-command', '--selection-json', $selectionJson, '--arguments-json', $argumentsJson, '--codex-home', $installationHome))) | ConvertFrom-Json
+    if ($result.code -ne 0) {
+        throw "INSTALL_INCOMPLETE: selected Codex command failed with exit code $($result.code). stdout: $($result.stdout) stderr: $($result.stderr)"
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$result.stderr)) { Write-Warning ([string]$result.stderr) }
+    return [string]$result.stdout
 }
 
 function Install-Plugin {
@@ -76,15 +83,13 @@ function Install-Plugin {
     foreach ($path in @($marketplace, $manifest)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "INSTALL_INCOMPLETE: required plugin file was not found: $path" }
     }
-    $exe = Resolve-CodexCommand
-    $pluginEnvironment = @{ CODEX_HOME = $installationHome }
     $marketplaces = [IO.Path]::GetTempFileName()
     $plugins = [IO.Path]::GetTempFileName()
     try {
-        Invoke-CdrNative -Executable $exe -EnvironmentOverrides $pluginEnvironment -Arguments @('plugin', 'marketplace', 'add', $ScriptDir)
-        Invoke-CdrNative -Executable $exe -EnvironmentOverrides $pluginEnvironment -Arguments @('plugin', 'add', $PluginRef)
-        $marketplaceJson = [string](Invoke-CdrNative -Executable $exe -EnvironmentOverrides $pluginEnvironment -Arguments @('plugin', 'marketplace', 'list', '--json'))
-        $pluginJson = [string](Invoke-CdrNative -Executable $exe -EnvironmentOverrides $pluginEnvironment -Arguments @('plugin', 'list', '--json'))
+        Invoke-SelectedCodex -Arguments @('plugin', 'marketplace', 'add', $ScriptDir)
+        Invoke-SelectedCodex -Arguments @('plugin', 'add', $PluginRef)
+        $marketplaceJson = [string](Invoke-SelectedCodex -Arguments @('plugin', 'marketplace', 'list', '--json'))
+        $pluginJson = [string](Invoke-SelectedCodex -Arguments @('plugin', 'list', '--json'))
         $utf8 = [Text.UTF8Encoding]::new($false)
         [IO.File]::WriteAllText($marketplaces, $marketplaceJson, $utf8)
         [IO.File]::WriteAllText($plugins, $pluginJson, $utf8)
@@ -115,6 +120,12 @@ if (-not $DryRun -and -not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) 
 if ($SkipDependencies) { Write-Output 'SkipDependencies is retained for command compatibility; Cargo manages the Rust dependencies.' }
 Install-CdrRuntimeArtifact -RepoRoot $ScriptDir -Source $BinaryPath -DryRun:$DryRun
 
+$discover = @('discover-codex', '--format', 'json', '--codex-home', $installationHome)
+if ($CodexExeWasExplicit -or $CodexExe) { $discover += @('--codex-exe', $CodexExe) }
+$SelectedCodex = $null
+if ($DryRun) { Invoke-Admin -Arguments $discover }
+else { $SelectedCodex = ([string](Invoke-Admin -Arguments $discover)) | ConvertFrom-Json }
+
 if (-not $SkipEnvFile) {
     if (-not (Test-Path -LiteralPath $EnvPath)) {
         $example = Join-Path $ScriptDir '.env.example'
@@ -130,9 +141,6 @@ if (-not $SkipEnvFile) {
         else { Write-Output 'PATH-discovered Codex command was not saved; automatic executable discovery remains enabled.' }
     }
 }
-$discover = @('discover-codex')
-if ($CodexExe) { $discover += @('--codex-exe', $CodexExe) }
-Invoke-Admin -Arguments $discover
 if ($SkipSteeringConfig) { Write-Output 'Installer does not change Codex Desktop follow-up mode.' }
 if ($SkipCodexPlugin) { Write-Output 'Skipping Codex plugin install.' } else { Install-Plugin }
 

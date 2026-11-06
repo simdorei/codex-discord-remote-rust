@@ -10,7 +10,7 @@ do {
     $runs = ($response | ConvertFrom-Json).workflow_runs
     $ready = $true
     foreach ($name in @('Windows contract', 'macOS smoke')) {
-        $run = $runs | Where-Object { $_.name -ceq $name -and $_.head_sha -ceq $env:GITHUB_SHA -and $_.event -eq 'push' } |
+        $run = $runs | Where-Object { $_.name -ceq $name -and $_.head_sha -ceq $env:GITHUB_SHA -and $_.event -in @('push', 'workflow_dispatch') } |
             Sort-Object run_number -Descending | Select-Object -First 1
         if (-not $run -or $run.status -ne 'completed') { $ready = $false; continue }
         if ($run.conclusion -ne 'success') { throw "Required check failed: $name ($($run.conclusion)). Release was not published." }

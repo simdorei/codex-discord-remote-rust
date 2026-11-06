@@ -8,9 +8,17 @@ pub mod resources;
 #[cfg(windows)]
 mod atomic_file;
 #[cfg(windows)]
+mod file_identity;
+#[cfg(windows)]
 mod file_security;
 #[cfg(windows)]
+mod file_transfer;
+#[cfg(windows)]
+pub use file_identity::{resolved_file_path, same_resolved_path};
+#[cfg(windows)]
 pub use file_security::copy_file_access_rules;
+#[cfg(windows)]
+pub use file_transfer::{FileLeaseTransfer, transfer_file_lease};
 #[cfg(windows)]
 mod delete_file;
 #[cfg(windows)]
@@ -20,7 +28,11 @@ mod data_protection;
 #[cfg(windows)]
 mod error;
 #[cfg(windows)]
+mod probe;
+#[cfg(windows)]
 mod process;
+#[cfg(windows)]
+pub use probe::{ProbeOutput, capture_bounded};
 #[cfg(windows)]
 mod single_instance;
 #[cfg(windows)]

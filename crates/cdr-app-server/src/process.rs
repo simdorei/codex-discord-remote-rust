@@ -62,6 +62,40 @@ fn spawn_windows(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServer
         &environment,
     )?;
     let process_id = Some(child.process_id());
+    if !config.retained_executable_files.is_empty() {
+        let verification = (|| -> Result<(), AppServerError> {
+            let observed = cdr_windows_native::query_live_process_metadata(child.process_id())?
+                .ok_or_else(|| {
+                    AppServerError::StartupHeld("spawned process identity unavailable".into())
+                })?;
+            if !cdr_windows_native::same_resolved_path(
+                &observed.executable_path,
+                &config.executable,
+            ) {
+                return Err(AppServerError::StartupHeld(
+                    "spawned executable differs from selected artifact".into(),
+                ));
+            }
+            Ok(())
+        })();
+        if let Err(primary) = verification {
+            let budget = config
+                .startup_deadline
+                .map_or(Duration::from_secs(8), |end| {
+                    end.saturating_duration_since(std::time::Instant::now())
+                        .min(Duration::from_secs(8))
+                });
+            return Err(match child.terminate_tree(budget) {
+                Ok(()) => primary,
+                Err(error) => AppServerError::StartupCleanup {
+                    primary: Box::new(primary),
+                    cleanup: Box::new(AppServerError::StartupHeld(format!(
+                        "cleanup_unconfirmed: {error}"
+                    ))),
+                },
+            });
+        }
+    }
     let stdin = child
         .take_stdin()
         .ok_or(AppServerError::MissingPipe { stream: "stdin" })?;

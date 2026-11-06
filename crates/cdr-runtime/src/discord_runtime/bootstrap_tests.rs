@@ -236,5 +236,7 @@ fn test_paths(root: &Path) -> RuntimePaths {
         attachment_dir: root.join("attachments"),
         codex_exe: PathBuf::from("unused-codex.exe"),
         codex_exe_source: PathSource::Environment,
+        #[cfg(windows)]
+        codex_selection: None,
     }
 }

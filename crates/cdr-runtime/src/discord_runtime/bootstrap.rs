@@ -100,19 +100,20 @@ pub(super) async fn build_executor(
         )
         .await,
     );
-    let executor = Arc::new(
-        ActionExecutor::new(
-            paths.state_db.clone(),
-            paths.mirror_db.clone(),
-            bridge_state,
-            Arc::clone(&queue),
-        )
-        .with_server(server)
-        .with_app_server_resume_timeout(config.app_server_resume_timeout)
-        .with_archive_delete_paths(archive_delete_paths(paths))
-        .with_host_commands(config.host_commands)
-        .with_prompt_preprocessor(pro),
-    );
+    let executor = ActionExecutor::new(
+        paths.state_db.clone(),
+        paths.mirror_db.clone(),
+        bridge_state,
+        Arc::clone(&queue),
+    )
+    .with_server(server)
+    .with_app_server_resume_timeout(config.app_server_resume_timeout)
+    .with_archive_delete_paths(archive_delete_paths(paths))
+    .with_host_commands(config.host_commands)
+    .with_prompt_preprocessor(pro);
+    #[cfg(windows)]
+    let executor = executor.with_codex_selection(paths.codex_selection.clone());
+    let executor = Arc::new(executor);
     let recovered_intakes = executor
         .recover_prompt_intakes_on_startup()
         .await

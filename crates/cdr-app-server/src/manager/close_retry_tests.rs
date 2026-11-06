@@ -47,6 +47,7 @@ pub(super) fn test_server() -> (ResidentAppServer, AppServerClient) {
     let (client_requests, _) = broadcast::channel(1);
     let client = AppServerClient {
         inner: Arc::new(Inner {
+            _executable_files: vec![],
             child: AsyncMutex::new(Some(child.into())),
             closed: AtomicBool::new(false),
             diagnostics: Mutex::new(BoundedDiagnostics::default()),

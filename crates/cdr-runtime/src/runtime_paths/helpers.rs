@@ -3,7 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{PathInputs, PathSource, RuntimePathError};
+use super::PathInputs;
+#[cfg(not(windows))]
+use super::{PathSource, RuntimePathError};
 
 pub(super) fn resolved_codex_path(
     env: &BTreeMap<String, String>,
@@ -18,7 +20,17 @@ pub(super) fn resolved_codex_path(
     )
 }
 
+#[cfg(not(windows))]
 pub(super) fn resolve_executable(
+    env: &BTreeMap<String, String>,
+    codex_home: &Path,
+    inputs: &PathInputs,
+) -> Result<(PathBuf, PathSource), RuntimePathError> {
+    resolve_portable_executable(env, codex_home, inputs)
+}
+
+#[cfg(not(windows))]
+fn resolve_portable_executable(
     env: &BTreeMap<String, String>,
     codex_home: &Path,
     inputs: &PathInputs,
@@ -74,6 +86,7 @@ pub(super) fn resolve_executable(
     }
 }
 
+#[cfg(not(windows))]
 fn validate_executable(
     candidate: PathBuf,
     source: PathSource,
@@ -118,6 +131,7 @@ pub(super) fn latest_state_db(codex_home: &Path) -> PathBuf {
         .unwrap_or_else(|| codex_home.join("state_5.sqlite"))
 }
 
+#[cfg(not(windows))]
 fn newest_existing(candidates: &[PathBuf]) -> impl Iterator<Item = PathBuf> {
     let mut candidates = candidates
         .iter()
@@ -136,12 +150,21 @@ fn modified(path: &Path) -> SystemTime {
 
 pub(super) fn env_path<'a>(env: &'a BTreeMap<String, String>, name: &str) -> Option<&'a str> {
     env.get(name)
+        .or_else(|| {
+            if cfg!(windows) {
+                env.iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                    .map(|(_, value)| value)
+            } else {
+                None
+            }
+        })
         .map(String::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
 }
 
-fn clean_executable(raw: &str) -> &str {
+pub(super) fn clean_executable(raw: &str) -> &str {
     raw.trim()
         .trim_matches(['"', '\''])
         .strip_suffix(",0")
@@ -158,15 +181,18 @@ pub(super) fn expand_home(path: &str, user_home: &Path) -> PathBuf {
     }
 }
 
+#[cfg(not(windows))]
 fn is_file(path: &Path) -> bool {
     path.metadata().is_ok_and(|metadata| metadata.is_file())
 }
 
+#[cfg(not(windows))]
 fn is_windowsapps(path: &Path) -> bool {
     let normalized = path.to_string_lossy().replace('\\', "/").to_lowercase();
     normalized.contains("/windowsapps/")
 }
 
+#[cfg(not(windows))]
 const fn executable_name() -> &'static str {
     if cfg!(windows) { "codex.exe" } else { "codex" }
 }

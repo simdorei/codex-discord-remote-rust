@@ -99,7 +99,7 @@ impl ResidentAppServer {
     }
 
     async fn start_using(
-        config: AppServerConfig,
+        mut config: AppServerConfig,
         dead_generation_fence: Option<Arc<dyn crate::DeadGenerationFence>>,
     ) -> Result<Self, AppServerError> {
         let (notifications, _) = broadcast::channel(RESIDENT_NOTIFICATION_CAPACITY);
@@ -115,6 +115,7 @@ impl ResidentAppServer {
             )
         })
         .await?;
+        config.startup_deadline = None;
         let state = ResidentState::new(client.clone());
         let forwarders = forwarders.with_death_monitor(&client, state.clone(), 1);
         forwarders.activate();

@@ -112,7 +112,7 @@ pub fn query_live_process_metadata(pid: u32) -> Result<Option<LiveProcessMetadat
     }))
 }
 
-fn format_process_identity(pid: u32, creation: FILETIME) -> String {
+pub(crate) fn format_process_identity(pid: u32, creation: FILETIME) -> String {
     let windows_ticks =
         (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
     let dotnet_ticks = windows_ticks + 504_911_232_000_000_000;

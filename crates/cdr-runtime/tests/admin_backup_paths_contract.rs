@@ -88,3 +88,26 @@ fn missing_home_for_tilde_is_visible_and_does_not_create_a_literal_tilde_directo
     assert!(String::from_utf8_lossy(&output.stderr).contains("home"));
     assert!(!config.path().join("~").exists());
 }
+
+#[test]
+fn legacy_backup_never_executes_the_configured_codex_pin() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("mirror.sqlite");
+    seed(&database);
+    let config = temp.path().join("runtime.env");
+    fs::write(
+        &config,
+        format!(
+            "DISCORD_BOT_TOKEN=fixture-only\nDISCORD_ALLOWED_CHANNEL_IDS=42\nCODEX_DISCORD_MIRROR_DB={}\nCODEX_EXE={}\n",
+            database.display(), temp.path().join("missing-codex.exe").display()
+        ),
+    ).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_cdr-runtime"))
+        .args(["--backup-store", "--env"])
+        .arg(config)
+        .current_dir(temp.path())
+        .env_clear()
+        .output()
+        .unwrap();
+    assert_backup(output);
+}
