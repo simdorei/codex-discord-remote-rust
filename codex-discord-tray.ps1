@@ -1,11 +1,12 @@
 ﻿[CmdletBinding()]
-param([switch]$Once)
+param([switch]$Once, [switch]$VersionOnce)
 
 $ErrorActionPreference = 'Stop'
 # The launcher can pass a PowerShell 7 module path to Windows PowerShell.
 # Load the utility module for this host explicitly before status verification.
 Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$TrayScriptPath = $PSCommandPath
 $TrayRuntimePath = Join-Path $ScriptDir 'codex-discord-tray-runtime.ps1'
 $TrayRestartRuntimePath = Join-Path $ScriptDir 'codex-discord-tray-restart-runtime.ps1'
 $HeadlessLauncher = Join-Path $ScriptDir 'codex-discord-bot-headless.vbs'
@@ -18,6 +19,10 @@ $script:LastTrayIcon = $null
 $script:LastStatusError = $null
 $script:LastStatusErrorAt = [datetime]::MinValue
 $script:ExitAllFailureDiagnostic = $null
+$script:VersionProbe = $null
+$script:VersionProbeStarted = [datetime]::MinValue
+$script:VersionProbeLastCompleted = [datetime]::MinValue
+$script:VersionProbeBotPid = -1
 
 function Write-LauncherLog {
     param([string]$Message)
@@ -68,6 +73,65 @@ if ($Once) {
     exit 1
 }
 
+if ($VersionOnce) {
+    Get-TrayCodexVersions | ConvertTo-Json -Compress
+    exit 0
+}
+
+function Start-TrayVersionProbe {
+    if ($null -ne $script:VersionProbe -or
+        ([datetime]::UtcNow - $script:VersionProbeLastCompleted).TotalSeconds -lt 60) { return }
+    try {
+        $start = New-Object Diagnostics.ProcessStartInfo
+        $start.FileName = Join-Path $PSHOME 'powershell.exe'
+        $start.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $TrayScriptPath + '" -VersionOnce'
+        $start.WorkingDirectory = $ScriptDir
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardOutput = $true
+        $script:VersionProbe = [Diagnostics.Process]::Start($start)
+        $script:VersionProbeStarted = [datetime]::UtcNow
+    } catch {
+        $script:VersionProbeLastCompleted = [datetime]::UtcNow
+        $desktopVersionItem.Text = 'Codex app server file: unavailable'
+        $discordVersionItem.Text = 'Discord app server file: unavailable'
+        Write-LauncherLog "tray_version_probe_start_failed type=$($_.Exception.GetType().FullName)"
+    }
+}
+
+function Update-TrayVersionProbe {
+    if ($null -eq $script:VersionProbe) { return }
+    $discardStale = $false
+    try {
+        if (-not $script:VersionProbe.HasExited) {
+            if (([datetime]::UtcNow - $script:VersionProbeStarted).TotalSeconds -lt 20) { return }
+            $script:VersionProbe.Kill()
+            throw 'version_probe_timed_out'
+        }
+        if ($script:VersionProbe.ExitCode -ne 0) { throw 'version_probe_failed' }
+        $versionInfo = $script:VersionProbe.StandardOutput.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $versionInfo -or [string]::IsNullOrWhiteSpace([string]$versionInfo.Desktop) -or
+            [string]::IsNullOrWhiteSpace([string]$versionInfo.Discord)) { throw 'version_probe_invalid' }
+        if ([int]$versionInfo.BotPid -ne $script:VersionProbeBotPid -and $versionInfo.Discord -ne 'unavailable') {
+            $discardStale = $true
+            return
+        }
+        $desktopVersionItem.Text = 'Codex app server file: ' + [string]$versionInfo.Desktop
+        $discordVersionItem.Text = 'Discord app server file: ' + [string]$versionInfo.Discord
+        Write-LauncherLog "tray_version_probe_completed desktop=$($versionInfo.Desktop) discord=$($versionInfo.Discord)"
+    } catch {
+        $desktopVersionItem.Text = 'Codex app server file: unavailable'
+        $discordVersionItem.Text = 'Discord app server file: unavailable'
+        Write-LauncherLog "tray_version_probe_failed type=$($_.Exception.GetType().FullName)"
+    } finally {
+        if ($script:VersionProbe.HasExited -or ([datetime]::UtcNow - $script:VersionProbeStarted).TotalSeconds -ge 20) {
+            $script:VersionProbe.Dispose()
+            $script:VersionProbe = $null
+            $script:VersionProbeLastCompleted = if ($discardStale) { [datetime]::MinValue } else { [datetime]::UtcNow }
+        }
+    }
+}
+
 function Update-TrayStatus {
     try {
         if (-not [string]::IsNullOrWhiteSpace($script:ExitAllFailureDiagnostic)) {
@@ -107,6 +171,13 @@ function Update-TrayStatus {
             }
         }
         $statusItem.Text = $status.Text
+        $observedBotPid = if ($status.Running) { [int]$status.Pid } else { 0 }
+        if ($observedBotPid -ne $script:VersionProbeBotPid) {
+            $script:VersionProbeBotPid = $observedBotPid
+            $script:VersionProbeLastCompleted = [datetime]::MinValue
+            $discordVersionItem.Text = if ($observedBotPid -gt 0) { 'Discord app server file: checking...' } else { 'Discord app server file: not running' }
+            Start-TrayVersionProbe
+        }
         if ($null -ne $mcpStatusItem -and (Get-Command Get-McpTrayStatus -ErrorAction SilentlyContinue)) {
             try { $mcpStatusItem.Text = (Get-McpTrayStatus -Root $ScriptDir).Text } catch { }
         }
@@ -189,6 +260,16 @@ try {
     $mcpStatusItem.Text = 'Codex Remote MCP: checking...'
     $mcpStatusItem.Enabled = $false
     [void]$menu.Items.Add($mcpStatusItem)
+
+    $desktopVersionItem = New-Object Windows.Forms.ToolStripMenuItem
+    $desktopVersionItem.Text = 'Codex app server file: checking...'
+    $desktopVersionItem.Enabled = $false
+    [void]$menu.Items.Add($desktopVersionItem)
+    $discordVersionItem = New-Object Windows.Forms.ToolStripMenuItem
+    $discordVersionItem.Text = 'Discord app server file: checking...'
+    $discordVersionItem.Enabled = $false
+    [void]$menu.Items.Add($discordVersionItem)
+    $menu.Add_Opening({ Start-TrayVersionProbe; Update-TrayVersionProbe })
 
     $openLogItem = New-Object Windows.Forms.ToolStripMenuItem
     $openLogItem.Text = 'Open bot log'
@@ -277,9 +358,10 @@ try {
 
     $timer = New-Object Windows.Forms.Timer
     $timer.Interval = 5000
-    $timer.Add_Tick({ Update-TrayStatus })
+    $timer.Add_Tick({ Update-TrayStatus; Update-TrayVersionProbe; if ($menu.Visible) { Start-TrayVersionProbe } })
     Write-LauncherLog "tray_start script=$PSCommandPath"
     Update-TrayStatus
+    Start-TrayVersionProbe
     $timer.Start()
     [Windows.Forms.Application]::Run()
 } catch {
@@ -288,6 +370,10 @@ try {
 } finally {
     # Each release is independent: partial initialization must not leak ownership.
     if ($null -ne $timer) { try { $timer.Stop() } catch { }; try { $timer.Dispose() } catch { } }
+    if ($null -ne $script:VersionProbe) {
+        try { if (-not $script:VersionProbe.HasExited) { $script:VersionProbe.Kill() } } catch { }
+        try { $script:VersionProbe.Dispose() } catch { }
+    }
     if ($null -ne $notify) { try { $notify.Visible = $false } catch { }; try { $notify.Dispose() } catch { } }
     if ($null -ne $menu) { try { $menu.Dispose() } catch { } }
     if ($null -ne $mutex) {
