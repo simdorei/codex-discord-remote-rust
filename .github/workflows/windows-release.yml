@@ -1,15 +1,6 @@
 name: Windows release
 
 on:
-  push:
-    branches: [main, 'feat/windows-release-*']
-    tags: ['v*']
-  pull_request:
-    paths:
-      - 'install*'
-      - 'scripts/**'
-      - '.github/workflows/windows-release.yml'
-      - 'docs/windows-release.md'
   workflow_dispatch:
 
 permissions:

@@ -76,6 +76,8 @@ Pro 연결, 원격 MCP 서버, 개발·성능 진단은 각 기능 문서의 별
 Codex 플러그인, 예제 설정과 안내가 들어갑니다. 개인 `.env`, DB, 로그,
 첨부파일, 인증 정보는 포함하지 않습니다. 실행 파일은 Git 소스 이력에 넣지 않습니다.
 
-`Windows release` GitHub Actions는 빌드·압축 해제·설치 검사를 수행하고 다운로드
-아티팩트를 남깁니다. `v0.1.0` 같은 버전 태그에서는 같은 검사에 통과한 ZIP과
-체크섬을 GitHub Release에도 첨부합니다.
+GitHub Actions는 push·PR·태그 생성 시 자동 실행하지 않습니다. `Windows release`를
+수동 실행하면 빌드·압축 해제·설치 검사를 수행하고 다운로드 아티팩트를 남깁니다.
+`v0.1.0` 같은 버전 태그로 릴리스를 게시하려면 같은 커밋의 `Windows contract`와
+`macOS smoke`를 수동 실행해 통과시킨 뒤, 해당 태그의 `Windows release`를 수동 실행합니다.
+검사에 통과한 ZIP과 체크섬을 GitHub Release에도 첨부합니다.
