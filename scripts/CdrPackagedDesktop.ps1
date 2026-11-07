@@ -106,20 +106,57 @@ function Get-CdrProcessPackageFullName($Process) {
     return [Cdr.PackagedDesktop]::GetProcessPackageName($Process.Handle)
 }
 
-function Start-CdrPackagedDesktop($Plan) {
+function Start-CdrPackagedDesktop($Plan,[TimeSpan]$WaitBudget=[TimeSpan]::FromSeconds(30)) {
     Assert-CdrPackagedDesktopRegistration $Plan
     $startedId=Invoke-CdrRegisteredDesktopActivation $Plan.DesktopAppUserModelId
-    $process=Get-Process -Id $startedId -ErrorAction Stop
+    $activated=Get-Process -Id $startedId -ErrorAction Stop
+    $result=$null
     try {
-        [void]$process.Handle
-        if ($process.HasExited -or $process.Path -ine $Plan.DesktopPath -or
-            (Get-CdrProcessPackageFullName $process) -cne $Plan.DesktopPackageFullName) {
-            throw 'Activated desktop path/package identity did not match its registration.'
+        # Holding the activation handle also prevents its PID from being reused
+        # while checking the direct relaunch child created by Electron startup.
+        [void]$activated.Handle
+        $activationTime=$activated.StartTime.ToUniversalTime()
+        if ((Get-CdrProcessPackageFullName $activated) -cne $Plan.DesktopPackageFullName -or
+            (-not $activated.HasExited -and $activated.Path -ine $Plan.DesktopPath)) {
+            throw "Activation process $startedId did not match its registered package/executable."
         }
-        return $process
+        $deadline=[DateTime]::UtcNow.Add($WaitBudget)
+        do {
+            $entries=@(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe'" | Where-Object {
+                $_.ExecutablePath -ieq $Plan.DesktopPath -and
+                $_.CommandLine -notmatch '(?:^|\s)--type=' -and
+                ($_.ProcessId -eq $startedId -or ($_.ParentProcessId -eq $startedId -and
+                    $_.CreationDate.ToUniversalTime() -ge $activationTime))
+            })
+            foreach ($entry in $entries) {
+                $candidate=Get-Process -Id $entry.ProcessId -ErrorAction SilentlyContinue
+                if ($null -eq $candidate) { continue }
+                try {
+                    [void]$candidate.Handle
+                    if ($candidate.HasExited) { continue }
+                    if ($candidate.Path -ine $Plan.DesktopPath -or
+                        [math]::Abs(($candidate.StartTime.ToUniversalTime()-$entry.CreationDate.ToUniversalTime()).Ticks) -gt 10 -or
+                        (Get-CdrProcessPackageFullName $candidate) -cne $Plan.DesktopPackageFullName) {
+                        throw 'Desktop relaunch process identity changed.'
+                    }
+                    $backends=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($candidate.Id) AND Name='codex.exe'" |
+                        Where-Object { $_.CommandLine -match '(?:^|\s)app-server(?:\s|$)' })
+                    if ($backends.Count -gt 0) {
+                        if ($null -ne $result) { throw 'Multiple activated desktop hosts were observed.' }
+                        $result=$candidate
+                        $candidate=$null
+                    }
+                } finally { if ($null -ne $candidate) { $candidate.Dispose() } }
+            }
+            if ($null -ne $result) { return $result }
+            if ([DateTime]::UtcNow -ge $deadline) { break }
+            Start-Sleep -Milliseconds 100
+        } while ($true)
+        throw "Activation $startedId did not produce a verified packaged desktop backend within the wait budget."
     } catch {
-        # A mismatched or pre-existing process is not owned by this launcher.
-        $process.Dispose()
+        if ($null -ne $result) { $result.Dispose() }
         throw
+    } finally {
+        $activated.Dispose()
     }
 }
