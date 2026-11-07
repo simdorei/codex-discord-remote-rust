@@ -1,11 +1,11 @@
 # Full tool-host recovery reuses the existing exact-identity bot restart.
 # Read-only planning must succeed before request cancellation or process mutation.
+. (Join-Path $PSScriptRoot 'CdrPackagedDesktop.ps1')
+
 function Get-CdrToolsRecoveryPlan([string]$RepoRoot,[string]$CodexHome,[string]$ThreadId) {
     $lockPath=Get-CdrWriterLockPath $CodexHome $ThreadId
-    $package=Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1
-    if ($null -eq $package) { throw 'Installed Codex desktop package was not found.' }
-    $desktopPath=Join-Path $package.InstallLocation 'app\ChatGPT.exe'
-    if (-not [IO.File]::Exists($desktopPath)) { throw 'Installed desktop executable is missing.' }
+    $package=Get-CdrPackagedDesktopRegistration
+    $desktopPath=$package.DesktopPath
     $runtimePath=Join-Path $RepoRoot 'target\release\cdr-runtime.exe'
     $runtimeLock=[IO.File]::ReadAllText((Join-Path $RepoRoot '.codex_discord_rust.runtime.lock'))
     if ($runtimeLock -notmatch '(?m)^pid=(\d+)\r?$') { throw 'Bot process identity is missing.' }
@@ -70,12 +70,13 @@ function Get-CdrToolsRecoveryPlan([string]$RepoRoot,[string]$CodexHome,[string]$
         return [pscustomobject]@{Version=1;State='tools_recovery';ThreadId=$ThreadId;RepoRoot=$RepoRoot
             CodexHome=[IO.Path]::GetFullPath($CodexHome);LockPath=$lockPath
             DesktopIdentity=$desktopIdentity;DesktopPath=$desktopPath;RunningDesktopPath=$runningDesktopPath;BotIdentity=$botIdentity
+            DesktopPackageFullName=$package.DesktopPackageFullName;DesktopAppUserModelId=$package.DesktopAppUserModelId
             WriterIdentity=$writerIdentity;RecoveryIdentity=($desktopIdentity+';'+$botIdentity+';'+$writerIdentity)}
     } finally { $bot.Dispose(); if ($null -ne $desktop) { $desktop.Dispose() } }
 }
 
 function Assert-CdrSameToolsHosts($Expected,$Current) {
-    foreach ($field in @('ThreadId','RecoveryIdentity','DesktopIdentity','BotIdentity','WriterIdentity','DesktopPath','RunningDesktopPath','RepoRoot','CodexHome')) {
+    foreach ($field in @('ThreadId','RecoveryIdentity','DesktopIdentity','BotIdentity','WriterIdentity','DesktopPath','RunningDesktopPath','DesktopPackageFullName','DesktopAppUserModelId','RepoRoot','CodexHome')) {
         if ($Expected.$field -cne $Current.$field) { throw "Recovery host identity changed: $field" }
     }
     if ($Current.State -cne 'tools_recovery') { throw 'Invalid tool recovery plan.' }
@@ -118,6 +119,8 @@ function Test-CdrToolsNativeReady([string]$CodexHome) {
 
 function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
     Assert-CdrSameToolsHosts $Plan (Get-CdrToolsRecoveryPlan $Plan.RepoRoot $Plan.CodexHome $Plan.ThreadId)
+    # Check activation support before stopping a working desktop.
+    Assert-CdrPackagedDesktopActivationAvailable
     $desktop=$null; $owned=$null; $replacement=$null; $botWorker=$null; $stopped=$false
     $botResult=$null; $botError=''
     try {
@@ -144,10 +147,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
         # Start the tool host first, detached from the bot's lifetime. The bot
         # must read configuration only after the new native pipe is available.
         Save-CdrDesktopRecoveryReceipt $ReceiptPath @{Phase='restarting_desktop';ThreadId=$Plan.ThreadId}
-        if (-not (Get-Command Start-CdrDetachedProcess -ErrorAction SilentlyContinue)) {
-            . (Join-Path $PSScriptRoot 'CdrLaunchJournal.ps1')
-        }
-        $replacement=Start-CdrDetachedProcess -FilePath $Plan.DesktopPath -WindowStyle Hidden
+        $replacement=Start-CdrPackagedDesktop $Plan
         # First startup after a Store update may provision a new CUA runtime.
         $deadline=[DateTime]::UtcNow.AddSeconds(120);$observed=@();$hostReady=$false
         do {
@@ -192,6 +192,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
         Save-CdrDesktopRecoveryReceipt $ReceiptPath @{
             Phase=$phase;ThreadId=$Plan.ThreadId;Scope='desktop_and_bot_tools';WriterReleased=$released
             PreviousDesktopIdentity=$Plan.DesktopIdentity;DesktopIdentity=(Get-CdrRecoveryIdentity $replacement)
+            DesktopPackageFullName=$Plan.DesktopPackageFullName;DesktopAppUserModelId=$Plan.DesktopAppUserModelId
             PreviousBotIdentity=$Plan.BotIdentity;BotIdentity=$botResult.ReplacementIdentity
             BackendObserved=$true;ToolProbeVerified=$false;Error=$botError;FinishedAt=[DateTime]::UtcNow.ToString('o')}
     } finally {

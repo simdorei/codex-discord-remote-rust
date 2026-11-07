@@ -19,7 +19,8 @@ $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('cdr-tools-fixture-'+[guid]::New
 [void][IO.Directory]::CreateDirectory($testRoot)
 $script:fixturePlan=[pscustomobject]@{State='tools_recovery';ThreadId='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';RepoRoot=$testRoot;
     CodexHome=$testRoot;LockPath=(Join-Path $testRoot 'unused.lock');BotIdentity='10|11';
-    DesktopIdentity=(Get-CdrRecoveryIdentity $script:fixtureDesktop);DesktopPath='fixture-desktop.exe';RecoveryIdentity='exact-hosts'}
+    DesktopIdentity=(Get-CdrRecoveryIdentity $script:fixtureDesktop);DesktopPath='fixture-desktop.exe';RecoveryIdentity='exact-hosts'
+    DesktopPackageFullName='OpenAI.Codex_1.0.0.0_x64__publisher';DesktopAppUserModelId='OpenAI.Codex_publisher!App'}
 $plan=$script:fixturePlan
 $script:receipt=$null
 function Get-CdrToolsRecoveryPlan { return $script:fixturePlan }
@@ -38,10 +39,11 @@ function Start-Process {
         (@{InterruptedIdentity='10|11';ReplacementIdentity='50|51'} | ConvertTo-Json))
     return $script:fixtureWorker
 }
-function Start-CdrDetachedProcess {
-    param($FilePath,$WindowStyle)
-    Assert ($WindowStyle -ceq 'Hidden') 'Desktop launcher must stay hidden.'
-    Assert ($FilePath -ceq $script:fixturePlan.DesktopPath) 'Unexpected detached target.'
+function Start-CdrDetachedProcess { throw 'Raw desktop launch loses package identity.' }
+function Assert-CdrPackagedDesktopActivationAvailable {}
+function Start-CdrPackagedDesktop {
+    param($Plan)
+    Assert ($Plan.DesktopAppUserModelId -ceq 'OpenAI.Codex_publisher!App') 'Unexpected registered app target.'
     $script:events.Add('start:desktop');return $script:fixtureReplacement
 }
 Invoke-CdrToolsRestart $plan 'memory-receipt'

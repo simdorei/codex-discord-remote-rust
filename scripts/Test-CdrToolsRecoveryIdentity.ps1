@@ -41,7 +41,14 @@ $script:controller=New-FixtureProcess 40 $script:clock.AddSeconds(9) 'fixture-po
 function Get-AppxPackage {
     [CmdletBinding()]param([string]$Name)
     Assert-Fixture ($Name -ceq 'OpenAI.Codex') 'Unexpected package lookup.'
-    return [pscustomobject]@{InstallLocation=$script:package}
+    return [pscustomobject]@{InstallLocation=$script:package
+        PackageFullName='OpenAI.Codex_2.0.0.0_x64__testpublisher';PackageFamilyName='OpenAI.Codex_testpublisher'}
+}
+function Get-AppxPackageManifest {
+    param($Package)
+    Assert-Fixture ($Package -ceq 'OpenAI.Codex_2.0.0.0_x64__testpublisher') 'Unexpected package manifest.'
+    return [pscustomobject]@{Package=[pscustomobject]@{Applications=[pscustomobject]@{
+        Application=@([pscustomobject]@{Id='App';Executable='app/ChatGPT.exe'})}}}
 }
 function Get-Process {
     [CmdletBinding()]param([int]$Id)
@@ -101,10 +108,11 @@ function Start-Process {
     [IO.File]::WriteAllText((Join-Path $script:root '.codex_discord_rust.force.completed'),($completed | ConvertTo-Json))
     return $script:controller
 }
-function Start-CdrDetachedProcess {
-    param($FilePath,$WindowStyle)
-    Assert-Fixture ($WindowStyle -ceq 'Hidden') 'Desktop launcher must stay hidden.'
-    Assert-Fixture ($FilePath -ceq $script:desktopPath) 'Unexpected detached target.'
+function Start-CdrDetachedProcess { throw 'Raw desktop launch loses package identity.' }
+function Assert-CdrPackagedDesktopActivationAvailable {}
+function Start-CdrPackagedDesktop {
+    param($Plan)
+    Assert-Fixture ($Plan.DesktopAppUserModelId -ceq 'OpenAI.Codex_testpublisher!App') 'Unexpected registered app target.'
     $script:events.Add('start:desktop')
     return $script:replacement
 }
