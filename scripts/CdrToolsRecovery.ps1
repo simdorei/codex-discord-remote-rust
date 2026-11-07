@@ -148,7 +148,8 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
             . (Join-Path $PSScriptRoot 'CdrLaunchJournal.ps1')
         }
         $replacement=Start-CdrDetachedProcess -FilePath $Plan.DesktopPath -WindowStyle Hidden
-        $deadline=[DateTime]::UtcNow.AddSeconds(35);$observed=@();$hostReady=$false
+        # First startup after a Store update may provision a new CUA runtime.
+        $deadline=[DateTime]::UtcNow.AddSeconds(120);$observed=@();$hostReady=$false
         do {
             $replacement.Refresh()
             if ($replacement.HasExited) { throw 'Replacement desktop exited during startup.' }

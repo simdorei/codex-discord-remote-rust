@@ -38,5 +38,6 @@ could not determine the current browser URL on Windows with enough confidence to
 
 The external bridge also lacked browser-host session metadata and getState reported that the browser access host was unavailable. This patch reports that failure accurately; it does not copy another session's identity, disable native URL checks, or claim that the vendor helper is repaired.
 
-At review time the registered desktop was 26.1103.3517.0 while the running desktop and bridge app-server still referenced 26.1029.7803.0. The bridge CODEX_EXE configuration pointed to that removed package. Deployment and an actual Chrome read/click must be verified separately.
+At review time the registered desktop was 26.1103.3517.0 while the running desktop and bridge app-server still referenced 26.1029.7803.0. The bridge CODEX_EXE configuration pointed to that removed package.
 
+The desktop was then restarted into 26.1103.3517.0 without stopping the active bridge. Its new CUA runtime and both native-pipe configurations became ready after the old 35-second deadline, so recovery now waits up to 120 seconds while continuing to verify readiness. The live executable setting was updated and its launch-integrity binding was revalidated without changing capability policy or the database. Bridge deployment and an actual Chrome read/click must still be verified separately.
