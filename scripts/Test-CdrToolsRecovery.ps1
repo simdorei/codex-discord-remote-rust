@@ -38,17 +38,23 @@ function Start-Process {
         (@{InterruptedIdentity='10|11';ReplacementIdentity='50|51'} | ConvertTo-Json))
     return $script:fixtureWorker
 }
+function Start-CdrDetachedProcess {
+    param($FilePath,$WindowStyle)
+    Assert ($WindowStyle -ceq 'Hidden') 'Desktop launcher must stay hidden.'
+    Assert ($FilePath -ceq $script:fixturePlan.DesktopPath) 'Unexpected detached target.'
+    $script:events.Add('start:desktop');return $script:fixtureReplacement
+}
 Invoke-CdrToolsRestart $plan 'memory-receipt'
 Assert ($script:receipt.Phase -ceq 'restarted') 'Full restart did not complete.'
 Assert (-not $script:receipt.ToolProbeVerified) 'Restart must not claim a tool probe succeeded.'
-Assert (($script:events -join ',') -ceq 'stop:20,stop:21,start:bot-controller,start:desktop') 'Wrong stop/start order or duplicate launch.'
+Assert (($script:events -join ',') -ceq 'stop:20,stop:21,start:desktop,start:bot-controller') 'The desktop host must be ready before the bot reads tool configuration.'
 $stale=$plan | ConvertTo-Json | ConvertFrom-Json;$stale.BotIdentity='90|91'
 $refused=$false;try { Invoke-CdrToolsRestart $stale 'memory-receipt' } catch { $refused=$true }
 Assert $refused 'Changed bot identity was not refused.'
 Assert ($script:events.Count -eq 4) 'Stale identity caused a process action.'
 $plan.DesktopIdentity='stopped';$script:events.Clear()
 Invoke-CdrToolsRestart $plan 'memory-receipt'
-Assert (($script:events -join ',') -ceq 'start:bot-controller,start:desktop') 'Closed desktop must still start.'
+Assert (($script:events -join ',') -ceq 'start:desktop,start:bot-controller') 'Closed desktop must start before the bot.'
 $script:fixtureWorker.ExitCode=1;$script:events.Clear()
 Invoke-CdrToolsRestart $plan 'memory-receipt'
 Assert ($script:receipt.Phase -ceq 'failed') 'Bot failure was reported as success.'
@@ -70,4 +76,27 @@ Assert ($script:receipt.Phase -ceq 'failed') 'Unconfirmed bot restart was report
 Assert ($script:receipt.Error -like '*unverified*') 'Unconfirmed bot restart lost its diagnostic.'
 Assert ($script:events.Contains('start:desktop')) 'Desktop restoration was skipped after an unconfirmed bot restart.'
 Assert (-not $script:receipt.ToolProbeVerified) 'Unconfirmed host restart claimed tool-probe success.'
+$pipeName='codex-computer-use-'+[guid]::NewGuid().ToString()
+$pipe=$null
+$configPath=Join-Path $testRoot 'config.toml'
+try {
+    $config="[mcp_servers.node_repl.env]`nSKY_CUA_NATIVE_PIPE = '1'`nSKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\$pipeName'`n"
+    [IO.File]::WriteAllText($configPath,$config)
+    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'A dead configured pipe was reported ready.'
+    $pipe=[IO.Pipes.NamedPipeServerStream]::new($pipeName)
+    Assert (Test-CdrToolsNativeReady $testRoot) 'A live configured pipe was not observed.'
+    [IO.File]::WriteAllText($configPath,$config.Replace($pipeName,'codex-computer-use-'+[guid]::NewGuid().ToString()))
+    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'An unrelated live pipe hid a stale configured address.'
+    $pluginVersion=Join-Path $testRoot 'plugins\cache\openai-bundled\unified-computer-use\fixture'
+    [void][IO.Directory]::CreateDirectory($pluginVersion)
+    $plugin=@{mcpServers=@{cua_repl=@{env=@{SKY_CUA_NATIVE_PIPE='1';SKY_CUA_NATIVE_PIPE_DIRECTORY=('\\.\pipe\'+$pipeName)}}}}
+    [IO.File]::WriteAllText((Join-Path $pluginVersion '.mcp.json'),($plugin | ConvertTo-Json -Depth 5))
+    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'A live unified pipe hid a stale legacy configuration.'
+    [IO.File]::WriteAllText($configPath,'')
+    Assert (Test-CdrToolsNativeReady $testRoot) 'Unified CUA native pipe was not detected.'
+    $pipe.Dispose();$pipe=$null
+    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'A dead unified CUA pipe was reported ready.'
+} finally {
+    if ($null -ne $pipe) { $pipe.Dispose() }
+}
 Write-Output 'full_recovery_tests_passed'

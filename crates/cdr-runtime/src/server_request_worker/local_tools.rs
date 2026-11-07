@@ -129,7 +129,10 @@ pub(crate) fn requires_user_approval(method: &str, params: &Value) -> bool {
 
 fn is_local_tool_form(method: &str, params: &Value) -> bool {
     is_form_request(method, params)
-        && params.get("serverName").and_then(Value::as_str) == Some("node_repl")
+        && matches!(
+            params.get("serverName").and_then(Value::as_str),
+            Some("node_repl" | "cua_repl")
+        )
         && params
             .pointer("/_meta/codex_approval_kind")
             .and_then(Value::as_str)

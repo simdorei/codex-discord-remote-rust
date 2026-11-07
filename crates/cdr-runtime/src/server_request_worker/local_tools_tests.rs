@@ -45,6 +45,37 @@ fn local_access_is_accepted_without_persistent_grants() {
 }
 
 #[test]
+fn unified_cua_preserves_saved_grants_and_unknown_risk_approvals() {
+    let mut approval = request();
+    approval.params["serverName"] = json!("cua_repl");
+    approval.params["_meta"]["riskLevel"] = json!("high");
+    approval.params["_meta"]["tool_params"]["app"] = json!("Chrome");
+    let config = json!({"layers":[{"name":{"type":"user"},"config":{
+        "computer_use":{"windows":{"always_allowed_app_ids":["Chrome"]}}
+    }}]});
+    assert_eq!(
+        local_tools::saved_access_response(&approval, &config).map(|v| v.0),
+        Some(json!({"action":"accept","content":{},"_meta":{"persist":"always"}}))
+    );
+    assert!(local_tools::response(&approval).is_none());
+    assert!(local_tools::requires_user_approval(
+        &approval.method,
+        &approval.params
+    ));
+    approval.params["_meta"]["riskLevel"] = json!("unknown");
+    assert!(local_tools::policy_response(&approval, allow_policy()).is_none());
+    assert!(local_tools::saved_access_response(&approval, &config).is_none());
+    approval.params["_meta"]["riskLevel"] = json!("low");
+    assert_eq!(
+        local_tools::response(&approval).unwrap().0["action"],
+        "accept"
+    );
+    approval.params["requestedSchema"] =
+        json!({"type":"object","properties":{"input":{"type":"string"}}});
+    assert!(local_tools::response(&approval).is_none());
+}
+
+#[test]
 fn high_risk_local_access_waits_for_bound_user_approval() {
     for connector in ["computer-use", "browser"] {
         for mode in ["form", "openai/form"] {

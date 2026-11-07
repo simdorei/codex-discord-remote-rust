@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidateSet('writer-plan','writer-dispatch','writer-pid-reuse','unchanged','receipt-missing','receipt-empty','receipt-malformed','receipt-null','receipt-array','receipt-same','receipt-same-lf')][string]$Case)
+param([Parameter(Mandatory=$true)][ValidateSet('writer-plan','writer-dispatch','writer-pid-reuse','unchanged','updated-package','receipt-missing','receipt-empty','receipt-malformed','receipt-null','receipt-array','receipt-same','receipt-same-lf')][string]$Case)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'CdrDesktopRecovery.ps1')
 . (Join-Path $PSScriptRoot 'CdrToolsRecovery.ps1')
@@ -12,6 +12,12 @@ $script:root=Join-Path ([IO.Path]::GetTempPath()) ('cdr-recover-identity-'+[guid
 $script:package=Join-Path $script:root 'package'
 $script:fixtureCodexHome=Join-Path $script:root 'home'
 $script:desktopPath=Join-Path $script:package 'app\ChatGPT.exe'
+$script:runningDesktopPath=$script:desktopPath
+if ($Case -eq 'updated-package') {
+    $script:package=Join-Path $script:root 'WindowsApps\OpenAI.Codex_2.0.0.0_x64__testpublisher'
+    $script:desktopPath=Join-Path $script:package 'app\ChatGPT.exe'
+    $script:runningDesktopPath=Join-Path $script:root 'WindowsApps\OpenAI.Codex_1.0.0.0_x64__testpublisher\app\ChatGPT.exe'
+}
 $script:runtimePath=Join-Path $script:root 'target\release\cdr-runtime.exe'
 $script:writerPath=Join-Path $script:root 'codex.exe'
 $script:thread='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -27,7 +33,7 @@ function New-FixtureProcess([int]$Number,[DateTime]$Started,[string]$Path) {
     return $p
 }
 $script:bot=New-FixtureProcess 10 $script:clock $script:runtimePath
-$script:desktop=New-FixtureProcess 20 $script:clock.AddSeconds(1) $script:desktopPath
+$script:desktop=New-FixtureProcess 20 $script:clock.AddSeconds(1) $script:runningDesktopPath
 $script:writer=New-FixtureProcess 21 $script:clock.AddSeconds(2) $script:writerPath
 $script:replacement=New-FixtureProcess 30 $script:clock.AddSeconds(10) $script:desktopPath
 $script:controller=New-FixtureProcess 40 $script:clock.AddSeconds(9) 'fixture-powershell.exe'
@@ -48,7 +54,7 @@ function Get-CimInstance {
     [CmdletBinding()]param([string]$ClassName,[string]$Filter,[string[]]$Property)
     Assert-Fixture ($ClassName -ceq 'Win32_Process') 'Unexpected OS provider class.'
     if ($Filter -ceq "Name='ChatGPT.exe'") {
-        return [pscustomobject]@{ProcessId=20;ParentProcessId=0;CreationDate=$script:desktop.StartTime;ExecutablePath=$script:desktopPath}
+        return [pscustomobject]@{ProcessId=20;ParentProcessId=0;CreationDate=$script:desktop.StartTime;ExecutablePath=$script:runningDesktopPath}
     }
     if ($Filter -ceq "ProcessId=$($script:writer.Id)") {
         return [pscustomobject]@{ProcessId=$script:writer.Id;ParentProcessId=20;CreationDate=$script:writer.StartTime;CommandLine='codex.exe app-server'}
@@ -95,6 +101,13 @@ function Start-Process {
     [IO.File]::WriteAllText((Join-Path $script:root '.codex_discord_rust.force.completed'),($completed | ConvertTo-Json))
     return $script:controller
 }
+function Start-CdrDetachedProcess {
+    param($FilePath,$WindowStyle)
+    Assert-Fixture ($WindowStyle -ceq 'Hidden') 'Desktop launcher must stay hidden.'
+    Assert-Fixture ($FilePath -ceq $script:desktopPath) 'Unexpected detached target.'
+    $script:events.Add('start:desktop')
+    return $script:replacement
+}
 
 try {
     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($script:desktopPath))
@@ -104,6 +117,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $script:root '.codex_discord_rust.runtime.lock'),"pid=10"+[Environment]::NewLine+"started_at=$epoch")
     $before=Get-CdrToolsRecoveryPlan $script:root $script:fixtureCodexHome $script:thread
     Assert-Fixture ($before.WriterIdentity -ceq (Get-CdrRecoveryIdentity $script:writer)) 'Initial writer identity was not observed.'
+    Assert-Fixture ($before.DesktopPath -ceq $script:desktopPath -and $before.RunningDesktopPath -ceq $script:runningDesktopPath) 'Running and installed desktop versions were not distinguished.'
     if ($Case -eq 'writer-pid-reuse') {
         $script:writer=New-FixtureProcess 21 $script:clock.AddSeconds(2).AddTicks(10) $script:writerPath
     } elseif ($Case -in @('writer-plan','writer-dispatch')) {
@@ -122,14 +136,14 @@ try {
         Assert-Fixture ($result.Phase -ceq 'failed') 'Unverified bot completion identity was reported as restarted.'
         Assert-Fixture ($result.Error -like '*receipt*') 'Invalid bot receipt lost its diagnostic.'
         Assert-Fixture (-not $result.ToolProbeVerified) 'Invalid bot receipt claimed tool success.'
-        Assert-Fixture (($script:events -join ',') -ceq 'close:20,kill:20,kill:21,start:bot-controller,start:desktop') 'Invalid bot receipt skipped desktop restoration or repeated host dispatch.'
-    } elseif ($Case -eq 'unchanged') {
+        Assert-Fixture (($script:events -join ',') -ceq 'close:20,kill:20,kill:21,start:desktop,start:bot-controller') 'Invalid bot receipt skipped desktop restoration or repeated host dispatch.'
+    } elseif ($Case -in @('unchanged','updated-package')) {
         $receipt=Join-Path $script:root 'receipt.json'
         Invoke-CdrToolsRestart $before $receipt
         $result=[IO.File]::ReadAllText($receipt) | ConvertFrom-Json
         Assert-Fixture ($result.Phase -ceq 'restarted') 'Unchanged exact identities did not complete.'
         Assert-Fixture (-not $result.ToolProbeVerified) 'Host restart must not imply tool probe success.'
-        Assert-Fixture (($script:events -join ',') -ceq 'close:20,kill:20,kill:21,start:bot-controller,start:desktop') 'Unexpected fake host dispatch sequence.'
+        Assert-Fixture (($script:events -join ',') -ceq 'close:20,kill:20,kill:21,start:desktop,start:bot-controller') 'Unexpected fake host dispatch sequence.'
     } else {
         Assert-Fixture ($before.WriterIdentity -cne $after.WriterIdentity) 'Fixture did not replace the exact writer.'
         $refused=$false
