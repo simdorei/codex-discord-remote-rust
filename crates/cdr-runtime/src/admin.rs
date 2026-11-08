@@ -30,7 +30,9 @@ pub async fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<String
         "list-threads" | "archive-thread" => Box::pin(threads::run(&args, &root)).await,
         "configure-install" => configure_install(&args, &root),
         "discover-codex" => discover_codex(&args, &root),
-        "diagnose-codex-tools" => codex_tools::run(&args, &root).await,
+        "diagnose-codex-tools" | "diagnose-bundled-computer" => {
+            codex_tools::run(&args, &root).await
+        }
         #[cfg(windows)]
         "codex-selection-worker" => {
             match (args.value("--request-file"), args.value("--record-json")) {

@@ -8,6 +8,7 @@ use std::{
 };
 
 pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
+    let bundled_only = args.command == "diagnose-bundled-computer";
     let invoke = match args.value("--run-probes") {
         None | Some("false") => false,
         Some("true") => true,
@@ -23,23 +24,37 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     let startup = Instant::now() + cdr_app_server::APP_SERVER_STARTUP_TIMEOUT;
     let paths = RuntimePaths::discover(&environment, root, startup, Duration::from_secs(8))
         .map_err(|e| e.to_string())?;
-    let config = paths
+    let computer_enabled =
+        crate::local_computer::enabled(&environment).map_err(|e| e.to_string())?;
+    if bundled_only && !computer_enabled {
+        return Err("Bundled Computer Use is disabled for this runtime.".into());
+    }
+    let mut config = paths
         .app_server_config(startup)
         .map_err(|e| e.to_string())?;
+    crate::local_computer::configure_current(&mut config, computer_enabled)
+        .map_err(|e| e.to_string())?;
+    let computer_executable = if computer_enabled {
+        Some(std::env::current_exe().map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
     let config_before = settings_identity(&paths.codex_home, root, startup)?;
     let client = AppServerClient::start(config)
         .await
         .map_err(|e| e.to_string())?;
     let identity = client.lifecycle_snapshot();
     let exact_before = process_identity(identity.process_id);
-    let result = crate::codex_tools::inspect(
-        &client,
-        root,
-        invoke,
-        end.checked_sub(Duration::from_secs(8))
-            .unwrap_or_else(Instant::now),
-    )
-    .await;
+    let probe_deadline = end
+        .checked_sub(Duration::from_secs(8))
+        .unwrap_or_else(Instant::now);
+    let result = if bundled_only {
+        crate::local_computer::probe::inspect(&client, root, probe_deadline).await
+    } else {
+        crate::codex_tools::inspect(&client, root, invoke, probe_deadline)
+            .await
+            .map(|report| json!(report))
+    };
     let config_after = settings_identity(
         &paths.codex_home,
         root,
@@ -63,9 +78,9 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     {
         json!({"contract_id":crate::codex_tools::CONTRACT_ID,"state":"UNVERIFIED","reason":"environment_or_process_changed"})
     } else {
-        result.map_or_else(|_|json!({"contract_id":crate::codex_tools::CONTRACT_ID,"state":"UNVERIFIED","reason":"diagnostic_protocol_unverified"}), |report|json!(report))
+        result.unwrap_or_else(|_|json!({"contract_id":crate::codex_tools::CONTRACT_ID,"state":"UNVERIFIED","reason":"diagnostic_protocol_unverified"}))
     };
-    let mut report = json!({"schema_version":1,"scope":"diagnostic_process_only","observed_at":chrono::Utc::now().to_rfc3339(),"app_server_pid":identity.process_id,"process_identity":exact_before,"codex_home":paths.codex_home,"cwd":root,"configuration_sha256":config_before,"policy":{"approvalPolicy":"never","sandbox":"read-only","ephemeral":true},"tools":tools,"process_closed":true});
+    let mut report = json!({"schema_version":1,"scope":"diagnostic_process_only","observed_at":chrono::Utc::now().to_rfc3339(),"app_server_pid":identity.process_id,"process_identity":exact_before,"codex_home":paths.codex_home,"cwd":root,"configuration_sha256":config_before,"computer_provider":{"enabled":computer_enabled,"mode":"bundled_same_executable","executable":computer_executable},"policy":{"approvalPolicy":"never","sandbox":"read-only","ephemeral":true},"tools":tools,"process_closed":true});
     #[cfg(windows)]
     {
         report["selection"] = json!(paths.codex_selection);

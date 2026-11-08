@@ -1,4 +1,6 @@
-//! Opt-in local desktop MCP. This does not modify the bundled CUA plugin.
+//! Built-in Windows desktop MCP served by this same Rust runtime executable.
+
+pub mod probe;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -8,18 +10,36 @@ pub const ENABLED_ENV: &str = "DISCORD_HEADLESS_COMPUTER_USE";
 
 pub fn enabled(environment: &BTreeMap<String, String>) -> Result<bool, AppServerError> {
     match environment.get(ENABLED_ENV).map(|value| value.trim()) {
-        None | Some("" | "0" | "false") => Ok(false),
+        None | Some("") => Ok(cfg!(windows)),
+        Some("0" | "false") => Ok(false),
         Some("1" | "true") if cfg!(windows) => Ok(true),
         Some("1" | "true") => Err(AppServerError::StartupHeld(
             "DISCORD_HEADLESS_COMPUTER_USE requires Windows".into(),
         )),
         Some(_) => Err(AppServerError::StartupHeld(
-            "DISCORD_HEADLESS_COMPUTER_USE must be 0 or 1".into(),
+            "DISCORD_HEADLESS_COMPUTER_USE must be 0, 1, false, or true".into(),
         )),
     }
 }
 
-/// Register only this runtime's explicitly selected stdio endpoint.
+/// Apply the built-in provider to the app-server owned by this Rust runtime.
+/// An explicit opt-out also masks an older user-level standalone registration.
+pub fn configure_current(
+    config: &mut AppServerConfig,
+    computer_enabled: bool,
+) -> Result<(), AppServerError> {
+    if !computer_enabled {
+        config
+            .arguments
+            .extend(["-c".into(), "mcp_servers.cdr_computer.enabled=false".into()]);
+        return Ok(());
+    }
+    let runtime =
+        std::env::current_exe().map_err(|error| AppServerError::StartupHeld(error.to_string()))?;
+    configure(config, &runtime)
+}
+
+/// Register only this runtime's built-in stdio endpoint.
 /// Existing tool grants, plugins, browser policy, and user configuration stay intact.
 pub fn configure(
     config: &mut AppServerConfig,
@@ -54,10 +74,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn feature_requires_an_explicit_valid_operator_setting() {
+    fn builtin_default_follows_platform_and_respects_operator_override() {
         let mut environment = BTreeMap::new();
-        assert!(!enabled(&environment).unwrap());
-        for value in ["", "0", "false"] {
+        assert_eq!(enabled(&environment).unwrap(), cfg!(windows));
+        environment.insert(ENABLED_ENV.into(), String::new());
+        assert_eq!(enabled(&environment).unwrap(), cfg!(windows));
+        for value in ["0", "false"] {
             environment.insert(ENABLED_ENV.into(), value.into());
             assert!(!enabled(&environment).unwrap());
         }
@@ -117,5 +139,21 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         assert!(configure(&mut config, &temp.path().join("missing.exe")).is_err());
         assert_eq!(config.arguments, before);
+    }
+    #[test]
+    fn explicit_disable_masks_an_old_registration_without_rewriting_other_settings() {
+        let mut config = AppServerConfig::new("codex.exe")
+            .with_environment([("CODEX_HOME".into(), "existing-home".into())]);
+        config
+            .arguments
+            .extend(["-c".into(), "mcp_servers.cdr_computer.enabled=true".into()]);
+        let before = config.arguments.clone();
+        configure_current(&mut config, false).unwrap();
+        assert_eq!(&config.arguments[..before.len()], before);
+        assert_eq!(
+            &config.arguments[before.len()..],
+            ["-c", "mcp_servers.cdr_computer.enabled=false"]
+        );
+        assert_eq!(config.environment["CODEX_HOME"], "existing-home");
     }
 }

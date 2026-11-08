@@ -336,11 +336,7 @@ async fn start_app_server(
     let mut config = paths
         .app_server_config(startup_deadline)
         .map_err(|e| AppServerError::StartupHeld(e.to_string()))?;
-    if local_computer_enabled {
-        let runtime = std::env::current_exe()
-            .map_err(|error| AppServerError::StartupHeld(error.to_string()))?;
-        crate::local_computer::configure(&mut config, &runtime)?;
-    }
+    crate::local_computer::configure_current(&mut config, local_computer_enabled)?;
     let fence = Arc::new(RuntimeDeadGenerationFence::new(
         paths.mirror_db.clone(),
         runtime_id.to_owned(),
