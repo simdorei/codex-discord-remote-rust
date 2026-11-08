@@ -41,3 +41,8 @@ fn same_writer_pid_with_new_creation_time_is_refused_before_host_effects() {
 fn unchanged_exact_hosts_and_writer_still_restart_without_claiming_tool_probe() {
     check("unchanged");
 }
+
+#[test]
+fn store_update_restarts_the_old_process_into_the_registered_package() {
+    check("updated-package");
+}

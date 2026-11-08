@@ -112,6 +112,14 @@ async fn repair_rejects_global_reset_and_untargeted_requests() {
             "mcpServer/tool/call",
             json!({"threadId":"a","server":"other","tool":"js_reset"}),
         ),
+        (
+            "mcpServer/tool/call",
+            json!({"server":"cua_repl","tool":"js_reset"}),
+        ),
+        (
+            "mcpServer/tool/call",
+            json!({"threadId":"a","server":"cua_repl","tool":"turn_ended"}),
+        ),
     ] {
         assert!(matches!(
             server

@@ -33,9 +33,10 @@ finally { $stream.Dispose() }
     Assert ($found.Count -eq 1 -and $found[0].Process.Pid -eq $owner.Id) 'Restart Manager did not identify the exact fixture owner.'
     Must-Reject { Get-CdrDesktopRecoveryPlan $temp $thread }
     Assert (-not $owner.HasExited) 'Inspection stopped an unrelated writer.'
-    $plan=[pscustomobject]@{ThreadId=$thread;State='desktop_owned';WriterIdentity='1|2';DesktopIdentity='3|4';DesktopPath='app.exe'}
+    $plan=[pscustomobject]@{ThreadId=$thread;State='desktop_owned';WriterIdentity='1|2';DesktopIdentity='3|4';DesktopPath='app.exe'
+        DesktopPackageFullName='fixture-package';DesktopAppUserModelId='fixture!App'}
     Assert-CdrSameDesktopOwner $plan $plan
-    foreach ($field in @('WriterIdentity','DesktopIdentity','ThreadId','DesktopPath')) {
+    foreach ($field in @('WriterIdentity','DesktopIdentity','ThreadId','DesktopPath','DesktopPackageFullName','DesktopAppUserModelId')) {
         $other=$plan | ConvertTo-Json | ConvertFrom-Json
         $other.$field='changed'
         Must-Reject { Assert-CdrSameDesktopOwner $plan $other }
@@ -54,12 +55,15 @@ finally { $stream.Dispose() }
         }
         $desktop=Fake-Process 10; $backend=Fake-Process 11; $replacement=Fake-Process 20
         $fakePlan=[pscustomobject]@{ThreadId=$thread;State='desktop_owned';CodexHome=$temp;LockPath=$lock;
-            WriterIdentity=(Get-CdrRecoveryIdentity $backend);DesktopIdentity=(Get-CdrRecoveryIdentity $desktop);DesktopPath='fixture.exe'}
+            WriterIdentity=(Get-CdrRecoveryIdentity $backend);DesktopIdentity=(Get-CdrRecoveryIdentity $desktop);DesktopPath='fixture.exe'
+            DesktopPackageFullName='fixture-package';DesktopAppUserModelId='fixture!App'}
         function Get-CdrDesktopRecoveryPlan { return $fakePlan }
         function Get-Process { return $desktop }
         function Get-CdrOwnedProcessHandles { return ,@($desktop,$backend) }
         function Get-CdrWriterOwners { return @() }
-        function Start-Process { $script:launched++; return $replacement }
+        function Start-Process { throw 'A raw desktop executable launch must not be used.' }
+        function Assert-CdrPackagedDesktopActivationAvailable {}
+        function Start-CdrPackagedDesktop { $script:launched++; return $replacement }
         function Get-CimInstance { return [pscustomobject]@{ProcessId=21} }
         $receipt=Join-Path $temp 'receipt.json'
         Invoke-CdrDesktopRestart $fakePlan $receipt
