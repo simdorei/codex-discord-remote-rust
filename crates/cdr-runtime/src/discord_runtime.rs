@@ -62,6 +62,7 @@ pub async fn run(
     config: RuntimeConfig,
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), DiscordRuntimeError> {
+    let local_computer_enabled = crate::local_computer::enabled(environment)?;
     let root = std::env::current_dir().map_err(DiscordRuntimeError::CurrentDirectory)?;
     let startup_deadline = std::time::Instant::now() + cdr_app_server::APP_SERVER_STARTUP_TIMEOUT;
     let paths = RuntimePaths::discover(
@@ -86,6 +87,7 @@ pub async fn run(
         drain_controller.runtime_id(),
         config.startup_channel_id,
         startup_deadline,
+        local_computer_enabled,
     )
     .await?;
     resume_recovery::recover(&server, &paths.mirror_db, drain_controller.runtime_id()).await;
@@ -329,10 +331,16 @@ async fn start_app_server(
     runtime_id: &str,
     startup_channel_id: Option<u64>,
     startup_deadline: std::time::Instant,
+    local_computer_enabled: bool,
 ) -> Result<Arc<ResidentAppServer>, AppServerError> {
-    let config = paths
+    let mut config = paths
         .app_server_config(startup_deadline)
         .map_err(|e| AppServerError::StartupHeld(e.to_string()))?;
+    if local_computer_enabled {
+        let runtime = std::env::current_exe()
+            .map_err(|error| AppServerError::StartupHeld(error.to_string()))?;
+        crate::local_computer::configure(&mut config, &runtime)?;
+    }
     let fence = Arc::new(RuntimeDeadGenerationFence::new(
         paths.mirror_db.clone(),
         runtime_id.to_owned(),
