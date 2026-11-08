@@ -7,12 +7,14 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::{AppServerConfig, AppServerError};
 
 #[cfg(windows)]
+mod browser_host;
+
+#[cfg(windows)]
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[cfg(windows)]
 const DESKTOP_SESSION_ENVIRONMENT: &[&str] = &[
     "CODEX_APP_TOOLS_PIPE_PATH",
-    "BROWSER_USE_ACCESS_VERIFYING_IDENTITY",
     "CODEX_TASK_WORKSPACE_VERIFYING_IDENTITY",
     "SKY_CUA_NATIVE_PIPE_DIRECTORY",
     "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
@@ -119,13 +121,23 @@ fn inherited_environment(
     overrides: &std::collections::BTreeMap<String, String>,
 ) -> Result<std::collections::HashMap<String, String>, AppServerError> {
     let mut environment = std::collections::HashMap::new();
+    let mut browser_environment = std::collections::BTreeMap::new();
     for (name, value) in std::env::vars_os() {
         let name = name
             .into_string()
             .map_err(|_| AppServerError::EnvironmentEncoding { field: "name" })?;
+        if browser_host::is_host_variable(&name) {
+            let value = value
+                .into_string()
+                .map_err(|_| AppServerError::EnvironmentEncoding { field: "value" })?;
+            browser_environment.insert(name, value);
+            continue;
+        }
         // Inherited desktop identities and pipe addresses belong to the parent
         // session, not this independent server. Explicit overrides below remain
         // available to callers; authentication and CODEX_HOME are preserved.
+        // Browser host connection metadata is handled separately as one set;
+        // forwarding it does not register or authorize this server's threads.
         if DESKTOP_SESSION_ENVIRONMENT
             .iter()
             .any(|desktop_name| name.eq_ignore_ascii_case(desktop_name))
@@ -138,6 +150,9 @@ fn inherited_environment(
         environment.insert(name, value);
     }
     for (name, value) in overrides {
+        if browser_host::is_host_variable(name) {
+            continue;
+        }
         if let Some(inherited) = environment
             .keys()
             .find(|inherited| inherited.eq_ignore_ascii_case(name))
@@ -147,6 +162,7 @@ fn inherited_environment(
         }
         environment.insert(name.clone(), value.clone());
     }
+    browser_host::apply(&browser_environment, overrides, &mut environment);
     Ok(environment)
 }
 

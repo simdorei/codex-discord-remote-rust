@@ -49,3 +49,41 @@ The first prepared rollout stopped before changing the live runtime because its 
 Three regression tests cover temporary contention, an unreleased writer with a bounded failure, and a 24 MiB database receiving continuous committed writes. The sustained-write test failed with retries alone and passed once the read snapshot was retained. Existing snapshot and legacy-store regression suites also passed (10 focused backup/store tests total). The updated debug executable created and validated a snapshot of the actual running bridge database in 3.77 seconds; no runtime stop was needed.
 
 The branch was rebased onto main 0c664730af2eea843072842990259a847af62711. The 75 bridge/recovery tests were rerun along with 19 Codex selection, startup receipt, probe and tool-inventory tests (94 passed, one fixture-only test ignored). Together with the backup/store checks, 104 focused tests passed. Changed-file formatting and library Clippy checks passed. A broader store all-targets Clippy run encountered the pre-existing duplicate_mod diagnostic for tests/support/legacy_schema.rs in the unchanged async_questions test target; this is not a full-workspace lint pass. Current main's manual-only CI setting is preserved.
+
+## Browser host environment forwarding — 2026-11-08
+
+Windows app-server spawning previously removed `BROWSER_USE_ACCESS_VERIFYING_IDENTITY`
+even when its caller supplied a complete browser host connection. The pipe and
+executor survived, producing an incomplete connection. A real child-process
+regression reproduced the missing verifying identity before the change.
+
+The Windows spawn path now treats these three fields as one set:
+
+- `BROWSER_USE_ACCESS_PIPE_PATH`
+- `BROWSER_USE_ACCESS_EXECUTOR_ID`
+- `BROWSER_USE_ACCESS_VERIFYING_IDENTITY`
+
+A complete, nonempty set from the launch environment is forwarded unchanged.
+Any explicit host override selects a new source for the entire set; missing
+fields are not borrowed from the inherited host. Windows case aliases are
+normalized, and conflicting aliases are treated as incomplete. Incomplete
+sets do not supply a pipe/key; they retain an executor variable, including an
+empty sentinel, so the browser service still checks access and reports the
+missing host. No connection metadata is invented when none was supplied.
+
+This only forwards host connection metadata. The existing browser service must
+still verify the signed response for the current executor, session and turn.
+It does not inherit parent Codex thread/session IDs, read another process's
+identity into the child, create an authorization host, or grant browser access.
+
+Validation: 9 new isolated Windows process tests, 4 existing environment/tool
+tests, and 126 app-server library tests passed (139 total; 8 fixture-only entries
+ignored). Focused library/test Clippy and `git diff --check` passed.
+
+Live limitation: read-only inspection found all three host variables absent
+from both the running 5060 bridge and its app-server. The installed unified
+plugin supplies only an empty executor sentinel. This patch therefore cannot
+restore that installation by itself. It remains a source-level candidate;
+the live executable was not replaced or restarted for this change. A supported
+host-provisioning/session attachment path is still required, and the separate
+native Chrome URL-confidence failure remains unverified.
