@@ -45,3 +45,26 @@ Bundled `cdr_computer` is the provider for this integration. Native `cua_repl.js
 The first acceptance run used a separately copied helper. Its results are preserved in [the historical acceptance record](computer-use-history.md). That installation method is superseded by this same-executable integration.
 
 When an existing deployment has that earlier registration, the bundled runtime overrides it with its own executable for its own app-server. Remove the old global registration only after the intended bundled runtime is verified in service and the exact registration is confirmed to be the old helper. Existing artifact-pinning and managed restart requirements still apply to an operational binary replacement.
+
+## Bundled acceptance — 2026-11-08
+
+Implementation commit: `e547d67`. Focused bundled configuration and result-validation tests: **6 passed**. Clippy for the affected libraries with warnings denied: **passed**. Release build provenance: **clean**, and the copied artifact hash matched the build output.
+
+The bundled executable was produced at:
+
+```text
+C:\repos\simdorei\cdr-headless-computer-20261108\target\bundled-release\cdr-runtime.exe
+```
+
+The executable's own `diagnose-bundled-computer` command completed at 23:44 KST. It used the same `configure_current` path as normal bot startup and reported:
+
+- Provider mode: `bundled_same_executable`.
+- Configured provider executable: the bundled `cdr-runtime.exe` above.
+- Provider enabled: true, without an enable setting.
+- Native MCP probe: `VERIFIED`, with 11 tools and 10 enumerated windows.
+- Diagnostic app-server closed successfully; its stderr was empty.
+- Follow-up observation found zero Codex/ChatGPT desktop UI processes.
+
+Raw diagnostic and concise acceptance metadata are in the ignored `target/bundled-qa` directory. The first PowerShell wrapper could not obtain its child exit-code property, so the actual report, native verification result, empty stderr, and confirmed cleanup were read directly; that wrapper failure was not treated as a Rust failure or as acceptance evidence.
+
+This is acceptance of the bundled source and executable. The existing operational executable was not replaced, and the earlier standalone registration was retained pending managed cutover. The operational root has both launch-compatibility pin records; its current launcher rejects a different candidate hash, and the inspected update helper has no contract-transition step. A normal reviewed transition of those records is required before operational replacement; they were not removed or rewritten.
