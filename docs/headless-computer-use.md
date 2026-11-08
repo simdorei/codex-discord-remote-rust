@@ -36,4 +36,35 @@ Screenshots return a native MCP image block plus metadata. Image bytes are not d
 
 ## Verification scope
 
-Focused protocol, configuration, cross-process observation, and native desktop checks are recorded separately after execution. Catalog discovery alone does not establish that screenshot capture or input works. Native `cua_repl` and its browser URL policy remain independent capabilities and are not certified by these checks.
+Native `cua_repl` and its browser URL policy remain independent capabilities and are not certified by these checks.
+
+## 5060 acceptance record — 2026-11-08
+
+Implementation commit: `0c9b268`, based on the running Remote's `aec9e2c` source. Branch: `fix/headless-computer-mcp-20261108`.
+
+| Check | Observed result |
+| --- | --- |
+| MCP protocol and shared desktop coordination tests | 18 passed |
+| Runtime opt-in and exact executable configuration tests | 3 passed |
+| Existing native computer contract regression tests | 3 passed |
+| Focused Clippy, affected libraries, warnings denied | Passed |
+| Release build provenance | Clean implementation commit; copied executable SHA-256 matched |
+| Codex/ChatGPT desktop UI processes during native checks | 0 |
+| Direct stdio native actions | Temporary Chrome launch, window inventory, activation, PNG capture, mouse click, Ctrl+L, Korean Unicode typing and stop succeeded |
+| Installed Codex app-server integration | Same installed CLI 0.167.0-alpha.3.2 discovered all 11 tools; activation, PNG capture and Enter input succeeded |
+| Registration refresh | App-server was initialized before MCP registration; a new ephemeral thread in that existing process loaded the registration successfully |
+| Remote configuration scope | Running Remote's configured Codex profile matched the profile used for registration |
+| Cleanup | Both QA drivers and app-server children exited; owned Chrome window closed |
+| Existing live Remote | Runtime PID 27448 and app-server PID 17240 remained running throughout; no restart |
+
+The Chrome smoke test typed `about:blank#5060-앱없이-입력성공` and visually confirmed the text. Enter sent through the installed app-server committed that local URL; a second screenshot and window title confirmed the result. No model turn was requested by the QA harness. These checks establish the configured MCP transport and native screen/input path; they do not certify bundled native `cua_repl` or every application's workflow.
+
+The verified helper was installed at:
+
+```text
+C:\repos\simdorei\cdr-computer-tools\0c9b268\cdr-computer-mcp.exe
+```
+
+The installed Codex CLI registered that exact path as `cdr_computer` with the sole argument `--computer-mcp`, enabled, over stdio. The running bot executable was not replaced. The runtime opt-in code is available for a future normal deployment; this installation uses the separate helper registration. New Remote conversations can select `cdr_computer` now.
+
+Working source and this record are in `C:\repos\simdorei\cdr-headless-computer-20261108`. Focused QA receipts and screenshots were stored under its ignored `target/headless-qa` directory; unrelated window inventory was removed after the test.
