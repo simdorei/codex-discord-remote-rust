@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -20,7 +20,9 @@ const PNG: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jhN8AAAAASUVORK5CYII=";
 
 fn rpc(id: usize, method: &str, params: Value) -> Value {
-    json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params})
+    let mut request = json!({"jsonrpc":"2.0", "id":id, "method":method});
+    request["params"] = params;
+    request
 }
 
 fn initialize(version: &str) -> Value {
@@ -37,19 +39,17 @@ fn ready() -> Value {
 }
 
 fn call(id: usize, name: &str, arguments: Value) -> Value {
-    rpc(
-        id,
-        "tools/call",
-        json!({"name":name, "arguments":arguments}),
-    )
+    let mut params = json!({"name":name});
+    params["arguments"] = arguments;
+    rpc(id, "tools/call", params)
 }
 
 fn lines(messages: &[Value]) -> Vec<u8> {
-    messages
-        .iter()
-        .map(|message| format!("{message}\n"))
-        .collect::<String>()
-        .into_bytes()
+    let mut buffer = Vec::new();
+    for message in messages {
+        writeln!(buffer, "{message}").unwrap();
+    }
+    buffer
 }
 
 fn run(
@@ -130,7 +130,7 @@ fn computer_validation_precedes_native_execution_and_counts_unicode_characters()
         ("computer_launch_app", json!({"app":"powershell"})),
         (
             "computer_click",
-            json!({"window_id":1,"observation_id":"abcdefgh","x":100001,"y":0}),
+            json!({"window_id":1,"observation_id":"abcdefgh","x":100_001,"y":0}),
         ),
         (
             "computer_click",

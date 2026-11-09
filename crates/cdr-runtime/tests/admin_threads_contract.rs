@@ -87,30 +87,42 @@ async fn native_list_and_archive_use_the_same_persisted_target_and_guards_as_dis
 }
 
 #[tokio::test]
-async fn unsupported_writer_or_nonidle_status_is_not_bypassed_by_native_admin() {
-    for scenario in ["active_without_event", "wrong_read_identity"] {
+async fn native_archive_checks_writer_ownership_without_resume_or_idle_reads() {
+    for scenario in [
+        "active_without_event",
+        "wrong_read_identity",
+        "archive_writer_reject",
+    ] {
         let root = tempfile::tempdir().unwrap();
         let (paths, config, id) = fixture(root.path(), scenario);
-        let error = execute(
+        let result = execute(
             &paths,
             ThreadAdminAction::Archive {
                 thread_id: id.clone(),
             },
             config,
         )
-        .await
-        .unwrap_err();
-        assert!(error.contains("confirmed idle status"), "{error}");
+        .await;
+        let rejected = scenario == "archive_writer_reject";
+        if rejected {
+            let error = result.unwrap_err();
+            assert!(error.contains("already has an active writer"), "{error}");
+        } else {
+            assert!(result.unwrap().contains("persisted state verified"));
+        }
         assert_eq!(
             rusqlite::Connection::open(&paths.state_db)
                 .unwrap()
                 .query_row("SELECT archived FROM threads WHERE id=?", [&id], |r| r
                     .get::<_, i64>(0))
                 .unwrap(),
-            0
+            i64::from(!rejected)
         );
         let calls = fs::read_to_string(root.path().join("rpc.jsonl")).unwrap();
-        assert!(!calls.contains("thread/archive") && !calls.contains("thread/fork"));
+        assert_eq!(calls.matches("\"thread/archive\"").count(), 1);
+        for method in ["thread/resume", "thread/read", "thread/fork", "turn/start"] {
+            assert!(!calls.contains(method), "unexpected {method}: {calls}");
+        }
     }
 }
 #[test]

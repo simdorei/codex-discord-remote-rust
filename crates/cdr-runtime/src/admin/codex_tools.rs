@@ -80,7 +80,9 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     } else {
         result.unwrap_or_else(|_|json!({"contract_id":crate::codex_tools::CONTRACT_ID,"state":"UNVERIFIED","reason":"diagnostic_protocol_unverified"}))
     };
-    let mut report = json!({"schema_version":1,"scope":"diagnostic_process_only","observed_at":chrono::Utc::now().to_rfc3339(),"app_server_pid":identity.process_id,"process_identity":exact_before,"codex_home":paths.codex_home,"cwd":root,"configuration_sha256":config_before,"computer_provider":{"enabled":computer_enabled,"mode":"bundled_same_executable","executable":computer_executable},"policy":{"approvalPolicy":"never","sandbox":"read-only","ephemeral":true},"tools":tools,"process_closed":true});
+    let report = json!({"schema_version":1,"scope":"diagnostic_process_only","observed_at":chrono::Utc::now().to_rfc3339(),"app_server_pid":identity.process_id,"process_identity":exact_before,"codex_home":paths.codex_home,"cwd":root,"configuration_sha256":config_before,"computer_provider":{"enabled":computer_enabled,"mode":"bundled_same_executable","executable":computer_executable},"policy":{"approvalPolicy":"never","sandbox":"read-only","ephemeral":true},"tools":tools,"process_closed":true});
+    #[cfg(windows)]
+    let mut report = report;
     #[cfg(windows)]
     {
         report["selection"] = json!(paths.codex_selection);
