@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::{future::Future, path::PathBuf, sync::Arc, task::Poll, time::Duration};
 
 struct Fixture {
-    _temp: tempfile::TempDir,
+    temp: tempfile::TempDir,
     db: PathBuf,
     log: PathBuf,
     server: Arc<ResidentAppServer>,
@@ -77,7 +77,7 @@ impl Fixture {
         let executor =
             ActionExecutor::new(state, db.clone(), bridge, queue).with_server(server.clone());
         Self {
-            _temp: temp,
+            temp,
             db,
             log,
             server,
@@ -171,7 +171,7 @@ async fn settings_catalog_wait_cannot_revive_retired_ingress_after_restore() {
             .execute_with_ingress_context(action, context, &key),
     );
     tokio::time::timeout(Duration::from_secs(5), async {
-        while !f._temp.path().join("catalog-ready").exists() {
+        while !f.temp.path().join("catalog-ready").exists() {
             tokio::select! {
                 result=&mut old => panic!("catalog must suspend: {result:?}"),
                 ()=tokio::time::sleep(Duration::from_millis(10))=>{}
@@ -180,7 +180,7 @@ async fn settings_catalog_wait_cannot_revive_retired_ingress_after_restore() {
     })
     .await
     .unwrap();
-    let state = rusqlite::Connection::open(f._temp.path().join("state.sqlite")).unwrap();
+    let state = rusqlite::Connection::open(f.temp.path().join("state.sqlite")).unwrap();
     state
         .execute_batch("UPDATE threads SET archived=1,archived_at=50 WHERE id='thread-b'")
         .unwrap();
@@ -198,7 +198,7 @@ async fn settings_catalog_wait_cannot_revive_retired_ingress_after_restore() {
         4.0,
     )
     .unwrap();
-    std::fs::write(f._temp.path().join("catalog-release"), "release").unwrap();
+    std::fs::write(f.temp.path().join("catalog-release"), "release").unwrap();
     let result = old.await;
     assert!(result.is_err(), "old settings request unexpectedly resumed");
     assert_eq!(count(&f.calls(), "thread/resume", "thread-b"), 0);

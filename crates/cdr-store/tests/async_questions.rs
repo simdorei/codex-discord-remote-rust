@@ -1,6 +1,9 @@
 use cdr_store::{async_question as aq, delivery_receipt, queue, schema::open_initialized};
 use rusqlite::params;
 
+#[path = "support/legacy_schema.rs"]
+mod legacy_schema;
+
 #[test]
 fn legacy_question_body_encoding_stays_unchanged_and_text_only_is_explicit() {
     let old = r#"{"index":0,"source_text":"","title":"Input","options":[]}"#;

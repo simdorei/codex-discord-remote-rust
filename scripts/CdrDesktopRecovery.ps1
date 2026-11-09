@@ -1,4 +1,6 @@
 # Exact-owner desktop recovery. Never delete writer locks or terminate by image name.
+. (Join-Path $PSScriptRoot 'CdrPackagedDesktop.ps1')
+
 function Initialize-CdrWriterInspector {
     if ('CdrWriterInspector' -as [type]) { return }
     Add-Type -TypeDefinition @'
@@ -87,8 +89,8 @@ function Get-CdrDesktopRecoveryPlan([string]$CodexHome,[string]$ThreadId) {
         }
         $desktop=Get-Process -Id $entry.ParentProcessId -ErrorAction Stop
         [void]$desktop.Handle
-        $package=Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1
-        if ($null -eq $package -or $desktop.Path -ine (Join-Path $package.InstallLocation 'app\ChatGPT.exe') -or
+        $package=Get-CdrPackagedDesktopRegistration
+        if ($desktop.Path -ine $package.DesktopPath -or
             $desktop.StartTime.ToUniversalTime() -gt $writer.StartTime.ToUniversalTime()) {
             throw 'Writer belongs to another client (possibly the bot); desktop restart refused.'
         }
@@ -96,6 +98,7 @@ function Get-CdrDesktopRecoveryPlan([string]$CodexHome,[string]$ThreadId) {
             Version=1; ThreadId=$ThreadId; State='desktop_owned'; CodexHome=[IO.Path]::GetFullPath($CodexHome)
             LockPath=$lockPath; WriterIdentity=(Get-CdrRecoveryIdentity $writer)
             DesktopIdentity=(Get-CdrRecoveryIdentity $desktop); DesktopPath=$desktop.Path
+            DesktopPackageFullName=$package.DesktopPackageFullName; DesktopAppUserModelId=$package.DesktopAppUserModelId
         }
     } finally {
         $writer.Dispose()
@@ -113,13 +116,16 @@ function Assert-CdrSameDesktopOwner($Expected,$Current) {
     if ($Current.State -cne 'desktop_owned' -or $Expected.ThreadId -cne $Current.ThreadId -or
         $Expected.WriterIdentity -cne $Current.WriterIdentity -or
         $Expected.DesktopIdentity -cne $Current.DesktopIdentity -or
-        $Expected.DesktopPath -ine $Current.DesktopPath) {
+        $Expected.DesktopPath -ine $Current.DesktopPath -or
+        $Expected.DesktopPackageFullName -cne $Current.DesktopPackageFullName -or
+        $Expected.DesktopAppUserModelId -cne $Current.DesktopAppUserModelId) {
         throw 'Desktop/writer ownership changed after preparation; no replacement process was stopped.'
     }
 }
 
 function Invoke-CdrDesktopRestart($Plan,[string]$ReceiptPath) {
     Assert-CdrSameDesktopOwner $Plan (Get-CdrDesktopRecoveryPlan $Plan.CodexHome $Plan.ThreadId)
+    Assert-CdrPackagedDesktopActivationAvailable
     $desktop=Get-Process -Id ([int]($Plan.DesktopIdentity.Split('|')[0])) -ErrorAction Stop
     $owned=$null
     try {
@@ -146,7 +152,7 @@ function Invoke-CdrDesktopRestart($Plan,[string]$ReceiptPath) {
         }
         Save-CdrDesktopRecoveryReceipt $ReceiptPath @{Phase='restarting'; ThreadId=$Plan.ThreadId; WriterReleased=$true}
         $started=[DateTime]::UtcNow
-        $replacement=Start-Process -FilePath $Plan.DesktopPath -WindowStyle Hidden -PassThru
+        $replacement=Start-CdrPackagedDesktop $Plan
         try {
             $deadline=[DateTime]::UtcNow.AddSeconds(35)
             do {
@@ -163,6 +169,7 @@ function Invoke-CdrDesktopRestart($Plan,[string]$ReceiptPath) {
                 ThreadId=$Plan.ThreadId; WriterReleased=$released
                 PreviousDesktopIdentity=$Plan.DesktopIdentity
                 DesktopIdentity=(Get-CdrRecoveryIdentity $replacement)
+                DesktopPackageFullName=$Plan.DesktopPackageFullName;DesktopAppUserModelId=$Plan.DesktopAppUserModelId
                 CodexProcessIds=@($children | ForEach-Object { [int]$_.ProcessId })
                 FinishedAt=[DateTime]::UtcNow.ToString('o')
             }

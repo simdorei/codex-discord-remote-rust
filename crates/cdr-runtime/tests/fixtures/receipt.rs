@@ -16,6 +16,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }))?,
     )?;
     // A controlled stand-in for a filesystem call that never returns in the receipt worker.
-    std::thread::sleep(std::time::Duration::from_secs(60));
+    std::thread::sleep(std::time::Duration::from_mins(1));
     Err("receipt worker should have been terminated before this point".into())
 }

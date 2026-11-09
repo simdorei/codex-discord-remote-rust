@@ -20,7 +20,7 @@ impl Args {
         let command = arguments.next().ok_or("missing admin command")??;
         let allowed: &[&str] = match command.as_str() {
             "setup-discord" => &["--bot-id", "--dry-run", "--input-stdin", "--input-lines"],
-            "configure-install" => &["--codex-home", "--codex-exe"],
+            "configure-install" | "diagnose-bundled-computer" => &["--codex-home", "--codex-exe"],
             "verify-plugin-inventory" => &[
                 "--marketplace-inventory",
                 "--plugin-inventory",

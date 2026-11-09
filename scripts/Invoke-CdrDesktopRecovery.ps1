@@ -9,6 +9,7 @@ $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $RepoRoot=[IO.Path]::GetFullPath($RepoRoot)
 $engine=Join-Path $RepoRoot 'scripts\CdrDesktopRecovery.ps1'
+$packagedDesktopEngine=Join-Path $RepoRoot 'scripts\CdrPackagedDesktop.ps1'
 $force=Join-Path $RepoRoot 'scripts\CdrForceRestart.ps1'
 . $engine
 $toolsEngine=Join-Path $RepoRoot 'scripts\CdrToolsRecovery.ps1'
@@ -41,6 +42,7 @@ if ($Mode -in @('Start','StartTools')) {
     $payload=@{Version=1;Operation=$Operation;RepoRoot=$RepoRoot;Plan=$plan;ToolRecovery=$toolRecovery
         ExpiresAt=[DateTime]::UtcNow.AddMinutes(2).ToString('o')
         EngineHash=(Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash
+        PackagedDesktopHash=(Get-FileHash -LiteralPath $packagedDesktopEngine -Algorithm SHA256).Hash
         ForceHash=(Get-FileHash -LiteralPath $force -Algorithm SHA256).Hash
         ControllerHash=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash}
     if ($toolRecovery) {
@@ -78,6 +80,7 @@ try {
     if ($payload.Version -ne 1 -or $payload.RepoRoot -ine $RepoRoot -or $payload.Operation -cne $Operation -or
         [DateTime]::UtcNow -ge [DateTime]::Parse($payload.ExpiresAt).ToUniversalTime() -or
         (Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash -cne $payload.EngineHash -or
+        (Get-FileHash -LiteralPath $packagedDesktopEngine -Algorithm SHA256).Hash -cne $payload.PackagedDesktopHash -or
         (Get-FileHash -LiteralPath $force -Algorithm SHA256).Hash -cne $payload.ForceHash -or
         (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash -cne $payload.ControllerHash) {
         throw 'Recovery request expired or its controller changed.'

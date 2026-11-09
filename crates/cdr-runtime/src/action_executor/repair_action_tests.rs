@@ -30,6 +30,51 @@ fn calls(temp: &tempfile::TempDir) -> Vec<Value> {
 }
 
 #[tokio::test]
+async fn unified_repair_selects_current_tool_and_does_not_hide_browser_failure() {
+    for mode in [
+        "unified_ready",
+        "unified_both",
+        "unified_paged",
+        "unified_browser_error",
+        "unified_native_error",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = fixture(&temp, mode).await;
+        let result = fixture.executor.repair_tools(42, None).await;
+        if mode == "unified_browser_error" {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("browser access host")
+            );
+        } else if mode == "unified_native_error" {
+            assert!(result.unwrap_err().to_string().contains("native pipe"));
+        } else {
+            assert!(result.unwrap().text.contains("cua_repl"));
+        }
+        let calls = calls(&temp);
+        let tools: Vec<_> = calls
+            .iter()
+            .filter(|c| c["method"] == "mcpServer/tool/call")
+            .collect();
+        assert_eq!(tools.len(), 3);
+        for call in &tools {
+            assert_eq!(call["params"]["server"], "cua_repl");
+            assert_eq!(call["params"]["threadId"], "thread-b");
+        }
+        assert_eq!(tools[0]["params"]["tool"], "js_reset");
+        assert_eq!(
+            tools[1]["params"]["arguments"]["code"],
+            "await cua.getState();"
+        );
+        assert!(tools[2]["params"]["arguments"]["completion_summary"].is_string());
+        assert_eq!(fixture.server.generation(), 1);
+        fixture.server.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn repair_resets_only_a_target_and_probes_without_a_model_turn_or_restart() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = fixture(&temp, "ready").await;

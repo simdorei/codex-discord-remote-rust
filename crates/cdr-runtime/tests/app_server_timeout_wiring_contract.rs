@@ -37,9 +37,11 @@ fn tw_2_every_production_action_resume_uses_the_configured_timeout() {
     assert!(requests.contains("resume_thread_with_timeout(thread_id,timeout)"));
     assert!(resume.contains("letdeadline=Instant::now()+self.app_server_resume_timeout"));
     assert!(resume.contains("resume_thread_with_timeout(thread,remaining(deadline)?)"));
-    assert!(archive.contains("resume_request(thread,self.app_server_resume_timeout)"));
+    assert!(archive.contains(
+        "tokio::time::timeout(self.app_server_resume_timeout,self.archive_with_verification("
+    ));
     assert!(operators.contains("resume_request(&target.thread_id,self.app_server_resume_timeout)"));
-    assert_eq!(archive.matches("resume_request(").count(), 1);
+    assert_eq!(archive.matches("resume_request(").count(), 0);
     assert_eq!(operators.matches("resume_request(").count(), 1);
     assert!(
         bootstrap.contains(".with_app_server_resume_timeout(config.app_server_resume_timeout)")

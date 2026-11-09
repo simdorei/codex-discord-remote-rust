@@ -14,9 +14,11 @@ use cdr_pro::diagnostics::{DiagnosticCode, ProError};
 use cdr_pro::preflight::{ResidentSnapshot, expected_remote_plugin_version, verify_runtime};
 use cdr_pro::prompt::{DeviceTicket, format_local_device_prompt, rewrite_pro_prompt};
 use cdr_remote_agent::config::{RemoteMcpConfig, RemoteMcpOwnership};
+#[cfg(windows)]
+use cdr_remote_agent::status::sha256_file_hex;
 use cdr_remote_agent::status::{
     EXTERNAL_MCP_STATUS_SCHEMA_VERSION, ExternalMcpStatusRecord, RemoteAgentStatus,
-    normalize_install_root, sha256_file_hex,
+    normalize_install_root,
 };
 use chrono::Utc;
 use tokio::sync::Mutex;

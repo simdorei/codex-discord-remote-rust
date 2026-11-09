@@ -22,13 +22,40 @@ pub(super) fn run() -> Result {
                         std::thread::sleep(std::time::Duration::from_millis(5));
                     }
                 }
-                json!({"data":[{"name":"node_repl","runtimeStatus":"connected","tools":{"js":{"name":"js"},"js_reset":{"name":"js_reset"}}}],"nextCursor":null})
+                let legacy = json!({"name":"node_repl","runtimeStatus":"connected","tools":{"js":{"name":"js"},"js_reset":{"name":"js_reset"}}});
+                let unified = json!({"name":"cua_repl","runtimeStatus":"connected","tools":{"js":{"name":"js"},"js_reset":{"name":"js_reset"}}});
+                if mode == "unified_paged" && params["cursor"].is_null() {
+                    return reply(&request, &json!({"data":[legacy],"nextCursor":"second"}));
+                }
+                if mode.starts_with("unified") {
+                    let data = if mode == "unified_both" {
+                        vec![legacy, unified]
+                    } else {
+                        vec![unified]
+                    };
+                    json!({"data":data,"nextCursor":null})
+                } else {
+                    json!({"data":[legacy],"nextCursor":null})
+                }
             }
             "mcpServer/tool/call" if params["tool"] == "js_reset" => {
                 if mode == "timeout" {
                     return Ok(());
                 }
                 json!({"content":[{"type":"text","text":"js kernel reset"}]})
+            }
+            "mcpServer/tool/call" if params["arguments"]["code"] == "await cua.getState();" => {
+                let errors = match mode.as_str() {
+                    "unified_browser_error" => {
+                        vec!["Browsers: Error: The browser access host is unavailable"]
+                    }
+                    "unified_native_error" => {
+                        vec!["Native apps: Error: Computer Use native pipe is unavailable"]
+                    }
+                    _ => vec![],
+                };
+                let state = json!({"apps":[],"browsers":[],"errors":errors});
+                json!({"content":[{"type":"text","text":state.to_string()}]})
             }
             "mcpServer/tool/call"
                 if params["arguments"]["code"]
