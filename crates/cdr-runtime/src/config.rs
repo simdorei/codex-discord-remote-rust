@@ -211,7 +211,9 @@ impl RuntimeConfig {
     }
 }
 
-pub(crate) fn parse_headless_computer_use(env: &BTreeMap<String, String>) -> Result<bool, ConfigError> {
+pub(crate) fn parse_headless_computer_use(
+    env: &BTreeMap<String, String>,
+) -> Result<bool, ConfigError> {
     match env.get(HEADLESS_COMPUTER_USE_ENV).map(|value| value.trim()) {
         None | Some("") => Ok(cfg!(windows)),
         Some("0" | "false") => Ok(false),
