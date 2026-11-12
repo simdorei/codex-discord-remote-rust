@@ -237,6 +237,16 @@ try {
     $entryRoot=Join-Path $testRoot 'entry'; [void][IO.Directory]::CreateDirectory($entryRoot)
     [void][IO.Directory]::CreateDirectory((Join-Path $entryRoot 'scripts'))
     Copy-Item -LiteralPath (Join-Path $sourceRoot 'scripts/CdrForceRestart.ps1') -Destination (Join-Path $entryRoot 'scripts')
+    # This routing fixture has no real bot. A remote-agent ancestor of the test
+    # harness must not turn its synchronous watchdog assertion into a handoff.
+    # The separate OS-worker fixture below verifies real detachment.
+    $forceFixturePath=Join-Path $entryRoot 'scripts/CdrForceRestart.ps1'
+    $forceFixtureAst=[Management.Automation.Language.Parser]::ParseFile($forceFixturePath,[ref]$tokens,[ref]$errors)
+    $callerProvider=$forceFixtureAst.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-CdrCallerInsideRuntime'},$true)
+    Assert-True ($null -ne $callerProvider) 'Force fixture ancestry provider was not found'
+    $forceFixtureText=[IO.File]::ReadAllText($forceFixturePath).Replace($callerProvider.Extent.Text,
+        'function Test-CdrCallerInsideRuntime { param([string]$Identity); return $false }')
+    [IO.File]::WriteAllText($forceFixturePath,$forceFixtureText)
     foreach($file in @('CdrRuntimeIdentity.psm1','CdrBuildProvenance.psm1','CdrNativeProcess.psm1','CdrAsyncRecoveryCompatibility.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceRoot ('scripts/'+$file)) -Destination (Join-Path $entryRoot 'scripts')
     }
@@ -257,7 +267,7 @@ Write-Output 'force_entry_verified'
 exit 0
 '@
     [IO.File]::WriteAllText((Join-Path $entryRoot 'codex-discord-rust-watchdog.ps1'),$watchdogStub)
-    $result=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $entryRoot 'codex-discord-rust-restart.ps1') -Force -ExpectedBotIdentity '42|99' -DelaySeconds 999 -QuietSeconds 999
+    $result=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $entryRoot 'codex-discord-rust-restart.ps1') -Force -ForceWorker -ExpectedBotIdentity '42|99' -DelaySeconds 999 -QuietSeconds 999
     Assert-True ($LASTEXITCODE -eq 0 -and $result -contains 'force_entry_verified') 'Public force entry went through graceful path'
 
     $ScriptDir=$entryRoot; $RuntimeMode='rust'
@@ -280,16 +290,30 @@ exit 0
     $workerStub=@'
 param($RepoRoot,[switch]$Force,[switch]$ForceWorker,$ExpectedBotIdentity,$ExpectedBinaryHash,$ExpectedSourceCommit)
 $me=Get-CimInstance Win32_Process -Filter "ProcessId = $PID"
-$record=@{Force=[bool]$Force;Worker=[bool]$ForceWorker;Identity=$ExpectedBotIdentity;Hash=$ExpectedBinaryHash;Commit=$ExpectedSourceCommit;Pid=$PID;Parent=$me.ParentProcessId}
-[IO.File]::WriteAllText((Join-Path $RepoRoot 'independent-worker.json'),($record | ConvertTo-Json -Compress))
+$record=@{Force=[bool]$Force;Worker=[bool]$ForceWorker;Identity=$ExpectedBotIdentity;Hash=$ExpectedBinaryHash;Commit=$ExpectedSourceCommit;Pid=$PID;Parent=$me.ParentProcessId;StartTicks=$me.CreationDate.ToUniversalTime().Ticks}
+$receipt=Join-Path $RepoRoot 'independent-worker.json'
+[IO.File]::WriteAllText(($receipt+'.tmp'),($record | ConvertTo-Json -Compress))
+[IO.File]::Move(($receipt+'.tmp'),$receipt)
+$until=[DateTime]::UtcNow.AddSeconds(10)
+while (-not [IO.File]::Exists((Join-Path $RepoRoot 'independent-worker.release')) -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 20 }
 '@
     [IO.File]::WriteAllText((Join-Path $entryRoot 'codex-discord-rust-restart.ps1'),$workerStub)
     $worker=Start-CdrDetachedForceRestart -Root $entryRoot -Identity '42|99' -ExpectedBinaryHash ('A'*64) -ExpectedSourceCommit ('b'*40)
     Wait-File $workerReceipt
     $received=[IO.File]::ReadAllText($workerReceipt) | ConvertFrom-Json
+    # Pin this fixture's exact worker while it waits for the release marker,
+    # then wait for process exit before removing its working directory.
+    $workerProcess=[Diagnostics.Process]::GetProcessById($worker)
+    [void]$workerProcess.Handle
+    if ([math]::Abs($workerProcess.StartTime.ToUniversalTime().Ticks-[long]$received.StartTicks) -gt 10) {
+        $workerProcess.Dispose(); throw 'Independent fixture worker identity changed'
+    }
+    $children.Add($workerProcess)
     Assert-True ($received.Force -and $received.Worker -and $received.Identity -ceq '42|99') 'Independent worker lost force parameters'
     Assert-True ($received.Hash -ceq ('A'*64) -and $received.Commit -ceq ('b'*40)) 'Independent worker lost artifact pins'
     Assert-True ($received.Pid -eq $worker -and $received.Parent -ne $PID) 'Worker did not detach from requesting process'
+    [IO.File]::WriteAllText((Join-Path $entryRoot 'independent-worker.release'),'release')
+    Assert-True ($workerProcess.WaitForExit(5000)) 'Independent fixture worker did not exit'
     Write-Output 'PASS independent OS worker receives force request outside caller ancestry'
     Write-Output 'force_restart_tests_passed'
 } finally {
