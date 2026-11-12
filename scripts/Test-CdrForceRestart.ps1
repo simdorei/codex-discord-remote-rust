@@ -8,6 +8,7 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('cdr-force-test-' + [guid]::Ne
 . (Join-Path $sourceRoot 'codex-discord-rust-drain.ps1')
 . (Join-Path $sourceRoot 'scripts/CdrLaunchJournal.ps1')
 . (Join-Path $sourceRoot 'scripts/CdrForceRestart.ps1')
+$script:productionTreeStop=(Get-Item Function:\Stop-CdrOwnedTreeNow).ScriptBlock
 Import-Module (Join-Path $sourceRoot 'scripts/CdrRuntimeIdentity.psm1') -Force
 # Load the real watchdog's pure identity function without executing its entry.
 $tokens=$null; $errors=$null
@@ -79,25 +80,42 @@ try {
     Write-Output 'PASS stale identity refused; owned tree killed; unrelated process preserved'
 
     # Exercise the production transaction with offline process/launch providers.
-    $RepoRoot=Join-Path $testRoot 'transaction'; [void][IO.Directory]::CreateDirectory($RepoRoot)
+    $RepoRoot=Join-Path $testRoot 'transaction with spaces'; [void][IO.Directory]::CreateDirectory($RepoRoot)
     $BinaryPath=Join-Path $RepoRoot 'cdr-runtime.exe'; $EnvPath=Join-Path $RepoRoot '.env'
     Copy-Item -LiteralPath $RuntimeBinary -Destination $BinaryPath
     $DisablePath=Join-Path $RepoRoot '.codex_discord_bot.disabled'
     [IO.File]::WriteAllText($EnvPath,'fixture=1')
     [IO.File]::WriteAllText((Join-Path $RepoRoot '.codex_discord_rust.drain.prepare'),'waiting forever')
     [IO.File]::WriteAllText((Join-Path $RepoRoot 'queue.sqlite'),'preserved queue fixture')
-    $script:fake=[pscustomobject]@{Id=42;Path=$BinaryPath;StartTime=[datetime]'2026-09-01T00:00:00Z'}
+    function New-ProcessFixture {
+        param([int]$ProcessId,[string]$Path,[datetime]$Started)
+        $process=[pscustomobject]@{Id=$ProcessId;Path=$Path;StartTime=$Started;Handle=1;HasExited=$false}
+        $process | Add-Member ScriptMethod Kill { $this.HasExited=$true }
+        $process | Add-Member ScriptMethod WaitForExit { param($Timeout); return $this.HasExited }
+        $process | Add-Member ScriptMethod Dispose { }
+        return $process
+    }
+    $script:fake=New-ProcessFixture 42 $BinaryPath ([datetime]'2026-09-01T00:00:00Z')
     $old=Get-RustProcessIdentity $script:fake
     $script:launches=0; $script:stops=0; $script:failLaunch=$true
-    $script:probe=$null
+    $script:probe=$null; $script:bridge=$null; $script:caller=$null; $script:expectComputerChild=$false
     function Get-Process {
         param($Name,$Id,$ErrorAction)
-        if ($Name -and $script:probe -and -not $script:probe.HasExited) { return $script:probe }
-        if ($Id -and $script:fake -and $script:fake.Id -eq $Id) { return $script:fake }
+        $live=@($script:fake,$script:bridge,$script:probe,$script:caller | Where-Object { $null -ne $_ -and -not $_.HasExited })
+        if ($Name) { return @($live | Where-Object Path -eq $BinaryPath) }
+        if ($Id) { return @($live | Where-Object Id -eq $Id) }
     }
     function Get-VerifiedRuntimeProcess { return $script:fake }
     function Get-VerifiedRuntimeIdentity { return Get-RustProcessIdentity $script:fake }
-    function Stop-CdrOwnedTreeNow { param($Process,$ExpectedIdentity); $script:stops++; $script:fake=$null }
+    function Stop-CdrOwnedTreeNow {
+        param($Process,$ExpectedIdentity)
+        if ($script:expectComputerChild) {
+            Assert-True (-not $script:probe.HasExited) 'Owned computer MCP was killed before verified tree shutdown'
+            Assert-True ((Get-RustProcessIdentity $Process) -ceq $ExpectedIdentity) 'Tree shutdown lost its runtime binding'
+            $script:probe.Kill(); $script:bridge.Kill()
+        }
+        $script:stops++; $script:fake=$null
+    }
     function Clear-DeadRuntimeArtifacts { }
     function Enter-RestartDrain { throw 'FORBIDDEN_DRAIN_WAIT' }
     function Wait-RustThreadsQuietForRestart { throw 'FORBIDDEN_QUIET_WAIT' }
@@ -107,31 +125,103 @@ try {
         if ($script:failLaunch) { throw 'fixture launch unavailable' }
         $script:launches++
         Set-CdrLaunchStarting
-        $script:fake=[pscustomobject]@{Id=43;Path=$BinaryPath;StartTime=[datetime]'2026-09-02T00:00:00Z'}
+        $script:fake=New-ProcessFixture 43 $BinaryPath ([datetime]'2026-09-02T00:00:00Z')
         Set-CdrLaunchChild $script:fake
     }
-    $script:probe=[pscustomobject]@{Id=44;Path=$BinaryPath;StartTime=[datetime]'2026-09-01T01:00:00Z';Handle=1;HasExited=$false}
-    $script:probe | Add-Member ScriptMethod Kill { $this.HasExited=$true }
-    $script:probe | Add-Member ScriptMethod WaitForExit { param($Timeout); return $this.HasExited }
-    $script:probe | Add-Member ScriptMethod Dispose { }
-    $script:probeCommand='unknown second runtime'
+    $script:probe=New-ProcessFixture 44 $BinaryPath ([datetime]'2026-09-01T01:00:00Z')
+    $rootInfo=[pscustomobject]@{ProcessId=42;ParentProcessId=0;CreationDate=$script:fake.StartTime;CommandLine='cdr-runtime.exe'}
+    $probeInfo=[pscustomobject]@{ProcessId=44;ParentProcessId=0;CreationDate=$script:probe.StartTime;CommandLine='unknown second runtime'}
+    $script:inventory=@($rootInfo,$probeInfo)
     function Get-CimInstance {
         param($ClassName,$Filter,$Property)
-        [pscustomobject]@{ProcessId=44;CreationDate=$script:probe.StartTime;CommandLine=$script:probeCommand}
+        if ($Filter -match '^ProcessId\s*=\s*(\d+)$') {
+            return @($script:inventory | Where-Object ProcessId -eq ([int]$Matches[1]))
+        }
+        return $script:inventory
     }
     try { Stop-CdrRestartReadinessProbes; throw 'Unknown second runtime accepted' }
     catch { Assert-True ($_.Exception.Message -like '*not a bound restart-readiness probe*') 'Wrong probe identity refusal' }
     Assert-True (-not $script:probe.HasExited) 'Unknown second process was killed'
-    $script:probeCommand='cdr-runtime.exe --restart-readiness --env "' + $EnvPath + '"'
+    $probeInfo.CommandLine='cdr-runtime.exe --restart-readiness --env "' + $EnvPath + '"'
     Stop-CdrRestartReadinessProbes -Preview
     Assert-True (-not $script:probe.HasExited) 'Preview killed a readiness probe'
     Stop-CdrRestartReadinessProbes
     Assert-True $script:probe.HasExited 'Graceful readiness probe survived cancellation'
     Write-Output 'PASS readiness probe cancelled without confusing it with another bot'
+
+    # The bundled computer MCP is a same-executable grandchild of the bot. Use
+    # the real ancestry verifier with synthetic OS observations, not a role mock.
+    $script:bridge=New-ProcessFixture 45 (Join-Path $RepoRoot 'codex.exe') ([datetime]'2026-09-01T00:01:00Z')
+    $script:probe=New-ProcessFixture 46 $BinaryPath ([datetime]'2026-09-01T00:02:00Z')
+    $bridgeInfo=[pscustomobject]@{ProcessId=45;ParentProcessId=42;CreationDate=$script:bridge.StartTime;CommandLine='codex.exe app-server'}
+    $probeInfo=[pscustomobject]@{ProcessId=46;ParentProcessId=45;CreationDate=$script:probe.StartTime;CommandLine=('"'+$BinaryPath+'" --computer-mcp')}
+    $script:inventory=@($rootInfo,$bridgeInfo,$probeInfo)
+    $computerCommand=$probeInfo.CommandLine
+    function Assert-ComputerMcpRefused {
+        try { Stop-CdrRestartReadinessProbes; throw 'Unverified computer MCP was accepted' }
+        catch { Assert-True ($_.Exception.Message -like '*preserved.*') 'Wrong computer MCP refusal' }
+        Assert-True (-not $script:probe.HasExited -and -not $script:fake.HasExited) 'Refusal terminated a process'
+    }
+    Stop-CdrRestartReadinessProbes -Preview
+    Stop-CdrRestartReadinessProbes
+    Assert-True (-not $script:probe.HasExited) 'Owned computer MCP was cancelled as a readiness probe'
+    $probeInfo.CommandLine='"'+$BinaryPath+'" "--computer-mcp"'
+    Stop-CdrRestartReadinessProbes -Preview
+    $probeInfo.CommandLine=$computerCommand
+    $probeInfo.ParentProcessId=0
+    Assert-ComputerMcpRefused
+    $probeInfo.ParentProcessId=45
+    foreach ($command in @(
+        ($computerCommand+' --env "'+$EnvPath+'"'),
+        ('"'+$BinaryPath+'" --COMPUTER-MCP'),
+        ('"'+$BinaryPath+'" --label "--computer-mcp"'),
+        ($BinaryPath+' --computer-mcp'),
+        ('"'+(Join-Path $RepoRoot 'other-runtime.exe')+'" --computer-mcp')
+    )) {
+        $probeInfo.CommandLine=$command
+        Assert-ComputerMcpRefused
+    }
+    $probeInfo.CommandLine=$computerCommand
+    $probeInfo.CreationDate=$script:probe.StartTime.AddSeconds(-1)
+    Assert-ComputerMcpRefused
+    $probeInfo.CreationDate=$script:probe.StartTime
+    $bridgeInfo.CreationDate=$script:bridge.StartTime.AddSeconds(-1)
+    Assert-ComputerMcpRefused
+    $bridgeInfo.CreationDate=$script:bridge.StartTime
+    $script:bridge.StartTime=$script:probe.StartTime.AddSeconds(1)
+    $bridgeInfo.CreationDate=$script:bridge.StartTime
+    Assert-ComputerMcpRefused
+    $script:bridge.StartTime=[datetime]'2026-09-01T00:01:00Z'
+    $bridgeInfo.CreationDate=$script:bridge.StartTime
+    try { Stop-CdrRestartReadinessProbes -RuntimeIdentity '42|1'; throw 'Stale runtime identity was accepted' }
+    catch { Assert-True ($_.Exception.Message -like '*preserved.*') 'Wrong stale runtime refusal' }
+    Assert-True (-not $script:probe.HasExited -and -not $script:fake.HasExited) 'Stale runtime request terminated a process'
+    Stop-CdrRestartReadinessProbes -Preview
+    Write-Output 'PASS owned computer MCP preserved for tree shutdown; unrelated, spoofed and stale identities refused'
+
+    # Force -DryRun can run in the bot's tool shell; only a real force worker
+    # must be outside the tree. Exercise that distinction with the actual PID.
+    $script:caller=New-ProcessFixture $PID (Join-Path $RepoRoot 'powershell.exe') ([datetime]'2026-09-01T00:03:00Z')
+    $callerInfo=[pscustomobject]@{ProcessId=$PID;ParentProcessId=45;CreationDate=$script:caller.StartTime;CommandLine='powershell.exe -File restart.ps1 -Force -DryRun'}
+    $script:inventory=@($rootInfo,$bridgeInfo,$probeInfo,$callerInfo)
+    Assert-True (Test-CdrCallerInsideRuntime $old) 'Fixture caller was not inside the target runtime'
+    Invoke-CdrForceRestart -Preview
+    Assert-True ($script:stops -eq 0 -and $script:launches -eq 0) 'In-tree dry run changed the runtime'
+    try { & $script:productionTreeStop -Process $script:fake -ExpectedIdentity $old; throw 'In-tree shutdown was accepted' }
+    catch { Assert-True ($_.Exception.Message -like '*helper is inside the target process tree*') 'Actual tree shutdown lost its caller guard' }
+    try { Invoke-CdrForceRestart -ExpectedIdentity $old; throw 'In-tree force worker was accepted' }
+    catch { Assert-True ($_.Exception.Message -like '*Force worker must run outside*') 'Force transaction lost its caller guard' }
+    Assert-True (-not $script:fake.HasExited -and -not $script:probe.HasExited -and -not $script:caller.HasExited) 'In-tree observation or refusal killed a process'
+    $script:caller=$null
+    $script:inventory=@($rootInfo,$bridgeInfo,$probeInfo)
+    Write-Output 'PASS in-tree force preview allowed; actual shutdown and force worker remain guarded'
+
+    $script:expectComputerChild=$true
     Invoke-CdrForceRestart -Preview
     Assert-True ($script:stops -eq 0 -and $script:launches -eq 0) 'Dry run mutated runtime'
     try { Invoke-CdrForceRestart -ExpectedIdentity $old; throw 'Expected launch failure' }
     catch { Assert-True ($_.Exception.Message -eq 'fixture launch unavailable') 'Wrong launch failure' }
+    Assert-True $script:probe.HasExited 'Owned computer MCP did not reach verified tree shutdown'
     Assert-True ([IO.File]::Exists((Join-Path $RepoRoot '.codex_discord_rust.force.launch'))) 'Recovery journal lost'
     $script:failLaunch=$false
     Invoke-CdrForceRestart

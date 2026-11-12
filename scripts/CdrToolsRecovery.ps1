@@ -82,37 +82,109 @@ function Assert-CdrSameToolsHosts($Expected,$Current) {
     if ($Current.State -cne 'tools_recovery') { throw 'Invalid tool recovery plan.' }
 }
 
-function Test-CdrToolsNativeReady([string]$CodexHome) {
-    $configPath=Join-Path $CodexHome 'config.toml'
-    $needsNative=$false;$names=@()
-    if ([IO.File]::Exists($configPath)) {
-        $config=[IO.File]::ReadAllText($configPath)
-        if ($config -match '(?m)^\s*SKY_CUA_NATIVE_PIPE\s*=\s*["'']1["'']') {
-            $needsNative=$true
-            $names+=@([regex]::Matches($config,'(?m)^\s*SKY_CUA_NATIVE_PIPE_DIRECTORY\s*=.*?(codex-computer-use-[a-fA-F0-9-]+)') |
-                ForEach-Object { '\\.\pipe\'+$_.Groups[1].Value })
-        }
+function Get-CdrToolsEffectiveMcpServers([string]$CodexHome,[string]$RepoRoot,[string]$DesktopPath,[DateTime]$Deadline) {
+    # Use the CLI shipped with the verified Store desktop as a read-only config
+    # reader. It resolves TOML/project layers and enabled plugin transports. The
+    # caller then applies the bot's fixed Windows provider overrides to this list.
+    $executable=Join-Path ([IO.Path]::GetDirectoryName($DesktopPath)) 'resources\codex.exe'
+    if (-not [IO.Path]::IsPathRooted($executable) -or -not [IO.File]::Exists($executable)) {
+        throw 'The registered desktop configuration reader is unavailable.'
     }
-    $pluginRoot=Join-Path $CodexHome 'plugins\cache\openai-bundled\unified-computer-use'
-    if ([IO.Directory]::Exists($pluginRoot)) {
-        # Desktop refreshes the active manifest during startup; old cache
-        # versions can retain pipes from previous application sessions.
-        $activeManifest=Get-ChildItem -LiteralPath $pluginRoot -Directory |
-            ForEach-Object { Get-Item -LiteralPath (Join-Path $_.FullName '.mcp.json') -ErrorAction SilentlyContinue } |
-            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-        if ($null -ne $activeManifest) {
-            try { $toolEnv=([IO.File]::ReadAllText($activeManifest.FullName) | ConvertFrom-Json).mcpServers.cua_repl.env }
-            catch { return $false }
-            if ($toolEnv.SKY_CUA_NATIVE_PIPE -eq '1') {
-                $needsNative=$true
-                $names+=@([string]$toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY)
+    # MCP discovery also observes HTTP authentication state. Give the official
+    # reader time to finish while retaining the overall recovery deadline.
+    $until=[DateTime]::UtcNow.AddSeconds(15)
+    if ($Deadline -lt $until) { $until=$Deadline }
+    if ($until -le [DateTime]::UtcNow) { throw 'Native configuration observation deadline elapsed.' }
+    $pin=$null;$process=$null;$started=$false
+    try {
+        $pin=[IO.File]::Open($executable,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $info=[Diagnostics.ProcessStartInfo]::new()
+        $info.FileName=$executable
+        # Applying -c here would synthesize an incomplete node_repl server when
+        # none is registered. Resolve first, then apply that single known override.
+        $info.Arguments='mcp list --json'
+        $info.WorkingDirectory=[IO.Path]::GetFullPath($RepoRoot)
+        $info.EnvironmentVariables['CODEX_HOME']=[IO.Path]::GetFullPath($CodexHome)
+        $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+        $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+        $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
+        $info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
+        $process=[Diagnostics.Process]::new();$process.StartInfo=$info
+        $started=$process.Start()
+        if (-not $started) { throw 'Native configuration reader did not start.' }
+        $output=$process.StandardOutput.ReadToEndAsync();$errorOutput=$process.StandardError.ReadToEndAsync()
+        $remaining=[int][math]::Max(0,[math]::Floor(($until-[DateTime]::UtcNow).TotalMilliseconds))
+        if (-not $process.WaitForExit($remaining)) { throw 'Native configuration reader timed out.' }
+        $remaining=[int][math]::Max(0,[math]::Floor(($until-[DateTime]::UtcNow).TotalMilliseconds))
+        if (-not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($output,$errorOutput),$remaining)) {
+            throw 'Native configuration reader output timed out.'
+        }
+        # CLI output can contain unrelated credentials. Never print it or attach
+        # it to an exception, including nonzero exits and malformed JSON.
+        if ($process.ExitCode -ne 0) { throw 'Native configuration could not be resolved.' }
+        $json=$output.GetAwaiter().GetResult()
+        if ($json.Length -gt 1048576 -or $json -notmatch '\A\s*\[') {
+            throw 'Native configuration reader returned an invalid inventory.'
+        }
+        try { $inventory=$json | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw 'Native configuration reader returned an invalid inventory.' }
+        if ($json -match '\A\s*\[\s*\]\s*\z') { return ,@() }
+        return ,@($inventory)
+    } finally {
+        try {
+            if ($null -ne $process) {
+                try {
+                    if ($started -and -not $process.HasExited) {
+                        try {
+                            $process.Kill()
+                            if (-not $process.WaitForExit(1000)) { throw 'Reader did not exit.' }
+                        } catch {
+                            $failure=[InvalidOperationException]::new('Native configuration reader cleanup could not be confirmed.')
+                            $failure.Data['CdrNativeConfigCleanupUnconfirmed']=$true
+                            throw $failure
+                        }
+                    }
+                } finally { $process.Dispose() }
             }
+        } finally { if ($null -ne $pin) { $pin.Dispose() } }
+    }
+}
+
+function Test-CdrToolsNativeReady([string]$CodexHome,[string]$RepoRoot,[string]$DesktopPath,[DateTime]$Deadline) {
+    $names=@()
+    try { $servers=Get-CdrToolsEffectiveMcpServers $CodexHome $RepoRoot $DesktopPath $Deadline }
+    catch {
+        if ($_.Exception.Data['CdrNativeConfigCleanupUnconfirmed']) { throw }
+        return $false
+    }
+    foreach ($server in $servers) {
+        if ($server.name -isnot [string] -or [string]::IsNullOrWhiteSpace($server.name) -or $server.enabled -isnot [bool]) { return $false }
+        if (-not $server.enabled) { continue }
+        # AppServerConfig::new always forces this exact Windows registration to
+        # SKY_CUA_NATIVE_PIPE="0". No other server receives that override.
+        if ($server.name -ceq 'node_repl') { continue }
+        # configure_current replaces cdr_computer with the bundled stdio provider
+        # or disables it. Neither mode uses an old registration's native pipe.
+        if ($server.name -ceq 'cdr_computer') { continue }
+        if ($server.transport.type -isnot [string]) { return $false }
+        if ($server.transport.type -cne 'stdio') { continue }
+        $toolEnv=$server.transport.env
+        # Inherited native settings cannot be inferred from a possibly different
+        # controller environment. Require an explicit effective value instead.
+        if ('SKY_CUA_NATIVE_PIPE' -in @($server.transport.env_vars) -and
+            $null -eq $toolEnv.SKY_CUA_NATIVE_PIPE) { return $false }
+        if ($toolEnv.SKY_CUA_NATIVE_PIPE -ceq '1') {
+            if ($toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY -isnot [string] -or
+                [string]::IsNullOrWhiteSpace($toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY)) { return $false }
+            $names+=@($toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY)
         }
     }
-    if (-not $needsNative) { return $true }
-    # A backend process can appear before the desktop has refreshed the native
-    # pipe in config.toml. Do not let the replacement bot cache the dead address.
-    if ($names.Count -eq 0) { return $false }
+    # The normalized inventory includes enabled plugin-owned MCP transports.
+    # Cache presence and manifest timestamps cannot establish an active plugin.
+    if ([DateTime]::UtcNow -ge $Deadline) { return $false }
+    if ($names.Count -eq 0) { return $true }
+    # Only enabled, effectively native transports can delay bot replacement.
+    # A live unified endpoint must not hide another active provider's dead pipe.
     try { $pipes=[IO.Directory]::GetFiles('\\.\pipe\') } catch { return $false }
     return @($names | Where-Object { $_ -notin $pipes }).Count -eq 0
 }
@@ -154,7 +226,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
             $replacement.Refresh()
             if ($replacement.HasExited) { throw 'Replacement desktop exited during startup.' }
             $observed=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($replacement.Id) AND Name='codex.exe'")
-            $hostReady=$observed.Count -gt 0 -and (Test-CdrToolsNativeReady $Plan.CodexHome)
+            $hostReady=$observed.Count -gt 0 -and (Test-CdrToolsNativeReady $Plan.CodexHome $Plan.RepoRoot $Plan.DesktopPath $deadline)
             if ($hostReady) { break }
             Start-Sleep -Milliseconds 500
         } while ([DateTime]::UtcNow -lt $deadline)

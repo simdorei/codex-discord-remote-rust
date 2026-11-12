@@ -2,6 +2,7 @@ param([Parameter(Mandatory=$true)][ValidateSet('writer-plan','writer-dispatch','
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'CdrDesktopRecovery.ps1')
 . (Join-Path $PSScriptRoot 'CdrToolsRecovery.ps1')
+function Get-CdrToolsEffectiveMcpServers { return ,@() }
 
 function Assert-Fixture([bool]$Condition,[string]$Message) {
     if (-not $Condition) { throw $Message }

@@ -2,7 +2,10 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'CdrDesktopRecovery.ps1')
 . (Join-Path $PSScriptRoot 'CdrToolsRecovery.ps1')
 function Assert($Condition,$Message) { if (-not $Condition) { throw $Message } }
-# All process operations below are in-memory fakes. No process is started/stopped.
+$script:effectiveMcpReader=(Get-Item Function:\Get-CdrToolsEffectiveMcpServers).ScriptBlock
+function Get-CdrToolsEffectiveMcpServers { return ,@() }
+# Host process operations are in-memory fakes. The later reader tests start only
+# their isolated compiled fixture EXE; no installed bot or desktop is touched.
 $script:events=[Collections.Generic.List[string]]::new()
 function Fake-Process([int]$Number) {
     $p=[pscustomobject]@{Id=$Number;StartTime=[DateTime]::UtcNow;HasExited=$false;Handle=1;ExitCode=0}
@@ -78,26 +81,132 @@ Assert ($script:receipt.Phase -ceq 'failed') 'Unconfirmed bot restart was report
 Assert ($script:receipt.Error -like '*unverified*') 'Unconfirmed bot restart lost its diagnostic.'
 Assert ($script:events.Contains('start:desktop')) 'Desktop restoration was skipped after an unconfirmed bot restart.'
 Assert (-not $script:receipt.ToolProbeVerified) 'Unconfirmed host restart claimed tool-probe success.'
+# Exercise the real bounded native-reader wrapper with an isolated EXE. It emits
+# the CLI's normalized schema; it never starts an MCP server or uses real config.
+Set-Item Function:\Get-CdrToolsEffectiveMcpServers -Value $script:effectiveMcpReader
+$readerDesktop=Join-Path $testRoot 'package\app\ChatGPT.exe'
+$readerExe=Join-Path $testRoot 'package\app\resources\codex.exe'
+[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($readerExe))
+Add-Type -OutputAssembly $readerExe -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+class CdrToolsFixtureReader {
+    static int Main(string[] args) {
+        if (args.Length != 3 || args[0] != "mcp" || args[1] != "list" || args[2] != "--json") return 12;
+        string home = Environment.GetEnvironmentVariable("CODEX_HOME");
+        if (home == null || Path.GetFullPath(Environment.CurrentDirectory) != Path.GetFullPath(home)) return 13;
+        string mode = File.ReadAllText(Path.Combine(home, "reader-mode.txt"));
+        if (mode == "timeout") {
+            File.WriteAllText(Path.Combine(home, "reader-pid.txt"), Process.GetCurrentProcess().Id.ToString());
+            Thread.Sleep(30000);
+        }
+        if (mode == "failure") {
+            Console.Error.WriteLine("fixture-secret-must-not-be-logged");
+            return 14;
+        }
+        Console.Write(File.ReadAllText(Path.Combine(home, "reader-output.json")));
+        return 0;
+    }
+}
+'@
+$readerMode=Join-Path $testRoot 'reader-mode.txt'
+$readerOutput=Join-Path $testRoot 'reader-output.json'
+[IO.File]::WriteAllText($readerMode,'success')
+function Set-ReaderServers([object[]]$Servers) {
+    [IO.File]::WriteAllText($readerOutput,(ConvertTo-Json -InputObject @($Servers) -Depth 8))
+}
+function Test-FixtureNativeReady {
+    param([int]$Milliseconds=5000)
+    return Test-CdrToolsNativeReady $testRoot $testRoot $readerDesktop ([DateTime]::UtcNow.AddMilliseconds($Milliseconds))
+}
+function Native-Server([string]$Name,[bool]$Enabled,[string]$PipePath) {
+    return @{name=$Name;enabled=$Enabled;transport=@{type='stdio';env=@{
+        SKY_CUA_NATIVE_PIPE='1';SKY_CUA_NATIVE_PIPE_DIRECTORY=$PipePath};env_vars=@()}}
+}
 $pipeName='codex-computer-use-'+[guid]::NewGuid().ToString()
+$livePipePath='\\.\pipe\'+$pipeName
+$deadPipePath='\\.\pipe\codex-computer-use-'+[guid]::NewGuid().ToString()
 $pipe=$null
 $configPath=Join-Path $testRoot 'config.toml'
 try {
-    $config="[mcp_servers.node_repl.env]`nSKY_CUA_NATIVE_PIPE = '1'`nSKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\$pipeName'`n"
-    [IO.File]::WriteAllText($configPath,$config)
-    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'A dead configured pipe was reported ready.'
+    Set-ReaderServers @()
+    Assert (Test-FixtureNativeReady) 'Empty effective configuration must not create a legacy registration.'
+    # Saved TOML may still contain the old value; only the normalized active
+    # configuration and the runtime's standalone override decide readiness.
+    [IO.File]::WriteAllText($configPath,"[mcp_servers.node_repl]`nenabled = false`n[mcp_servers.node_repl.env]`nSKY_CUA_NATIVE_PIPE = '1'`nSKY_CUA_NATIVE_PIPE_DIRECTORY = '$deadPipePath'`n")
+    Set-ReaderServers @((Native-Server 'node_repl' $false $deadPipePath))
+    Assert (Test-FixtureNativeReady) 'Disabled legacy registration blocked recovery.'
+    Set-ReaderServers @((Native-Server 'node_repl' $true $deadPipePath))
+    Assert (Test-FixtureNativeReady) 'The runtime standalone override was ignored.'
+    Set-ReaderServers @((Native-Server 'cdr_computer' $true $deadPipePath))
+    Assert (Test-FixtureNativeReady) 'The bundled provider replacement retained a legacy native-pipe requirement.'
+    Set-ReaderServers @((Native-Server 'disabled_native' $false $deadPipePath))
+    Assert (Test-FixtureNativeReady) 'A disabled non-legacy server blocked recovery.'
+    Set-ReaderServers @((Native-Server 'active_native' $true $livePipePath))
+    Assert (-not (Test-FixtureNativeReady)) 'An active provider with a dead pipe was reported ready.'
     $pipe=[IO.Pipes.NamedPipeServerStream]::new($pipeName)
-    Assert (Test-CdrToolsNativeReady $testRoot) 'A live configured pipe was not observed.'
-    [IO.File]::WriteAllText($configPath,$config.Replace($pipeName,'codex-computer-use-'+[guid]::NewGuid().ToString()))
-    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'An unrelated live pipe hid a stale configured address.'
+    Assert (Test-FixtureNativeReady) 'An active provider with a live pipe was not observed.'
+    Set-ReaderServers @((Native-Server 'active_native' $true $deadPipePath))
+    Assert (-not (Test-FixtureNativeReady)) 'An unrelated live pipe hid a stale active address.'
     $pluginVersion=Join-Path $testRoot 'plugins\cache\openai-bundled\unified-computer-use\fixture'
     [void][IO.Directory]::CreateDirectory($pluginVersion)
-    $plugin=@{mcpServers=@{cua_repl=@{env=@{SKY_CUA_NATIVE_PIPE='1';SKY_CUA_NATIVE_PIPE_DIRECTORY=('\\.\pipe\'+$pipeName)}}}}
+    $plugin=@{mcpServers=@{cua_repl=@{env=@{SKY_CUA_NATIVE_PIPE='1';SKY_CUA_NATIVE_PIPE_DIRECTORY=$livePipePath}}}}
     [IO.File]::WriteAllText((Join-Path $pluginVersion '.mcp.json'),($plugin | ConvertTo-Json -Depth 5))
-    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'A live unified pipe hid a stale legacy configuration.'
-    [IO.File]::WriteAllText($configPath,'')
-    Assert (Test-CdrToolsNativeReady $testRoot) 'Unified CUA native pipe was not detected.'
+    $unified=Native-Server 'cua_repl' $true $livePipePath
+    Set-ReaderServers @((Native-Server 'active_native' $true $deadPipePath),$unified)
+    Assert (-not (Test-FixtureNativeReady)) 'A live unified pipe hid another active provider''s dead pipe.'
+    Set-ReaderServers @((Native-Server 'node_repl' $true $deadPipePath),$unified)
+    Assert (Test-FixtureNativeReady) 'A live unified pipe was blocked by overridden legacy configuration.'
+    Set-ReaderServers @((Native-Server 'node_repl' $false $deadPipePath),$unified)
+    Assert (Test-FixtureNativeReady) 'A live unified pipe was blocked by disabled legacy configuration.'
+    Set-ReaderServers @($unified)
+    Assert (Test-FixtureNativeReady) 'Unified CUA native pipe was not detected.'
     $pipe.Dispose();$pipe=$null
-    Assert (-not (Test-CdrToolsNativeReady $testRoot)) 'A dead unified CUA pipe was reported ready.'
+    Assert (-not (Test-FixtureNativeReady)) 'A dead unified CUA pipe was reported ready.'
+    # Cached files are not evidence of active installation or enablement. The
+    # CLI resolves plugin selection and returns only the effective transports.
+    $unified.enabled=$false
+    Set-ReaderServers @($unified)
+    Assert (Test-FixtureNativeReady) 'A disabled plugin with cached files blocked readiness.'
+    Set-ReaderServers @()
+    Assert (Test-FixtureNativeReady) 'An absent/uninstalled plugin with cached files blocked readiness.'
+    $unified.enabled=$true
+    Set-ReaderServers @($unified)
+    $pipe=[IO.Pipes.NamedPipeServerStream]::new($pipeName)
+    $newerVersion=Join-Path ([IO.Path]::GetDirectoryName($pluginVersion)) 'not-installed'
+    [void][IO.Directory]::CreateDirectory($newerVersion)
+    $plugin.mcpServers.cua_repl.env.SKY_CUA_NATIVE_PIPE_DIRECTORY=$deadPipePath
+    $newerManifest=Join-Path $newerVersion '.mcp.json'
+    [IO.File]::WriteAllText($newerManifest,($plugin | ConvertTo-Json -Depth 5))
+    [IO.File]::SetLastWriteTimeUtc($newerManifest,[DateTime]::UtcNow.AddMinutes(1))
+    Assert (Test-FixtureNativeReady) 'A newer unused cache manifest replaced the active live endpoint.'
+    $pipe.Dispose();$pipe=$null
+    Set-ReaderServers @((Native-Server 'active_native' $true ''))
+    Assert (-not (Test-FixtureNativeReady)) 'An active native provider without an address was reported ready.'
+    Set-ReaderServers @(@{name='active_native';enabled=$true;transport=@{type='stdio';env=@{};env_vars=@('SKY_CUA_NATIVE_PIPE')}})
+    Assert (-not (Test-FixtureNativeReady)) 'An unresolved inherited native setting was reported ready.'
+    foreach ($json in @('not json','{}','[{}]','[{"name":"bad","enabled":"false"}]','[{"name":"bad","enabled":true}]')) {
+        [IO.File]::WriteAllText($readerOutput,$json)
+        Assert (-not (Test-FixtureNativeReady)) 'Malformed effective configuration was reported ready.'
+    }
+    [IO.File]::WriteAllText($readerMode,'failure')
+    Assert (-not (Test-FixtureNativeReady)) 'A failed configuration reader was reported ready.'
+    $diagnostic=''
+    try { Get-CdrToolsEffectiveMcpServers $testRoot $testRoot $readerDesktop ([DateTime]::UtcNow.AddSeconds(5)) }
+    catch { $diagnostic=$_.Exception.Message }
+    Assert ($diagnostic -notlike '*fixture-secret*') 'Reader failure disclosed raw configuration diagnostics.'
+    [IO.File]::WriteAllText($readerMode,'timeout')
+    $elapsed=[Diagnostics.Stopwatch]::StartNew()
+    Assert (-not (Test-FixtureNativeReady -Milliseconds 1000)) 'A timed-out reader was reported ready.'
+    $elapsed.Stop()
+    Assert ($elapsed.Elapsed.TotalSeconds -lt 5) 'Configuration observation exceeded its bounded wait.'
+    $readerPid=[int][IO.File]::ReadAllText((Join-Path $testRoot 'reader-pid.txt'))
+    $stillRunning=$null
+    try { $stillRunning=[Diagnostics.Process]::GetProcessById($readerPid) } catch [ArgumentException] {}
+    try { Assert ($null -eq $stillRunning -or $stillRunning.HasExited) 'Timed-out configuration reader was left running.' }
+    finally { if ($null -ne $stillRunning) { $stillRunning.Dispose() } }
 } finally {
     if ($null -ne $pipe) { $pipe.Dispose() }
 }
