@@ -142,6 +142,7 @@ async fn external_ownership_mode_ignores_embedded_status_and_requires_verified_e
     server.close().await.unwrap();
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn external_ownership_mode_rejects_fresh_process_heartbeat_when_bridge_connection_liveness_is_stale()
  {

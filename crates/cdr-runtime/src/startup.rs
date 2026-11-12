@@ -147,7 +147,7 @@ pub fn default_env_path(executable_path: &Path) -> PathBuf {
 #[must_use]
 pub fn config_summary(config: &RuntimeConfig) -> String {
     format!(
-        "config_valid token=[REDACTED] guild={} channels={:?} users={:?} message_content={} qa_commands={}",
+        "config_valid token=[REDACTED] guild={} channels={:?} users={:?} message_content={} qa_commands={} headless_computer_use={}",
         config
             .guild_id
             .map_or_else(|| "-".into(), |id| id.to_string()),
@@ -155,12 +155,13 @@ pub fn config_summary(config: &RuntimeConfig) -> String {
         config.allowed_user_ids,
         config.enable_message_content,
         config.qa_commands,
+        config.headless_computer_use,
     )
 }
 
 #[must_use]
 pub fn help_text() -> &'static str {
-    "Codex Discord Remote Rust runtime\n\nOptions:\n  --build-info                       Print embedded build provenance (standalone; no environment or DB)\n  --no-message-content               Use slash commands only\n  --check-config                     Validate configuration without connecting\n  --backup-store                     Create and verify an online cutover DB snapshot\n  --restart-readiness                Wait for fail-closed Rust restart readiness\n  --restart-quiet-seconds N          Required idle age for restart (default: 90)\n  --restart-wait-timeout-seconds N   Maximum quiet wait (default: 900)\n  --env PATH                         Load a specific environment file\n  -h, --help                         Show this help"
+    "Codex Discord Remote Rust runtime\n\nOptions:\n  --computer-mcp                    Run explicit local computer MCP over stdio (no bot or DB)\n  --build-info                       Print embedded build provenance (standalone; no environment or DB)\n  --no-message-content               Use slash commands only\n  --check-config                     Validate configuration without connecting\n  --backup-store                     Create and verify an online cutover DB snapshot\n  --restart-readiness                Wait for fail-closed Rust restart readiness\n  --restart-quiet-seconds N          Required idle age for restart (default: 90)\n  --restart-wait-timeout-seconds N   Maximum quiet wait (default: 900)\n  --env PATH                         Load a specific environment file\n  -h, --help                         Show this help"
 }
 
 fn process_environment() -> BTreeMap<String, String> {

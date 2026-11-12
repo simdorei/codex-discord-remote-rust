@@ -145,10 +145,22 @@ async fn stop_and_archive_surface_original_owner_conflict_without_forking() {
             && message.contains("already has an active writer")));
 
     assert!(backend.forks.lock().await.is_empty());
-    assert!(
-        !rpc_log(&log)
+    let calls = rpc_log(&log);
+    // Explicit archive lets the native archive request enforce writer ownership.
+    assert_eq!(
+        calls
             .iter()
-            .any(|value| value["method"] == "thread/archive")
+            .filter(|v| v["method"] == "thread/archive")
+            .count(),
+        1
+    );
+    assert!(!calls.iter().any(|v| matches!(
+        v["method"].as_str(),
+        Some("thread/resume" | "thread/read" | "thread/fork" | "turn/start")
+    )));
+    assert_eq!(
+        bridge.selected_thread_id().unwrap().as_deref(),
+        Some("thread-a")
     );
     server.close().await.unwrap();
 }

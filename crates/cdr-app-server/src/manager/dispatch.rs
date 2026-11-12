@@ -93,11 +93,11 @@ impl ResidentAppServer {
             .is_some_and(|v| !v.is_empty());
         let allowed = matches!(method, "thread/read" | "mcpServerStatus/list")
             || (method == "mcpServer/tool/call"
-                && params["server"] == "node_repl"
+                && matches!(params["server"].as_str(), Some("node_repl" | "cua_repl"))
                 && matches!(params["tool"].as_str(), Some("js" | "js_reset")));
         if !scoped || !allowed {
             return Err(AppServerError::InvalidReply {
-                message: "tool repair requires a scoped node_repl request".into(),
+                message: "tool repair requires a scoped node_repl or cua_repl request".into(),
             });
         }
         self.request_scoped(

@@ -8,10 +8,12 @@ use std::time::Duration;
 use cdr_remote_agent::config::{RemoteMcpConfig, load_remote_mcp_config};
 use cdr_remote_agent::restart_handoff::RestartHandoffRuntime;
 use cdr_remote_agent::runner::{ManagedRemoteAgent, RemoteAgentControl};
+#[cfg(windows)]
+use cdr_remote_agent::status::normalize_install_root;
 use cdr_remote_agent::status::{
-    ExternalMcpBuildInfo, ExternalMcpStatusPublisher, RemoteAgentStatus, normalize_install_root,
-    sha256_file_hex,
+    ExternalMcpBuildInfo, ExternalMcpStatusPublisher, RemoteAgentStatus, sha256_file_hex,
 };
+#[cfg(windows)]
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 

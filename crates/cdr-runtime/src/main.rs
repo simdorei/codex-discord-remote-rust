@@ -20,6 +20,11 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<(), (u8, String)> {
     let raw_args: Vec<_> = std::env::args_os().skip(1).collect();
+    if raw_args.len() == 1 && raw_args[0] == "--computer-mcp" {
+        // A local stdio tool process must not read the bot environment, connect
+        // to Discord, open the store, or acquire the runtime instance lock.
+        return cdr_remote_agent::computer_mcp::run_stdio().map_err(|message| (1, message));
+    }
     if raw_args.len() == 1 && raw_args[0] == "--build-info" {
         println!("{}", cdr_runtime::build_info::JSON);
         return Ok(());

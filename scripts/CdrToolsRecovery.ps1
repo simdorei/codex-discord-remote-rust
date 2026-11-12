@@ -1,11 +1,11 @@
 # Full tool-host recovery reuses the existing exact-identity bot restart.
 # Read-only planning must succeed before request cancellation or process mutation.
+. (Join-Path $PSScriptRoot 'CdrPackagedDesktop.ps1')
+
 function Get-CdrToolsRecoveryPlan([string]$RepoRoot,[string]$CodexHome,[string]$ThreadId) {
     $lockPath=Get-CdrWriterLockPath $CodexHome $ThreadId
-    $package=Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1
-    if ($null -eq $package) { throw 'Installed Codex desktop package was not found.' }
-    $desktopPath=Join-Path $package.InstallLocation 'app\ChatGPT.exe'
-    if (-not [IO.File]::Exists($desktopPath)) { throw 'Installed desktop executable is missing.' }
+    $package=Get-CdrPackagedDesktopRegistration
+    $desktopPath=$package.DesktopPath
     $runtimePath=Join-Path $RepoRoot 'target\release\cdr-runtime.exe'
     $runtimeLock=[IO.File]::ReadAllText((Join-Path $RepoRoot '.codex_discord_rust.runtime.lock'))
     if ($runtimeLock -notmatch '(?m)^pid=(\d+)\r?$') { throw 'Bot process identity is missing.' }
@@ -20,16 +20,27 @@ function Get-CdrToolsRecoveryPlan([string]$RepoRoot,[string]$CodexHome,[string]$
             [math]::Abs(([DateTimeOffset]$bot.StartTime.ToUniversalTime()).ToUnixTimeSeconds()-[long]$Matches[1]) -gt 2) {
             throw 'Bot lock does not match its creation time.'
         }
+        $previousPackagePattern=$null
+        $packageLeaf=[IO.Path]::GetFileName($package.InstallLocation)
+        if ($packageLeaf -match '^(?<name>OpenAI\.Codex)_\d+\.\d+\.\d+\.\d+_(?<suffix>[^\\]+)$') {
+            $previousPackagePattern='^'+[regex]::Escape([IO.Path]::GetDirectoryName($package.InstallLocation)+'\'+$Matches['name']+'_')+
+                '\d+\.\d+\.\d+\.\d+_'+[regex]::Escape($Matches['suffix']+'\app\ChatGPT.exe')+'$'
+        }
+        # Store updates can replace the registered package while its old process
+        # is still alive. Track that exact process, but relaunch the registered one.
         $entries=@(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe'" |
-            Where-Object { $_.ExecutablePath -ieq $desktopPath })
+            Where-Object { $_.ExecutablePath -ieq $desktopPath -or
+                ($previousPackagePattern -and $_.ExecutablePath -match $previousPackagePattern) })
         $ids=@($entries | ForEach-Object { $_.ProcessId })
         $roots=@($entries | Where-Object { $_.ParentProcessId -notin $ids })
         if ($roots.Count -gt 1) { throw 'Multiple desktop roots found; recovery refused.' }
         $desktopIdentity='stopped'
+        $runningDesktopPath=$null
         if ($roots.Count -eq 1) {
             $desktop=Get-Process -Id ([int]$roots[0].ProcessId) -ErrorAction Stop
             [void]$desktop.Handle
-            if ($desktop.Path -ine $desktopPath -or
+            $runningDesktopPath=$roots[0].ExecutablePath
+            if ($desktop.Path -ine $runningDesktopPath -or
                 [math]::Abs(($desktop.StartTime.ToUniversalTime()-$roots[0].CreationDate.ToUniversalTime()).Ticks) -gt 10) {
                 throw 'Desktop process identity changed.'
             }
@@ -58,20 +69,130 @@ function Get-CdrToolsRecoveryPlan([string]$RepoRoot,[string]$CodexHome,[string]$
         }
         return [pscustomobject]@{Version=1;State='tools_recovery';ThreadId=$ThreadId;RepoRoot=$RepoRoot
             CodexHome=[IO.Path]::GetFullPath($CodexHome);LockPath=$lockPath
-            DesktopIdentity=$desktopIdentity;DesktopPath=$desktopPath;BotIdentity=$botIdentity
+            DesktopIdentity=$desktopIdentity;DesktopPath=$desktopPath;RunningDesktopPath=$runningDesktopPath;BotIdentity=$botIdentity
+            DesktopPackageFullName=$package.DesktopPackageFullName;DesktopAppUserModelId=$package.DesktopAppUserModelId
             WriterIdentity=$writerIdentity;RecoveryIdentity=($desktopIdentity+';'+$botIdentity+';'+$writerIdentity)}
     } finally { $bot.Dispose(); if ($null -ne $desktop) { $desktop.Dispose() } }
 }
 
 function Assert-CdrSameToolsHosts($Expected,$Current) {
-    foreach ($field in @('ThreadId','RecoveryIdentity','DesktopIdentity','BotIdentity','WriterIdentity','DesktopPath','RepoRoot','CodexHome')) {
+    foreach ($field in @('ThreadId','RecoveryIdentity','DesktopIdentity','BotIdentity','WriterIdentity','DesktopPath','RunningDesktopPath','DesktopPackageFullName','DesktopAppUserModelId','RepoRoot','CodexHome')) {
         if ($Expected.$field -cne $Current.$field) { throw "Recovery host identity changed: $field" }
     }
     if ($Current.State -cne 'tools_recovery') { throw 'Invalid tool recovery plan.' }
 }
 
+function Get-CdrToolsEffectiveMcpServers([string]$CodexHome,[string]$RepoRoot,[string]$DesktopPath,[DateTime]$Deadline) {
+    # Use the CLI shipped with the verified Store desktop as a read-only config
+    # reader. It resolves TOML/project layers and enabled plugin transports. The
+    # caller then applies the bot's fixed Windows provider overrides to this list.
+    $executable=Join-Path ([IO.Path]::GetDirectoryName($DesktopPath)) 'resources\codex.exe'
+    if (-not [IO.Path]::IsPathRooted($executable) -or -not [IO.File]::Exists($executable)) {
+        throw 'The registered desktop configuration reader is unavailable.'
+    }
+    # MCP discovery also observes HTTP authentication state. Give the official
+    # reader time to finish while retaining the overall recovery deadline.
+    $until=[DateTime]::UtcNow.AddSeconds(15)
+    if ($Deadline -lt $until) { $until=$Deadline }
+    if ($until -le [DateTime]::UtcNow) { throw 'Native configuration observation deadline elapsed.' }
+    $pin=$null;$process=$null;$started=$false
+    try {
+        $pin=[IO.File]::Open($executable,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $info=[Diagnostics.ProcessStartInfo]::new()
+        $info.FileName=$executable
+        # Applying -c here would synthesize an incomplete node_repl server when
+        # none is registered. Resolve first, then apply that single known override.
+        $info.Arguments='mcp list --json'
+        $info.WorkingDirectory=[IO.Path]::GetFullPath($RepoRoot)
+        $info.EnvironmentVariables['CODEX_HOME']=[IO.Path]::GetFullPath($CodexHome)
+        $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+        $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+        $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
+        $info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
+        $process=[Diagnostics.Process]::new();$process.StartInfo=$info
+        $started=$process.Start()
+        if (-not $started) { throw 'Native configuration reader did not start.' }
+        $output=$process.StandardOutput.ReadToEndAsync();$errorOutput=$process.StandardError.ReadToEndAsync()
+        $remaining=[int][math]::Max(0,[math]::Floor(($until-[DateTime]::UtcNow).TotalMilliseconds))
+        if (-not $process.WaitForExit($remaining)) { throw 'Native configuration reader timed out.' }
+        $remaining=[int][math]::Max(0,[math]::Floor(($until-[DateTime]::UtcNow).TotalMilliseconds))
+        if (-not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($output,$errorOutput),$remaining)) {
+            throw 'Native configuration reader output timed out.'
+        }
+        # CLI output can contain unrelated credentials. Never print it or attach
+        # it to an exception, including nonzero exits and malformed JSON.
+        if ($process.ExitCode -ne 0) { throw 'Native configuration could not be resolved.' }
+        $json=$output.GetAwaiter().GetResult()
+        if ($json.Length -gt 1048576 -or $json -notmatch '\A\s*\[') {
+            throw 'Native configuration reader returned an invalid inventory.'
+        }
+        try { $inventory=$json | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw 'Native configuration reader returned an invalid inventory.' }
+        if ($json -match '\A\s*\[\s*\]\s*\z') { return ,@() }
+        return ,@($inventory)
+    } finally {
+        try {
+            if ($null -ne $process) {
+                try {
+                    if ($started -and -not $process.HasExited) {
+                        try {
+                            $process.Kill()
+                            if (-not $process.WaitForExit(1000)) { throw 'Reader did not exit.' }
+                        } catch {
+                            $failure=[InvalidOperationException]::new('Native configuration reader cleanup could not be confirmed.')
+                            $failure.Data['CdrNativeConfigCleanupUnconfirmed']=$true
+                            throw $failure
+                        }
+                    }
+                } finally { $process.Dispose() }
+            }
+        } finally { if ($null -ne $pin) { $pin.Dispose() } }
+    }
+}
+
+function Test-CdrToolsNativeReady([string]$CodexHome,[string]$RepoRoot,[string]$DesktopPath,[DateTime]$Deadline) {
+    $names=@()
+    try { $servers=Get-CdrToolsEffectiveMcpServers $CodexHome $RepoRoot $DesktopPath $Deadline }
+    catch {
+        if ($_.Exception.Data['CdrNativeConfigCleanupUnconfirmed']) { throw }
+        return $false
+    }
+    foreach ($server in $servers) {
+        if ($server.name -isnot [string] -or [string]::IsNullOrWhiteSpace($server.name) -or $server.enabled -isnot [bool]) { return $false }
+        if (-not $server.enabled) { continue }
+        # AppServerConfig::new always forces this exact Windows registration to
+        # SKY_CUA_NATIVE_PIPE="0". No other server receives that override.
+        if ($server.name -ceq 'node_repl') { continue }
+        # configure_current replaces cdr_computer with the bundled stdio provider
+        # or disables it. Neither mode uses an old registration's native pipe.
+        if ($server.name -ceq 'cdr_computer') { continue }
+        if ($server.transport.type -isnot [string]) { return $false }
+        if ($server.transport.type -cne 'stdio') { continue }
+        $toolEnv=$server.transport.env
+        # Inherited native settings cannot be inferred from a possibly different
+        # controller environment. Require an explicit effective value instead.
+        if ('SKY_CUA_NATIVE_PIPE' -in @($server.transport.env_vars) -and
+            $null -eq $toolEnv.SKY_CUA_NATIVE_PIPE) { return $false }
+        if ($toolEnv.SKY_CUA_NATIVE_PIPE -ceq '1') {
+            if ($toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY -isnot [string] -or
+                [string]::IsNullOrWhiteSpace($toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY)) { return $false }
+            $names+=@($toolEnv.SKY_CUA_NATIVE_PIPE_DIRECTORY)
+        }
+    }
+    # The normalized inventory includes enabled plugin-owned MCP transports.
+    # Cache presence and manifest timestamps cannot establish an active plugin.
+    if ([DateTime]::UtcNow -ge $Deadline) { return $false }
+    if ($names.Count -eq 0) { return $true }
+    # Only enabled, effectively native transports can delay bot replacement.
+    # A live unified endpoint must not hide another active provider's dead pipe.
+    try { $pipes=[IO.Directory]::GetFiles('\\.\pipe\') } catch { return $false }
+    return @($names | Where-Object { $_ -notin $pipes }).Count -eq 0
+}
+
 function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
     Assert-CdrSameToolsHosts $Plan (Get-CdrToolsRecoveryPlan $Plan.RepoRoot $Plan.CodexHome $Plan.ThreadId)
+    # Check activation support before stopping a working desktop.
+    Assert-CdrPackagedDesktopActivationAvailable
     $desktop=$null; $owned=$null; $replacement=$null; $botWorker=$null; $stopped=$false
     $botResult=$null; $botError=''
     try {
@@ -95,6 +216,21 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
             foreach ($p in $owned) { if (-not $p.WaitForExit(5000)) { throw 'Desktop descendant did not exit.' } }
         }
         $stopped=$true
+        # Start the tool host first, detached from the bot's lifetime. The bot
+        # must read configuration only after the new native pipe is available.
+        Save-CdrDesktopRecoveryReceipt $ReceiptPath @{Phase='restarting_desktop';ThreadId=$Plan.ThreadId}
+        $replacement=Start-CdrPackagedDesktop $Plan
+        # First startup after a Store update may provision a new CUA runtime.
+        $deadline=[DateTime]::UtcNow.AddSeconds(120);$observed=@();$hostReady=$false
+        do {
+            $replacement.Refresh()
+            if ($replacement.HasExited) { throw 'Replacement desktop exited during startup.' }
+            $observed=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($replacement.Id) AND Name='codex.exe'")
+            $hostReady=$observed.Count -gt 0 -and (Test-CdrToolsNativeReady $Plan.CodexHome $Plan.RepoRoot $Plan.DesktopPath $deadline)
+            if ($hostReady) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $hostReady) { throw 'Desktop started, but its backend/native tool pipe is not ready; bot was not restarted.' }
         try {
             Save-CdrDesktopRecoveryReceipt $ReceiptPath @{Phase='restarting_bot';ThreadId=$Plan.ThreadId;Scope='desktop_and_bot_tools'}
             $shell=Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
@@ -120,18 +256,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
                 $replacementTicks -gt [DateTime]::MaxValue.Ticks -or
                 $replacementIdentity -ceq $Plan.BotIdentity) { throw 'Bot restart receipt does not match this recovery.' }
         } catch { $botError=$_.Exception.Message }
-        # Restore the desktop even if the independently recorded bot restart failed.
-        Save-CdrDesktopRecoveryReceipt $ReceiptPath @{Phase='restarting_desktop';ThreadId=$Plan.ThreadId;BotError=$botError}
-        $replacement=Start-Process -FilePath $Plan.DesktopPath -WindowStyle Hidden -PassThru
-        $deadline=[DateTime]::UtcNow.AddSeconds(35);$observed=@()
-        do {
-            $replacement.Refresh()
-            if ($replacement.HasExited) { throw 'Replacement desktop exited during startup.' }
-            $observed=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($replacement.Id) AND Name='codex.exe'")
-            if ($observed.Count -gt 0) { break }
-            Start-Sleep -Milliseconds 500
-        } while ([DateTime]::UtcNow -lt $deadline)
-        if ($observed.Count -eq 0) { throw 'Desktop started, but a replacement Codex backend was not observed.' }
+        # The independent desktop remains available even if bot restart fails.
         $released=@(Get-CdrWriterOwners $Plan.LockPath).Count -eq 0
         # A replacement bot may legitimately acquire the thread again. Full
         # recovery proves host replacement, not permanent absence of a writer.
@@ -139,6 +264,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
         Save-CdrDesktopRecoveryReceipt $ReceiptPath @{
             Phase=$phase;ThreadId=$Plan.ThreadId;Scope='desktop_and_bot_tools';WriterReleased=$released
             PreviousDesktopIdentity=$Plan.DesktopIdentity;DesktopIdentity=(Get-CdrRecoveryIdentity $replacement)
+            DesktopPackageFullName=$Plan.DesktopPackageFullName;DesktopAppUserModelId=$Plan.DesktopAppUserModelId
             PreviousBotIdentity=$Plan.BotIdentity;BotIdentity=$botResult.ReplacementIdentity
             BackendObserved=$true;ToolProbeVerified=$false;Error=$botError;FinishedAt=[DateTime]::UtcNow.ToString('o')}
     } finally {

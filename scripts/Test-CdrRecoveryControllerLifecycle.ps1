@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][ValidateSet('duplicate','unconfirmed','expired','request-change','program-change','gate-busy','dispatch-failure','receipt-prewrite','receipt-partial')][string]$Case)
+param([Parameter(Mandatory=$true)][ValidateSet('duplicate','unconfirmed','expired','request-change','program-change','package-helper-change','gate-busy','dispatch-failure','receipt-prewrite','receipt-partial')][string]$Case)
 $ErrorActionPreference='Stop'
 function Assert($Condition,[string]$Message) { if (-not $Condition) { throw $Message } }
 $controller=Join-Path $PSScriptRoot 'Invoke-CdrDesktopRecovery.ps1'
@@ -11,6 +11,8 @@ $gate=$null;$receiptGate=$null
 try {
     [void][IO.Directory]::CreateDirectory((Join-Path $fixtureRoot 'scripts'))
     $engine=Join-Path $fixtureRoot 'scripts\CdrDesktopRecovery.ps1'
+    $packagedEngine=Join-Path $fixtureRoot 'scripts\CdrPackagedDesktop.ps1'
+    [IO.File]::WriteAllText($packagedEngine,'# Isolated inert activation dependency.')
     [IO.File]::WriteAllText($engine,(". '"+$library.Replace("'","''")+"'"+[Environment]::NewLine+'function Start-Sleep { param([int]$Seconds,[int]$Milliseconds) }'),[Text.UTF8Encoding]::new($false))
     $force=Join-Path $fixtureRoot 'scripts\CdrForceRestart.ps1'
     [IO.File]::WriteAllText($force,'# Isolated mock force library; never starts a host.')
@@ -49,6 +51,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
         Version=1;Operation=$operation;RepoRoot=$fixtureRoot;ToolRecovery=$true;ExpiresAt=$expiry.ToString('o')
         Plan=@{RepoRoot=$fixtureRoot;ThreadId='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';Operation=$operation;Case=$Case}
         EngineHash=(Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash
+        PackagedDesktopHash=(Get-FileHash -LiteralPath $packagedEngine -Algorithm SHA256).Hash
         ForceHash=(Get-FileHash -LiteralPath $force -Algorithm SHA256).Hash
         ControllerHash=(Get-FileHash -LiteralPath $controller -Algorithm SHA256).Hash
         ProgramPins=@($relativePins | ForEach-Object { @{Path=$_;Hash=(Get-FileHash -LiteralPath (Join-Path $fixtureRoot $_) -Algorithm SHA256).Hash} })
@@ -62,6 +65,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
     }
     if ($Case -ceq 'request-change') { [IO.File]::AppendAllText($request,([Environment]::NewLine+' ')) }
     if ($Case -ceq 'program-change') { [IO.File]::AppendAllText($tools,([Environment]::NewLine+'# changed after pin')) }
+    if ($Case -ceq 'package-helper-change') { [IO.File]::AppendAllText($packagedEngine,([Environment]::NewLine+'# changed after pin')) }
     if ($Case -ceq 'gate-busy') { $gate=[IO.File]::Open((Join-Path $base 'desktop.lock'),'OpenOrCreate','ReadWrite','None') }
     if ($Case -ceq 'receipt-prewrite') { $receiptGate=[IO.File]::Open($receipt,'Open','Read',[IO.FileShare]::Read) }
     $before=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash
@@ -80,7 +84,7 @@ function Invoke-CdrToolsRestart($Plan,[string]$ReceiptPath) {
     $expectedDispatch=if($Case -in @('duplicate','dispatch-failure','receipt-partial')){1}else{0}
     Assert ($dispatchCount -eq $expectedDispatch) 'Unexpected host-dispatch count.'
     $result=[IO.File]::ReadAllText($receipt) | ConvertFrom-Json
-    if ($Case -in @('expired','request-change','program-change','unconfirmed')) {
+    if ($Case -in @('expired','request-change','program-change','package-helper-change','unconfirmed')) {
         Assert ((Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash -ceq $before) 'Pre-claim rejection rewrote existing evidence.'
         Assert ([IO.File]::Exists($attempted) -eq ($Case -ceq 'unconfirmed')) 'Unexpected operation claim.'
     } else {

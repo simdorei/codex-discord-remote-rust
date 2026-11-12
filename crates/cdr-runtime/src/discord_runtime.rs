@@ -86,6 +86,7 @@ pub async fn run(
         drain_controller.runtime_id(),
         config.startup_channel_id,
         startup_deadline,
+        config.headless_computer_use,
     )
     .await?;
     resume_recovery::recover(&server, &paths.mirror_db, drain_controller.runtime_id()).await;
@@ -329,10 +330,12 @@ async fn start_app_server(
     runtime_id: &str,
     startup_channel_id: Option<u64>,
     startup_deadline: std::time::Instant,
+    local_computer_enabled: bool,
 ) -> Result<Arc<ResidentAppServer>, AppServerError> {
-    let config = paths
+    let mut config = paths
         .app_server_config(startup_deadline)
         .map_err(|e| AppServerError::StartupHeld(e.to_string()))?;
+    crate::local_computer::configure_current(&mut config, local_computer_enabled)?;
     let fence = Arc::new(RuntimeDeadGenerationFence::new(
         paths.mirror_db.clone(),
         runtime_id.to_owned(),

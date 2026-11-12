@@ -116,7 +116,7 @@ function Enter-CdrForceControl {
 }
 
 function Get-CdrOwnedProcessHandles {
-    param($RootProcess)
+    param($RootProcess, [switch]$ForObservation)
     # Snapshot ancestry while the verified root is alive; pin each discovered PID
     # and reject entries whose creation time no longer matches the snapshot.
     [void]$RootProcess.Handle
@@ -126,7 +126,9 @@ function Get-CdrOwnedProcessHandles {
     for ($i = 0; $i -lt $owned.Count; $i++) {
         $parent = $owned[$i]
         foreach ($entry in $inventory | Where-Object { $_.ParentProcessId -eq $parent.Id }) {
-            if ($entry.ProcessId -eq $PID) { throw 'Force restart helper is inside the target process tree.' }
+            # A dry-run caller may inspect its own ancestry. Shutdown callers
+            # retain the default guard and can never terminate their own tree.
+            if ($entry.ProcessId -eq $PID -and -not $ForObservation) { throw 'Force restart helper is inside the target process tree.' }
             $child = Get-Process -Id ([int]$entry.ProcessId) -ErrorAction SilentlyContinue
             if ($null -eq $child) { continue }
             try {
@@ -184,20 +186,60 @@ function Move-CdrForceArtifacts {
     }
 }
 
+function Test-CdrOwnedComputerMcp {
+    param($Process, [string]$CommandLine, [string]$RuntimeIdentity)
+    # The bundled provider uses the same executable as the bot, but its only
+    # argument is --computer-mcp. An argument substring does not establish role.
+    $escapedPath = [regex]::Escape($BinaryPath)
+    $executable = '"(?i:' + $escapedPath + ')"'
+    if ($BinaryPath -notmatch '\s') { $executable = '(?:' + $executable + '|(?i:' + $escapedPath + '))' }
+    if ($RuntimeIdentity -notmatch '^\d+\|\d+$' -or $Process.Path -ine $BinaryPath -or
+        $CommandLine -cnotmatch ('\A' + $executable + '[ \t]+(?:--computer-mcp|"--computer-mcp")[ \t]*\z')) {
+        return $false
+    }
+    $runtime = Get-VerifiedRuntimeProcess
+    $owned = $null
+    try {
+        if ($null -eq $runtime) { return $false }
+        [void]$runtime.Handle
+        if ($runtime.HasExited -or $runtime.Path -ine $BinaryPath -or
+            (Get-RustProcessIdentity $runtime) -cne $RuntimeIdentity) { return $false }
+        # Reuse the shutdown's pinned ancestry walk: every parent/child creation
+        # time must match the snapshot, including an intermediate app-server.
+        $owned = Get-CdrOwnedProcessHandles -RootProcess $runtime -ForObservation
+        $identity = Get-RustProcessIdentity $Process
+        $matching = @($owned | Where-Object {
+            $_.Id -eq $Process.Id -and (Get-RustProcessIdentity $_) -ceq $identity
+        })
+        return ($matching.Count -eq 1 -and -not $Process.HasExited -and -not $runtime.HasExited -and
+            (Get-VerifiedRuntimeIdentity) -ceq $RuntimeIdentity)
+    } finally {
+        if ($null -ne $owned) { foreach ($item in $owned) { $item.Dispose() } }
+        elseif ($null -ne $runtime) { $runtime.Dispose() }
+    }
+}
+
 function Stop-CdrRestartReadinessProbes {
-    param([switch]$Preview)
+    param([switch]$Preview, [string]$RuntimeIdentity = (Get-VerifiedRuntimeIdentity))
     # Graceful preflight is a second cdr-runtime.exe with its own read-only
     # app-server. It must not be mistaken for a second bot or left waiting 900s.
     $others = @(Get-Process -Name 'cdr-runtime' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -ieq $BinaryPath -and (Get-RustProcessIdentity $_) -cne (Get-VerifiedRuntimeIdentity) })
+        Where-Object { $_.Path -ieq $BinaryPath -and (Get-RustProcessIdentity $_) -cne $RuntimeIdentity })
     foreach ($probe in $others) {
         try {
             [void]$probe.Handle
             $info = Get-CimInstance Win32_Process -Filter "ProcessId = $($probe.Id)" `
                 -Property ProcessId,CreationDate,CommandLine
-            if ($null -eq $info -or
-                [math]::Abs(($probe.StartTime.ToUniversalTime() - $info.CreationDate.ToUniversalTime()).Ticks) -gt 10 -or
-                $info.CommandLine -notmatch '(?:^|\s)--restart-readiness(?:\s|$)' -or
+            if ($null -eq $info -or $info.ProcessId -ne $probe.Id -or
+                [math]::Abs(($probe.StartTime.ToUniversalTime() - $info.CreationDate.ToUniversalTime()).Ticks) -gt 10) {
+                throw 'Another runtime process identity changed; preserved.'
+            }
+            if (Test-CdrOwnedComputerMcp -Process $probe -CommandLine $info.CommandLine -RuntimeIdentity $RuntimeIdentity) {
+                # The verified tree shutdown owns this child. Do not terminate
+                # it here or exempt an unrelated provider with the same flags.
+                continue
+            }
+            if ($info.CommandLine -notmatch '(?:^|\s)--restart-readiness(?:\s|$)' -or
                 $info.CommandLine -notmatch ('(?i)(?:^|\s)--env\s+"?' + [regex]::Escape($EnvPath) + '"?(?:\s|$)')) {
                 throw 'Another runtime is not a bound restart-readiness probe; preserved.'
             }
@@ -222,11 +264,12 @@ function Invoke-CdrForceRestart {
     if (-not $Preview -and (Test-CdrCallerInsideRuntime $identity)) {
         throw 'Force worker must run outside the target runtime tree; use codex-discord-rust-restart.ps1 -Force.'
     }
-    # Any extra same-binary process must be a verified read-only readiness probe.
+    # Extra same-binary processes must be bound readiness probes or exact
+    # computer MCP descendants of this verified runtime.
     # Missing/replaced lock therefore cannot silently permit a second bot.
     $artifact=Get-CdrRuntimeArtifact $BinaryPath $ExpectedBinaryHash $ExpectedSourceCommit
     if ($Preview) {
-        Stop-CdrRestartReadinessProbes -Preview
+        Stop-CdrRestartReadinessProbes -Preview -RuntimeIdentity $identity
         Write-Output "would_force_restart identity=$identity wait_for_active_work=false"
         return
     }
@@ -256,7 +299,7 @@ function Invoke-CdrForceRestart {
     if (-not $record.ArtifactHash) { throw 'Legacy force journal has no pinned artifact; explicit recovery required.' }
     $artifactPin=Get-CdrRuntimeArtifactPin $BinaryPath $record.ArtifactHash
     try {
-    Stop-CdrRestartReadinessProbes
+    Stop-CdrRestartReadinessProbes -RuntimeIdentity $identity
     if ($record.Phase -eq 'stopping') {
         if ($null -ne $process) {
             if ($identity -cne $record.TargetIdentity) { throw 'Another runtime replaced the force target; preserved.' }

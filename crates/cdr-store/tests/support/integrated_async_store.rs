@@ -1,5 +1,3 @@
-#[path = "legacy_schema.rs"]
-mod legacy_schema;
 use super::*;
 use cdr_store::reserve_policy as reserve;
 
