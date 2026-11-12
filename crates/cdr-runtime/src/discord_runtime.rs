@@ -62,7 +62,6 @@ pub async fn run(
     config: RuntimeConfig,
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), DiscordRuntimeError> {
-    let local_computer_enabled = crate::local_computer::enabled(environment)?;
     let root = std::env::current_dir().map_err(DiscordRuntimeError::CurrentDirectory)?;
     let startup_deadline = std::time::Instant::now() + cdr_app_server::APP_SERVER_STARTUP_TIMEOUT;
     let paths = RuntimePaths::discover(
@@ -87,7 +86,7 @@ pub async fn run(
         drain_controller.runtime_id(),
         config.startup_channel_id,
         startup_deadline,
-        local_computer_enabled,
+        config.headless_computer_use,
     )
     .await?;
     resume_recovery::recover(&server, &paths.mirror_db, drain_controller.runtime_id()).await;

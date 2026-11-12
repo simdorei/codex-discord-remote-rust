@@ -6,20 +6,11 @@ use std::path::Path;
 
 use cdr_app_server::{AppServerConfig, AppServerError};
 
-pub const ENABLED_ENV: &str = "DISCORD_HEADLESS_COMPUTER_USE";
+pub use crate::config::HEADLESS_COMPUTER_USE_ENV as ENABLED_ENV;
 
 pub fn enabled(environment: &BTreeMap<String, String>) -> Result<bool, AppServerError> {
-    match environment.get(ENABLED_ENV).map(|value| value.trim()) {
-        None | Some("") => Ok(cfg!(windows)),
-        Some("0" | "false") => Ok(false),
-        Some("1" | "true") if cfg!(windows) => Ok(true),
-        Some("1" | "true") => Err(AppServerError::StartupHeld(
-            "DISCORD_HEADLESS_COMPUTER_USE requires Windows".into(),
-        )),
-        Some(_) => Err(AppServerError::StartupHeld(
-            "DISCORD_HEADLESS_COMPUTER_USE must be 0, 1, false, or true".into(),
-        )),
-    }
+    crate::config::parse_headless_computer_use(environment)
+        .map_err(|error| AppServerError::StartupHeld(error.to_string()))
 }
 
 /// Apply the built-in provider to the app-server owned by this Rust runtime.

@@ -11,6 +11,7 @@ const FALSE_VALUES: [&str; 4] = ["0", "false", "no", "off"];
 const APP_SERVER_TIMEOUT_DEFAULT_SECONDS: u64 = 60;
 const APP_SERVER_TIMEOUT_MINIMUM_SECONDS: u64 = 10;
 const APP_SERVER_TIMEOUT_MAXIMUM_SECONDS: u64 = 300;
+pub const HEADLESS_COMPUTER_USE_ENV: &str = "DISCORD_HEADLESS_COMPUTER_USE";
 
 #[derive(Clone, Default, Eq, PartialEq)]
 pub struct SecretString(String);
@@ -95,6 +96,7 @@ pub struct RuntimeConfig {
     pub enable_message_content: bool,
     pub qa_commands: bool,
     pub host_commands: bool,
+    pub headless_computer_use: bool,
     pub local_tool_approval_policy: LocalToolApprovalPolicy,
     pub stream_commentary: bool,
     pub startup_notify: bool,
@@ -113,6 +115,10 @@ pub enum ConfigError {
     InvalidApprovalPolicy,
     #[error("DISCORD_LOCAL_TOOL_APPROVAL_POLICY must be ask or allow")]
     InvalidLocalToolApprovalPolicy,
+    #[error("DISCORD_HEADLESS_COMPUTER_USE must be 0, 1, false, or true")]
+    InvalidHeadlessComputerUse,
+    #[error("DISCORD_HEADLESS_COMPUTER_USE requires Windows")]
+    HeadlessComputerUseRequiresWindows,
     #[error("missing required environment variable: {0}")]
     MissingRequired(&'static str),
     #[error("set DISCORD_ALLOWED_CHANNEL_IDS or DISCORD_ALLOW_ALL_CHANNELS=1")]
@@ -161,6 +167,7 @@ impl RuntimeConfig {
             enable_message_content: env_message_content && !cli.no_message_content,
             qa_commands: flag(env, "DISCORD_ENABLE_QA_COMMANDS", false),
             host_commands: flag(env, "DISCORD_ENABLE_HOST_COMMANDS", false),
+            headless_computer_use: parse_headless_computer_use(env)?,
             local_tool_approval_policy: LocalToolApprovalPolicy::from_env(env)?,
             stream_commentary: flag(env, "DISCORD_STREAM_COMMENTARY", true),
             startup_notify: flag(env, "DISCORD_STARTUP_NOTIFY", false),
@@ -201,6 +208,16 @@ impl RuntimeConfig {
                 APP_SERVER_TIMEOUT_MAXIMUM_SECONDS,
             )?,
         })
+    }
+}
+
+pub(crate) fn parse_headless_computer_use(env: &BTreeMap<String, String>) -> Result<bool, ConfigError> {
+    match env.get(HEADLESS_COMPUTER_USE_ENV).map(|value| value.trim()) {
+        None | Some("") => Ok(cfg!(windows)),
+        Some("0" | "false") => Ok(false),
+        Some("1" | "true") if cfg!(windows) => Ok(true),
+        Some("1" | "true") => Err(ConfigError::HeadlessComputerUseRequiresWindows),
+        Some(_) => Err(ConfigError::InvalidHeadlessComputerUse),
     }
 }
 

@@ -1,5 +1,104 @@
+use std::fmt::Write as _;
 use std::fs;
-use std::process::Command;
+use std::process::{Command, Output};
+
+fn headless_computer_startup(raw: Option<&str>, check_config: bool) -> Output {
+    let directory = tempfile::tempdir().unwrap();
+    let env_path = directory.path().join("runtime.env");
+    let mut environment = format!(
+        "DISCORD_BOT_TOKEN=do-not-print-me\nDISCORD_ALLOWED_CHANNEL_IDS=42\nCODEX_DISCORD_MIRROR_DB={}\nCODEX_HOME={}\nCODEX_EXE={}\n",
+        directory.path().join("state/mirror.sqlite").display(),
+        directory.path().join("codex-home").display(),
+        directory.path().join("missing-codex.exe").display(),
+    );
+    if let Some(raw) = raw {
+        writeln!(environment, "DISCORD_HEADLESS_COMPUTER_USE={raw}").unwrap();
+    }
+    fs::write(&env_path, environment).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cdr-runtime"));
+    if check_config {
+        command.arg("--check-config");
+    }
+    let output = command
+        .arg("--env")
+        .arg(&env_path)
+        .current_dir(directory.path())
+        .env_clear()
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        fs::read_dir(directory.path()).unwrap().count(),
+        1,
+        "configuration validation must not create runtime state"
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("do-not-print-me"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("do-not-print-me"));
+    output
+}
+
+#[test]
+fn check_config_rejects_invalid_headless_computer_use_just_like_startup() {
+    for raw in ["maybe", "TRUE", "yes", "2"] {
+        for check_config in [false, true] {
+            let output = headless_computer_startup(Some(raw), check_config);
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap().trim(),
+                "ERROR: DISCORD_HEADLESS_COMPUTER_USE must be 0, 1, false, or true"
+            );
+        }
+    }
+}
+
+#[test]
+fn check_config_reports_effective_headless_computer_use_without_starting_runtime() {
+    for (raw, expected) in [
+        (None, cfg!(windows)),
+        (Some(""), cfg!(windows)),
+        (Some("   "), cfg!(windows)),
+        (Some("0"), false),
+        (Some(" false "), false),
+    ] {
+        let output = headless_computer_startup(raw, true);
+        assert!(output.status.success(), "raw value: {raw:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("config_valid"));
+        assert!(stdout.contains(&format!("headless_computer_use={expected}")));
+        assert!(output.stderr.is_empty());
+    }
+}
+
+#[test]
+fn check_config_enforces_headless_computer_use_platform_support() {
+    for raw in ["1", " true "] {
+        let output = headless_computer_startup(Some(raw), true);
+        if cfg!(windows) {
+            assert!(output.status.success());
+            assert!(
+                String::from_utf8(output.stdout)
+                    .unwrap()
+                    .contains("headless_computer_use=true")
+            );
+            assert!(output.stderr.is_empty());
+        } else {
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap().trim(),
+                "ERROR: DISCORD_HEADLESS_COMPUTER_USE requires Windows"
+            );
+            let startup = headless_computer_startup(Some(raw), false);
+            assert_eq!(startup.status.code(), Some(1));
+            assert!(
+                String::from_utf8(startup.stderr)
+                    .unwrap()
+                    .contains("DISCORD_HEADLESS_COMPUTER_USE requires Windows")
+            );
+        }
+    }
+}
 
 #[test]
 fn check_config_uses_env_file_and_never_prints_the_token() {
