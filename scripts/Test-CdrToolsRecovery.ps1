@@ -133,15 +133,15 @@ $configPath=Join-Path $testRoot 'config.toml'
 try {
     Set-ReaderServers @()
     Assert (Test-FixtureNativeReady) 'Empty effective configuration must not create a legacy registration.'
-    # Saved TOML may still contain the old value; only the normalized active
-    # configuration and the runtime's standalone override decide readiness.
+    # Saved TOML may still contain old values; only the normalized active
+    # configuration decides native-pipe readiness.
     [IO.File]::WriteAllText($configPath,"[mcp_servers.node_repl]`nenabled = false`n[mcp_servers.node_repl.env]`nSKY_CUA_NATIVE_PIPE = '1'`nSKY_CUA_NATIVE_PIPE_DIRECTORY = '$deadPipePath'`n")
     Set-ReaderServers @((Native-Server 'node_repl' $false $deadPipePath))
-    Assert (Test-FixtureNativeReady) 'Disabled legacy registration blocked recovery.'
+    Assert (Test-FixtureNativeReady) 'Disabled node_repl registration blocked recovery.'
     Set-ReaderServers @((Native-Server 'node_repl' $true $deadPipePath))
-    Assert (Test-FixtureNativeReady) 'The runtime standalone override was ignored.'
+    Assert (-not (Test-FixtureNativeReady)) 'An enabled node_repl with a dead native pipe was reported ready.'
     Set-ReaderServers @((Native-Server 'cdr_computer' $true $deadPipePath))
-    Assert (Test-FixtureNativeReady) 'The bundled provider replacement retained a legacy native-pipe requirement.'
+    Assert (Test-FixtureNativeReady) 'The disabled legacy cdr_computer registration retained a native-pipe requirement.'
     Set-ReaderServers @((Native-Server 'disabled_native' $false $deadPipePath))
     Assert (Test-FixtureNativeReady) 'A disabled non-legacy server blocked recovery.'
     Set-ReaderServers @((Native-Server 'active_native' $true $livePipePath))
@@ -158,9 +158,9 @@ try {
     Set-ReaderServers @((Native-Server 'active_native' $true $deadPipePath),$unified)
     Assert (-not (Test-FixtureNativeReady)) 'A live unified pipe hid another active provider''s dead pipe.'
     Set-ReaderServers @((Native-Server 'node_repl' $true $deadPipePath),$unified)
-    Assert (Test-FixtureNativeReady) 'A live unified pipe was blocked by overridden legacy configuration.'
+    Assert (-not (Test-FixtureNativeReady)) 'A live unified pipe hid an enabled node_repl''s dead pipe.'
     Set-ReaderServers @((Native-Server 'node_repl' $false $deadPipePath),$unified)
-    Assert (Test-FixtureNativeReady) 'A live unified pipe was blocked by disabled legacy configuration.'
+    Assert (Test-FixtureNativeReady) 'A live unified pipe was blocked by disabled node_repl configuration.'
     Set-ReaderServers @($unified)
     Assert (Test-FixtureNativeReady) 'Unified CUA native pipe was not detected.'
     $pipe.Dispose();$pipe=$null

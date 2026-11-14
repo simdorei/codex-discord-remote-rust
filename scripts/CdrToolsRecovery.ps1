@@ -85,7 +85,7 @@ function Assert-CdrSameToolsHosts($Expected,$Current) {
 function Get-CdrToolsEffectiveMcpServers([string]$CodexHome,[string]$RepoRoot,[string]$DesktopPath,[DateTime]$Deadline) {
     # Use the CLI shipped with the verified Store desktop as a read-only config
     # reader. It resolves TOML/project layers and enabled plugin transports. The
-    # caller then applies the bot's fixed Windows provider overrides to this list.
+    # caller excludes the legacy cdr_computer registration disabled by the runtime.
     $executable=Join-Path ([IO.Path]::GetDirectoryName($DesktopPath)) 'resources\codex.exe'
     if (-not [IO.Path]::IsPathRooted($executable) -or -not [IO.File]::Exists($executable)) {
         throw 'The registered desktop configuration reader is unavailable.'
@@ -100,8 +100,7 @@ function Get-CdrToolsEffectiveMcpServers([string]$CodexHome,[string]$RepoRoot,[s
         $pin=[IO.File]::Open($executable,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
         $info=[Diagnostics.ProcessStartInfo]::new()
         $info.FileName=$executable
-        # Applying -c here would synthesize an incomplete node_repl server when
-        # none is registered. Resolve first, then apply that single known override.
+        # Read configured transports without synthesizing missing registrations.
         $info.Arguments='mcp list --json'
         $info.WorkingDirectory=[IO.Path]::GetFullPath($RepoRoot)
         $info.EnvironmentVariables['CODEX_HOME']=[IO.Path]::GetFullPath($CodexHome)
@@ -160,11 +159,8 @@ function Test-CdrToolsNativeReady([string]$CodexHome,[string]$RepoRoot,[string]$
     foreach ($server in $servers) {
         if ($server.name -isnot [string] -or [string]::IsNullOrWhiteSpace($server.name) -or $server.enabled -isnot [bool]) { return $false }
         if (-not $server.enabled) { continue }
-        # AppServerConfig::new always forces this exact Windows registration to
-        # SKY_CUA_NATIVE_PIPE="0". No other server receives that override.
-        if ($server.name -ceq 'node_repl') { continue }
-        # configure_current replaces cdr_computer with the bundled stdio provider
-        # or disables it. Neither mode uses an old registration's native pipe.
+        # configure_current always disables the legacy cdr_computer registration.
+        # Its saved native-pipe settings do not apply to the current runtime.
         if ($server.name -ceq 'cdr_computer') { continue }
         if ($server.transport.type -isnot [string]) { return $false }
         if ($server.transport.type -cne 'stdio') { continue }

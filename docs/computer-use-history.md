@@ -1,5 +1,7 @@
 # Headless Windows Computer Use
 
+> Historical record — superseded by the [official CUA integration candidate](headless-computer-use.md). The commands, defaults and acceptance results below describe the earlier custom Rust provider. They are preserved for provenance and do not establish official CUA readiness or production rollout.
+
 The Rust Remote can expose its existing Windows computer engine as the explicit `cdr_computer` stdio MCP server. It does not require the Codex desktop application process, a browser access host, OAuth relay, or network listener. The installed Codex CLI and its matching Code Mode host are still used by Remote for normal model work.
 
 ## Enable for the Remote process

@@ -151,19 +151,28 @@ fn missing_required_config_returns_one_with_actionable_error() {
 }
 
 #[test]
-fn unknown_cli_argument_returns_two_instead_of_silently_falling_back() {
-    let output = Command::new(env!("CARGO_BIN_EXE_cdr-runtime"))
-        .arg("--unknown")
-        .env_clear()
-        .output()
-        .unwrap();
+fn unknown_and_removed_cli_arguments_return_two_without_starting_runtime() {
+    for argument in ["--unknown", "--computer-mcp"] {
+        let directory = tempfile::tempdir().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_cdr-runtime"))
+            .arg(argument)
+            .current_dir(directory.path())
+            .env_clear()
+            .output()
+            .unwrap();
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("unknown argument: --unknown")
-    );
+        assert_eq!(output.status.code(), Some(2), "{argument}");
+        assert!(output.stdout.is_empty(), "{argument}");
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap().trim(),
+            format!("ERROR: unknown argument: {argument}")
+        );
+        assert_eq!(
+            fs::read_dir(directory.path()).unwrap().count(),
+            0,
+            "rejected argument must not create runtime state: {argument}"
+        );
+    }
 }
 
 #[test]

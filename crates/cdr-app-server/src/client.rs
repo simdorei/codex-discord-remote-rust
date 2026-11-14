@@ -53,18 +53,9 @@ pub struct AppServerConfig {
 impl AppServerConfig {
     #[must_use]
     pub fn new(executable: impl Into<PathBuf>) -> Self {
-        let mut arguments = vec!["app-server".to_owned(), "--stdio".to_owned()];
-        if cfg!(windows) {
-            // Request node_repl's standalone transport. Plugin-owned servers have
-            // separate environments; this flag alone does not prove native readiness.
-            arguments.extend([
-                "-c".to_owned(),
-                r#"mcp_servers.node_repl.env.SKY_CUA_NATIVE_PIPE="0""#.to_owned(),
-            ]);
-        }
         Self {
             executable: executable.into(),
-            arguments,
+            arguments: vec!["app-server".to_owned(), "--stdio".to_owned()],
             environment: BTreeMap::new(),
             client_name: DEFAULT_CLIENT_NAME.to_owned(),
             client_title: DEFAULT_CLIENT_TITLE.to_owned(),

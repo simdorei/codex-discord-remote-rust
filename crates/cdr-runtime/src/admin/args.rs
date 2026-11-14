@@ -18,46 +18,7 @@ impl Args {
                 .map_err(|_| "admin arguments must be UTF-8".to_owned())
         });
         let command = arguments.next().ok_or("missing admin command")??;
-        let allowed: &[&str] = match command.as_str() {
-            "setup-discord" => &["--bot-id", "--dry-run", "--input-stdin", "--input-lines"],
-            "configure-install" | "diagnose-bundled-computer" => &["--codex-home", "--codex-exe"],
-            "verify-plugin-inventory" => &[
-                "--marketplace-inventory",
-                "--plugin-inventory",
-                "--plugin-manifest",
-                "--marketplace-name",
-                "--plugin-id",
-            ],
-            "discover-codex" => &["--codex-exe", "--codex-home", "--format"],
-            "diagnose-codex-tools" => &["--codex-exe", "--codex-home", "--run-probes"],
-            #[cfg(windows)]
-            "codex-selection-worker" => &["--request-file", "--record-json"],
-            #[cfg(windows)]
-            "codex-selected-command" => &["--selection-json", "--arguments-json", "--codex-home"],
-            #[cfg(windows)]
-            "codex-version" | "codex-version-worker" => &["--pid", "--identity", "--bot-identity"],
-            "backup-store" | "active-queue-count" | "retire-automatic-reserve" => &[],
-            "authorize-saved-final" => &["--request-file"],
-            "list-threads" => &["--limit"],
-            "archive-thread" => &["--thread-id"],
-            "inspect-new-first-reply" => &["--database", "--job-id"],
-            "recover-writer" | "recover-tools" => &[
-                "--thread-id",
-                "--channel-id",
-                "--owner-user-id",
-                "--dry-run",
-            ],
-            "inspect-async-recovery" => &["--database", "--thread-id", "--dry-run"],
-            "check-recovery-compatibility" => &["--database", "--env"],
-            "send-attachment" => &[
-                "--channel-id",
-                "--thread-ref",
-                "--work-thread",
-                "--content",
-                "--content-file",
-            ],
-            unknown => return Err(format!("unknown admin command: {unknown}")),
-        };
+        let allowed = Self::allowed_options(&command)?;
         let mut parsed = Self {
             command,
             values: BTreeMap::new(),
@@ -115,6 +76,51 @@ impl Args {
         Ok(parsed)
     }
 
+    fn allowed_options(command: &str) -> Result<&'static [&'static str], String> {
+        Ok(match command {
+            "setup-discord" => &["--bot-id", "--dry-run", "--input-stdin", "--input-lines"],
+            "configure-install" | "diagnose-official-computer" | "diagnose-bundled-computer" => {
+                &["--codex-home", "--codex-exe"]
+            }
+            "verify-plugin-inventory" => &[
+                "--marketplace-inventory",
+                "--plugin-inventory",
+                "--plugin-manifest",
+                "--marketplace-name",
+                "--plugin-id",
+            ],
+            "discover-codex" => &["--codex-exe", "--codex-home", "--format"],
+            "diagnose-codex-tools" => &["--codex-exe", "--codex-home", "--run-probes"],
+            #[cfg(windows)]
+            "codex-selection-worker" => &["--request-file", "--record-json"],
+            #[cfg(windows)]
+            "codex-selected-command" => &["--selection-json", "--arguments-json", "--codex-home"],
+            #[cfg(windows)]
+            "codex-version" | "codex-version-worker" => &["--pid", "--identity", "--bot-identity"],
+            "backup-store" | "active-queue-count" | "retire-automatic-reserve" => &[],
+            "authorize-saved-final" => &["--request-file"],
+            "list-threads" => &["--limit"],
+            "archive-thread" => &["--thread-id"],
+            "inspect-new-first-reply" => &["--database", "--job-id"],
+            "recover-writer" | "recover-tools" => &[
+                "--thread-id",
+                "--channel-id",
+                "--owner-user-id",
+                "--dry-run",
+            ],
+            "inspect-async-recovery" => &["--database", "--thread-id", "--dry-run"],
+            "check-recovery-compatibility" => &["--database", "--env"],
+            "send-attachment" => &[
+                "--channel-id",
+                "--thread-ref",
+                "--work-thread",
+                "--content",
+                "--content-file",
+            ],
+            unknown => return Err(format!("unknown admin command: {unknown}")),
+        })
+    }
+
     pub fn value(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(String::as_str)
     }
@@ -130,5 +136,29 @@ impl Args {
         Ok(self
             .value("--repo-root")
             .map_or_else(|| current.clone(), |root| current.join(root)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn official_diagnostic_and_deprecated_alias_accept_only_inventory_options() {
+        for command in ["diagnose-official-computer", "diagnose-bundled-computer"] {
+            let arguments = [
+                command,
+                "--repo-root",
+                "project",
+                "--codex-home",
+                "home",
+                "--codex-exe",
+                "codex.exe",
+            ];
+            let args = Args::parse(arguments.map(OsString::from)).unwrap();
+            assert_eq!(args.command, command);
+            assert_eq!(args.value("--codex-exe"), Some("codex.exe"));
+            assert!(Args::parse([command, "--run-probes", "true"].map(OsString::from)).is_err());
+        }
     }
 }
