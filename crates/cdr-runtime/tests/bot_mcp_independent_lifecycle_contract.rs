@@ -302,6 +302,8 @@ fn run_pwsh(script: &str) {
             cmd.env_remove(name);
         }
     }
+    // The fixture's explicit paths must not inherit this developer's installed tools.
+    cmd.env_remove("CODEX_HOME").env_remove("CODEX_EXE");
     let output = cmd
         .args([
             "-NoProfile",
@@ -1546,7 +1548,7 @@ New-Item -ItemType Directory -Path (Join-Path $temp 'target\release') -Force | O
 if ($LASTEXITCODE -ne 0) {{ throw 'init-state-db failed in t03' }}
 $env:CDR_DISCORD_HTTP_PROXY = '{discord_http}'
 $env:CDR_DISCORD_GATEWAY_PROXY_URL = 'ws://{discord_ws}'
-[IO.File]::WriteAllText((Join-Path $temp '.env'), "DISCORD_BOT_TOKEN=Bot.test.token`nDISCORD_ALLOWED_CHANNEL_IDS=42`nCDR_DISCORD_HTTP_PROXY={discord_http}`nCDR_DISCORD_GATEWAY_PROXY_URL=ws://{discord_ws}`nCODEX_HOME={codex_home_env}`nCODEX_EXE={soak_bin_env}`nCODEX_REMOTE_MCP_ENABLED=1`nCODEX_REMOTE_MCP_OWNERSHIP=external`nCODEX_REMOTE_MCP_BRIDGE_URL=ws://{bridge_addr}`nCODEX_REMOTE_MCP_DEVICE_ID=device-t03`nCODEX_REMOTE_MCP_DEVICE_TOKEN=secret-t03`n")
+[IO.File]::WriteAllText((Join-Path $temp '.env'), "DISCORD_BOT_TOKEN=Bot.test.token`nDISCORD_ALLOWED_CHANNEL_IDS=42`nDISCORD_HEADLESS_COMPUTER_USE=0`nCDR_DISCORD_HTTP_PROXY={discord_http}`nCDR_DISCORD_GATEWAY_PROXY_URL=ws://{discord_ws}`nCODEX_HOME={codex_home_env}`nCODEX_EXE={soak_bin_env}`nCODEX_REMOTE_MCP_ENABLED=1`nCODEX_REMOTE_MCP_OWNERSHIP=external`nCODEX_REMOTE_MCP_BRIDGE_URL=ws://{bridge_addr}`nCODEX_REMOTE_MCP_DEVICE_ID=device-t03`nCODEX_REMOTE_MCP_DEVICE_TOKEN=secret-t03`n")
 Write-CdrAtomicJsonFile -Path (Join-Path $temp '.cdr-maintenance\mcp-ownership-state.json') -Object ([ordered]@{{
     schema_version = 1; mode = 'external'; state = 'committed'; committed = $true; updated_at_ms = 1
 }})
@@ -2312,12 +2314,14 @@ Remove-Item -LiteralPath $drainIdPath -Force -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0) {{ throw 'init-state-db failed in t11' }}
 $env:CDR_DISCORD_HTTP_PROXY = '{discord_http}'
 $env:CDR_DISCORD_GATEWAY_PROXY_URL = 'ws://{discord_ws}'
-[IO.File]::WriteAllText((Join-Path $temp '.env'), "DISCORD_BOT_TOKEN=Bot.test.token`nDISCORD_ALLOWED_CHANNEL_IDS=42`nCDR_DISCORD_HTTP_PROXY={discord_http}`nCDR_DISCORD_GATEWAY_PROXY_URL=ws://{discord_ws}`nCODEX_HOME={codex_home_env}`nCODEX_EXE={soak_bin_env}`nCODEX_REMOTE_MCP_ENABLED=1`nCODEX_REMOTE_MCP_OWNERSHIP=embedded`nCODEX_REMOTE_MCP_BRIDGE_URL=ws://{bridge_addr}`nCODEX_REMOTE_MCP_DEVICE_ID=device-t11-real`nCODEX_REMOTE_MCP_DEVICE_TOKEN=secret-t11`n")
+[IO.File]::WriteAllText((Join-Path $temp '.env'), "DISCORD_BOT_TOKEN=Bot.test.token`nDISCORD_ALLOWED_CHANNEL_IDS=42`nDISCORD_HEADLESS_COMPUTER_USE=0`nCDR_DISCORD_HTTP_PROXY={discord_http}`nCDR_DISCORD_GATEWAY_PROXY_URL=ws://{discord_ws}`nCODEX_HOME={codex_home_env}`nCODEX_EXE={soak_bin_env}`nCODEX_REMOTE_MCP_ENABLED=1`nCODEX_REMOTE_MCP_OWNERSHIP=embedded`nCODEX_REMOTE_MCP_BRIDGE_URL=ws://{bridge_addr}`nCODEX_REMOTE_MCP_DEVICE_ID=device-t11-real`nCODEX_REMOTE_MCP_DEVICE_TOKEN=secret-t11`n")
 Set-CdrComponentIntent -RepoRoot $temp -Component 'bot' -DesiredState 'running' -Action 'start-real-embedded' -Source 'test' | Out-Null
 $realEmbeddedLaunch = Invoke-CdrJournaledProcessLaunch `
     -RepoRoot $temp -Component 'bot' -FilePath $botBin `
     -ArgumentList @('--env', (Join-Path $temp '.env')) `
-    -WorkingDirectory $temp -TargetBinaryPath $botBin -Action 'start-real-embedded' -AllowClearManualStop
+    -WorkingDirectory $temp -TargetBinaryPath $botBin -Action 'start-real-embedded' -AllowClearManualStop `
+    -RedirectStandardOutput (Join-Path $temp 'bot.stdout.log') `
+    -RedirectStandardError (Join-Path $temp 'bot.stderr.log')
 
 # Wait for the real cdr-runtime.exe to publish .codex_discord_rust.drain.identity (state=open) AND bind the project on the bridge
 $boundAckPath = Join-Path $temp 'bot_data\embedded_bound_ack.txt'
@@ -2337,11 +2341,12 @@ while ([DateTime]::UtcNow -lt $embReadyDeadline) {{
 }}
 if ($null -eq $realDrainParsed) {{
     Stop-CdrComponentRuntime -RepoRoot $temp -Component 'bot' -BinaryPath $botBin -GraceTimeoutMs 1000 -AllowForceKill | Out-Null
-    throw 'Real embedded cdr-runtime.exe did not publish open drain.identity and bind project session within 12s'
+    $botError = Get-Content -LiteralPath (Join-Path $temp 'bot.stderr.log') -Raw -ErrorAction SilentlyContinue
+    throw "Real embedded cdr-runtime.exe did not publish open drain.identity and bind project session within 12s`nBOT_STDERR:`n$botError"
 }}
 
 # Switch .env to external ownership and run Invoke-CdrMcpOwnershipCutover against the real embedded cdr-runtime.exe!
-[IO.File]::WriteAllText((Join-Path $temp '.env'), "DISCORD_BOT_TOKEN=Bot.test.token`nDISCORD_ALLOWED_CHANNEL_IDS=42`nCDR_DISCORD_HTTP_PROXY={discord_http}`nCDR_DISCORD_GATEWAY_PROXY_URL=ws://{discord_ws}`nCODEX_HOME={codex_home_env}`nCODEX_EXE={soak_bin_env}`nCODEX_REMOTE_MCP_ENABLED=1`nCODEX_REMOTE_MCP_OWNERSHIP=external`nCODEX_REMOTE_MCP_BRIDGE_URL=ws://{bridge_addr}`nCODEX_REMOTE_MCP_DEVICE_ID=device-t11-real`nCODEX_REMOTE_MCP_DEVICE_TOKEN=secret-t11`n")
+[IO.File]::WriteAllText((Join-Path $temp '.env'), "DISCORD_BOT_TOKEN=Bot.test.token`nDISCORD_ALLOWED_CHANNEL_IDS=42`nDISCORD_HEADLESS_COMPUTER_USE=0`nCDR_DISCORD_HTTP_PROXY={discord_http}`nCDR_DISCORD_GATEWAY_PROXY_URL=ws://{discord_ws}`nCODEX_HOME={codex_home_env}`nCODEX_EXE={soak_bin_env}`nCODEX_REMOTE_MCP_ENABLED=1`nCODEX_REMOTE_MCP_OWNERSHIP=external`nCODEX_REMOTE_MCP_BRIDGE_URL=ws://{bridge_addr}`nCODEX_REMOTE_MCP_DEVICE_ID=device-t11-real`nCODEX_REMOTE_MCP_DEVICE_TOKEN=secret-t11`n")
 Set-CdrComponentIntent -RepoRoot $temp -Component 'mcp' -DesiredState 'running' -Action 'real-cutover' -Source 'test' | Out-Null
 $script:f1RealCutoverStages = New-Object System.Collections.Generic.List[string]
 $realCutover = Invoke-CdrMcpOwnershipCutover `
