@@ -28,6 +28,7 @@ pub struct OfficialCuaSelection {
     pub command: PathBuf,
     pub cli: PathBuf,
     pub node_repl: PathBuf,
+    pub native_helper: PathBuf,
     pub surfaces: String,
 }
 
@@ -177,7 +178,7 @@ pub fn configure(
     let manifest_path = absolute_file(manifest_path, "official CUA manifest")?;
     let (mut server, manifest_sha256) = read_manifest(&manifest_path)?;
     let selection = validate_bundle(&manifest_path, &server, manifest_sha256)?;
-    let settings = native_settings(&mut server, &config.executable)?;
+    let settings = native_settings(&mut server, &config.executable, &selection.native_helper)?;
     for setting in settings {
         config.arguments.extend(["-c".into(), setting]);
     }
@@ -234,14 +235,15 @@ fn validate_bundle(
         .parent()
         .ok_or_else(|| held("official CUA plugin directory is missing"))?;
     let (entry, guard) = validate_launcher(&server.args, bin, plugin_dir)?;
-    let helper_name = if cfg!(target_arch = "aarch64") {
-        "codex-computer-use-arm64.exe"
+    let helper_arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
     } else {
-        "codex-computer-use.exe"
+        "x64"
     };
     let helper = absolute_file(
-        &bin.join("node_modules/@oai/sky/bin/windows")
-            .join(helper_name),
+        &bin.join("node_modules/@oai/sky/bin/windows/swift")
+            .join(helper_arch)
+            .join("codex-computer-use-swift.exe"),
         "official native Computer Use helper",
     )?;
     if server
@@ -276,6 +278,7 @@ fn validate_bundle(
         command,
         cli,
         node_repl,
+        native_helper: helper,
         surfaces: declared_surfaces(server)?,
     })
 }
@@ -339,10 +342,24 @@ fn validate_launcher(
 fn native_settings(
     server: &mut Server,
     codex_executable: &Path,
+    native_helper: &Path,
 ) -> Result<Vec<String>, AppServerError> {
     // Preserve the installed guard, trusted services, CLI pairing and approvals.
-    // Change only native transport. Browser availability still needs an official
-    // host; narrowing the installed surfaces cannot establish browser parity.
+    // Pin the same bundled Swift helper used by the desktop app. Sky's direct
+    // transport otherwise defaults to the separate Rust helper even in this
+    // bundle. Use its supported executable override, never edit the SDK or guard.
+    server
+        .env
+        .retain(|key, _| !key.eq_ignore_ascii_case("OAI_SKY_WINDOWS_BIN"));
+    server.env.insert(
+        "OAI_SKY_WINDOWS_BIN".into(),
+        native_helper
+            .to_str()
+            .ok_or_else(|| held("official native Computer Use helper path is not UTF-8"))?
+            .into(),
+    );
+    // Browser availability still needs an official host; changing the native
+    // helper does not authorize or repair the browser surface.
     server.env.insert("SKY_CUA_NATIVE_PIPE".into(), "0".into());
     server
         .env
@@ -350,6 +367,7 @@ fn native_settings(
     server.env_vars.retain(|key| {
         !key.eq_ignore_ascii_case("SKY_CUA_NATIVE_PIPE_DIRECTORY")
             && !key.eq_ignore_ascii_case("SKY_CUA_NATIVE_PIPE")
+            && !key.eq_ignore_ascii_case("OAI_SKY_WINDOWS_BIN")
             && !key.eq_ignore_ascii_case("CUA_REPL_ENABLED_SURFACES")
     });
     let environment = format!(
@@ -453,7 +471,15 @@ mod tests {
         let helper = bin
             .join("node_modules/@oai/sky/bin/windows")
             .join(helper_name);
-        for file in [&node, &repl, &cli, &entry, &guard, &helper] {
+        let swift = bin
+            .join("node_modules/@oai/sky/bin/windows/swift")
+            .join(if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            })
+            .join("codex-computer-use-swift.exe");
+        for file in [&node, &repl, &cli, &entry, &guard, &helper, &swift] {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, "fixture").unwrap();
         }
@@ -530,6 +556,82 @@ mod tests {
         let moved_guard = guard.with_extension("mjs.old");
         fs::rename(&guard, &moved_guard).unwrap();
         fs::rename(&moved_guard, &guard).unwrap();
+    }
+
+    #[test]
+    fn native_registration_pins_desktop_helper_instead_of_inherited_or_legacy_helper() {
+        let temp = tempfile::tempdir().unwrap();
+        let manifest = fixture(temp.path(), "26.1106.51428");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        let node = PathBuf::from(value["mcpServers"]["cua_repl"]["command"].as_str().unwrap());
+        let expected = node
+            .parent()
+            .unwrap()
+            .join("node_modules/@oai/sky/bin/windows/swift")
+            .join(if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            })
+            .join("codex-computer-use-swift.exe");
+        value["mcpServers"]["cua_repl"]["env"]["oai_sky_windows_bin"] = json!("stale-helper.exe");
+        value["mcpServers"]["cua_repl"]["env_vars"] = json!([
+            "OAI_SKY_WINDOWS_BIN",
+            "oai_sky_windows_bin",
+            "PRESERVED_MANIFEST_ENV"
+        ]);
+        fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let before = fs::read(&manifest).unwrap();
+        let mut config = AppServerConfig::new("codex.exe");
+        configure(&mut config, &manifest).unwrap();
+        let environment = config
+            .arguments
+            .iter()
+            .find(|arg| arg.starts_with("mcp_servers.cua_repl.env="))
+            .unwrap();
+        assert!(environment.contains(&format!(
+            "\"OAI_SKY_WINDOWS_BIN\"={}",
+            quote(expected.to_str().unwrap())
+        )));
+        assert!(!environment.contains("stale-helper.exe"));
+        assert!(!environment.contains("oai_sky_windows_bin"));
+        assert!(
+            config
+                .arguments
+                .iter()
+                .any(|arg| { arg == "mcp_servers.cua_repl.env_vars=[\"PRESERVED_MANIFEST_ENV\"]" })
+        );
+        assert_eq!(fs::read(&manifest).unwrap(), before);
+    }
+
+    #[test]
+    fn missing_desktop_helper_does_not_silently_select_legacy_helper() {
+        let temp = tempfile::tempdir().unwrap();
+        let manifest = fixture(temp.path(), "26.1106.51428");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        let node = PathBuf::from(value["mcpServers"]["cua_repl"]["command"].as_str().unwrap());
+        let helper = node
+            .parent()
+            .unwrap()
+            .join("node_modules/@oai/sky/bin/windows/swift")
+            .join(if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            })
+            .join("codex-computer-use-swift.exe");
+        fs::remove_file(helper).unwrap();
+        let mut config = AppServerConfig::new("codex.exe");
+        let before = config.arguments.clone();
+        let error = configure(&mut config, &manifest).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("official native Computer Use helper")
+        );
+        assert_eq!(config.arguments, before);
     }
 
     #[test]
