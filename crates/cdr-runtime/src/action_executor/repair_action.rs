@@ -118,6 +118,21 @@ impl RepairLease {
         let probe = self.call(thread, "probe", "js", json!({"code":PROBE,"timeout_ms":8000,"title":"Verify repaired Computer Use connection"})).await?;
         Ok(probe_ready(&probe))
     }
+
+    fn completion(&self, thread: &str) -> Result<ActionResult, ActionError> {
+        if self.tool_server == "cua_repl" {
+            self.record("reset_confirmed", thread)?;
+            return Ok(immediate(format!(
+                "JS 세션 초기화 완료: {thread} ({})\n이 채팅의 도구 세션을 초기화했습니다. 화면 읽기·클릭·브라우저 연결은 아직 확인하지 않았습니다. 다음 대화에서 실제 작업으로 확인하세요. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다.",
+                self.tool_server
+            )));
+        }
+        self.record("verified", thread)?;
+        Ok(immediate(format!(
+            "도구 복구 완료: {thread} ({})\n이 채팅의 JS 세션을 초기화하고 Computer Use 목록 조회를 확인했습니다. 개별 창의 화면 읽기·클릭은 별도 확인이 필요합니다. 앱 재시작·요청 취소는 하지 않았습니다. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다.",
+            self.tool_server
+        )))
+    }
 }
 
 impl Drop for RepairLease {
@@ -258,16 +273,7 @@ impl<B: TurnBackend> ActionExecutor<B> {
             return Err(ActionError::Invalid("도구 복구 단계 probe 실패: JS 세션은 초기화했지만 Computer Use 연결을 확인하지 못했습니다. 앱은 재시작하지 않았습니다.".into()));
         }
         guard.check()?;
-        if reset_only {
-            lease.record("reset_confirmed", thread)?;
-            return Ok(immediate(format!(
-                "JS 세션 초기화 완료: {thread} ({tool_server})\n이 채팅의 도구 세션을 초기화했습니다. 화면 읽기·클릭·브라우저 연결은 아직 확인하지 않았습니다. 다음 대화에서 실제 작업으로 확인하세요. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다."
-            )));
-        }
-        lease.record("verified", thread)?;
-        Ok(immediate(format!(
-            "도구 복구 완료: {thread} ({tool_server})\n이 채팅의 JS 세션을 초기화하고 Computer Use 목록 조회를 확인했습니다. 개별 창의 화면 읽기·클릭은 별도 확인이 필요합니다. 앱 재시작·요청 취소는 하지 않았습니다. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다."
-        )))
+        lease.completion(thread)
     }
 }
 
