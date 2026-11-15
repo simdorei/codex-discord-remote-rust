@@ -37,7 +37,7 @@ impl CompletionWorker {
         pending: &StoredDelivery,
     ) -> Result<(), CompletionWorkerError> {
         let result = async {
-            if self.complete_confirmed(pending)? {
+            if self.complete_confirmed(pending).await? {
                 return Ok(true);
             }
             match final_preflight(self.queue.db_path(), pending)? {
@@ -107,7 +107,10 @@ impl CompletionWorker {
         Ok(())
     }
 
-    fn complete_confirmed(&self, pending: &StoredDelivery) -> Result<bool, CompletionWorkerError> {
+    async fn complete_confirmed(
+        &self,
+        pending: &StoredDelivery,
+    ) -> Result<bool, CompletionWorkerError> {
         let Ok(channel) = i64_channel(pending.channel_id) else {
             return Ok(false);
         };
@@ -127,11 +130,18 @@ impl CompletionWorker {
                 return Ok(false);
             }
         }
-        Ok(cdr_store::delivery::complete_confirmed(
-            self.queue.db_path(),
-            pending,
-            &chunks,
-        )?)
+        let db = self.queue.db_path().to_owned();
+        let pending = pending.clone();
+        // Retiring confirmed history is SQLite-only work. Its writer wait must
+        // not block polling live HTTP responses on the shared async executor.
+        // Scheduler HTTP slots bound these jobs; all transaction guards remain
+        // inside complete_confirmed, including after a caller is cancelled.
+        let retired = tokio::task::spawn_blocking(move || {
+            cdr_store::delivery::complete_confirmed(&db, &pending, &chunks)
+        })
+        .await
+        .map_err(|error| CompletionWorkerError::Delivery(error.to_string()))??;
+        Ok(retired)
     }
 
     pub(super) async fn send_idempotent_text(
