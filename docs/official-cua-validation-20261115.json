@@ -4,6 +4,12 @@
   "timezone": "Asia/Seoul",
   "scope": "candidate official CUA integration; no production cutover",
   "base_commit": "4d081cb467eeb9ffd76db67e675f0e95a4cd6a39",
+  "provenance": {
+    "classification": "historical_feasibility_not_release_acceptance",
+    "tested_candidate_source_sha": null,
+    "tested_runtime_artifact_sha256": null,
+    "limitation": "The original record did not bind the tested source tree and runtime artifact. Its base_commit and timestamps do not establish the final candidate identity. Later surface-preservation and repair revisions require separate candidate-bound checks."
+  },
   "tested_machine": "5060",
   "installed": {
     "codex_cli": "0.167.0-alpha.4.1",

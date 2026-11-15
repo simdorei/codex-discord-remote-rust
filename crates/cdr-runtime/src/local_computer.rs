@@ -237,8 +237,30 @@ fn validate_bundle(
         command,
         cli,
         node_repl,
-        surfaces: "computer".into(),
+        surfaces: declared_surfaces(server)?,
     })
+}
+
+fn declared_surfaces(server: &Server) -> Result<String, AppServerError> {
+    let surfaces = server
+        .env
+        .get("CUA_REPL_ENABLED_SURFACES")
+        .ok_or_else(|| held("official CUA manifest must declare its enabled surfaces"))?;
+    let names = surfaces
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+    if names.is_empty()
+        || names
+            .iter()
+            .any(|name| !matches!(*name, "browser" | "computer"))
+    {
+        return Err(held(
+            "official CUA manifest has empty or unsupported enabled surfaces",
+        ));
+    }
+    Ok(surfaces.clone())
 }
 
 fn validate_launcher(
@@ -280,14 +302,12 @@ fn native_settings(
     codex_executable: &Path,
 ) -> Result<Vec<String>, AppServerError> {
     // Preserve the installed guard, trusted services, CLI pairing and approvals.
-    // Only the native transport and exposed surface change.
+    // Change only native transport. Browser availability still needs an official
+    // host; narrowing the installed surfaces cannot establish browser parity.
     server.env.insert("SKY_CUA_NATIVE_PIPE".into(), "0".into());
     server
         .env
         .insert("SKY_CUA_NATIVE_PIPE_DIRECTORY".into(), String::new());
-    server
-        .env
-        .insert("CUA_REPL_ENABLED_SURFACES".into(), "computer".into());
     server.env_vars.retain(|key| {
         !key.eq_ignore_ascii_case("SKY_CUA_NATIVE_PIPE_DIRECTORY")
             && !key.eq_ignore_ascii_case("SKY_CUA_NATIVE_PIPE")
@@ -421,7 +441,7 @@ mod tests {
         let before = config.arguments.clone();
         let selection = configure_current(&mut config, true).unwrap().unwrap();
         assert_eq!(selection.manifest, manifest);
-        assert_eq!(selection.surfaces, "computer");
+        assert_eq!(selection.surfaces, "browser,computer");
         assert_eq!(&config.arguments[..before.len()], before);
         let settings = config.arguments[before.len()..]
             .chunks_exact(2)
@@ -442,7 +462,9 @@ mod tests {
             .unwrap();
         assert!(env.contains("\"SKY_CUA_NATIVE_PIPE\"=\"0\""));
         assert!(env.contains("\"SKY_CUA_NATIVE_PIPE_DIRECTORY\"=\"\""));
+        assert!(env.contains("\"CUA_REPL_ENABLED_SURFACES\"=\"browser,computer\""));
         assert!(env.contains("@oai/sky/service"));
+        assert!(env.contains("@oai/browser-desktop/service"));
         assert!(!env.contains("old-desktop-pipe"));
         assert!(
             settings
@@ -465,6 +487,60 @@ mod tests {
         let moved_guard = guard.with_extension("mjs.old");
         fs::rename(&guard, &moved_guard).unwrap();
         fs::rename(&moved_guard, &guard).unwrap();
+    }
+
+    #[test]
+    fn preserves_declared_surfaces_and_rejects_invalid_or_missing_surfaces() {
+        let temp = tempfile::tempdir().unwrap();
+        let manifest = fixture(temp.path(), "26.1106.51428");
+        let original: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        for surfaces in [
+            "browser",
+            "computer",
+            "browser,computer",
+            " computer, browser ",
+        ] {
+            let mut value = original.clone();
+            value["mcpServers"]["cua_repl"]["env"]["CUA_REPL_ENABLED_SURFACES"] = json!(surfaces);
+            value["mcpServers"]["cua_repl"]["env_vars"] = json!(["CUA_REPL_ENABLED_SURFACES"]);
+            fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+            let mut config = AppServerConfig::new("codex.exe");
+            let selection = configure(&mut config, &manifest).unwrap();
+            assert_eq!(selection.surfaces, surfaces);
+            assert!(config.arguments.iter().any(|arg| {
+                arg.starts_with("mcp_servers.cua_repl.env=")
+                    && arg.contains(&format!(
+                        "\"CUA_REPL_ENABLED_SURFACES\"={}",
+                        quote(surfaces)
+                    ))
+            }));
+            assert!(
+                config
+                    .arguments
+                    .iter()
+                    .any(|arg| arg == "mcp_servers.cua_repl.env_vars=[]")
+            );
+        }
+        for surfaces in [None, Some(""), Some(" , "), Some("browser,unknown")] {
+            let mut value = original.clone();
+            let env = value["mcpServers"]["cua_repl"]["env"]
+                .as_object_mut()
+                .unwrap();
+            match surfaces {
+                Some(surfaces) => {
+                    env.insert("CUA_REPL_ENABLED_SURFACES".into(), json!(surfaces));
+                }
+                None => {
+                    env.remove("CUA_REPL_ENABLED_SURFACES");
+                }
+            }
+            fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+            let mut config = AppServerConfig::new("codex.exe");
+            let before = config.arguments.clone();
+            assert!(configure(&mut config, &manifest).is_err(), "{surfaces:?}");
+            assert_eq!(config.arguments, before);
+        }
     }
 
     #[test]

@@ -4,7 +4,26 @@
 
 Rust Remote keeps Discord orchestration and registers the installed official `cua_repl` server with its own Codex app-server. The candidate replaces the runtime's custom `cdr_computer` registration and removes its `--computer-mcp` entrypoint. The external `cdr-remote-agent` MCP and shared remote-agent computer code remain separate and unchanged.
 
-Native operations use the official CUA/Sky helper through an active model turn and that turn's normal permissions and approvals. The managed registration exposes the `computer` surface only. This does not make Chrome exempt from browser URL policy.
+Native operations use the official CUA/Sky helper through an active model turn and that turn's normal permissions and approvals. The managed registration preserves the installed manifest's declared surfaces (`browser`, `computer`, or both). Enabling the browser API does not establish a working browser host or make Chrome exempt from browser URL policy.
+
+## Target and required acceptance
+
+The target is the computer and browser functionality that actually works in the user's ChatGPT desktop app on the same PC and browser profile, also working through the Discord bot while the GUI and its GUI-owned background processes are fully stopped. This includes reference-supported browser tab and page-element operations; native-only registration is not the acceptance target.
+
+Record paired reference-app and bot results for the same harmless test app/page, with an observable outcome such as entered text or a changed test control. A baseline failure is a recorded limitation, not evidence that the bot passed. Use real model turns and the normal official permission flow. Do not substitute a catalog, window count, mock, or a different provider for a successful action.
+
+| ID | Required check | Pass condition | Current evidence |
+| --- | --- | --- | --- |
+| A01 | Reference app on the same PC/profile | Record supported native actions, Chrome actions, and tab/DOM operations, including the app/tool versions and expected visible results. | Not recorded. |
+| A02 | Bot native actions | Read the test app, click and enter text, then observe the expected state through a real bot-owned turn. | Historical window enumeration only; action acceptance not checked. |
+| A03 | Bot browser parity | Complete reference-supported Chrome navigation/read/click/input and tab/DOM operations with normal URL policy and approvals. | Historical browser-host and Chrome URL-policy blockers; preserving manifest surfaces does not resolve them. |
+| A04 | Fresh GUI-app-off execution | Confirm GUI and GUI-owned background/helper processes are absent, start a fresh isolated bot-owned app-server/tool chain, then repeat A02/A03 without reopening the GUI. | Not checked; a helper launched while the GUI is running is insufficient. |
+| A05 | Repair semantics | Official `!repair` acknowledges only a confirmed JS-session reset and leaves actual native/browser/app-off readiness unverified. Preserve admission, timeout and generation protections. | Validate with the focused repair contracts; actual tool availability still requires A02/A03. |
+| A06 | Exact candidate and regressions | Bind source/artifact identities to the tested candidate and pass applicable Windows, release/package and platform CI. Preserve Discord, external MCP and user configuration. | See the final PR's exact-SHA checks; earlier PR results do not cover new commits. |
+
+All applicable rows are merge requirements. Missing or blocked action evidence keeps the candidate in draft. The existing explicit full-tool `!recover` operation relaunches the ChatGPT desktop; its successful fixture or live execution cannot satisfy A04. Preserve that operation's existing meaning and test any standalone recovery path separately.
+
+An acceptance receipt must record candidate commit and dirty state, tested runtime executable SHA-256/build provenance, outer/inner CLI and official bundle identities (including manifest hash), reference app/browser versions and profile identifier, GUI/process ownership observations, start/end timestamps, requested actions, observed outcomes, and raw-log locations. Redact secrets. If a record predates the final commit, identify its tested tree/artifact and demonstrate the covered source is unchanged; do not infer identity from dates alone. The older [feasibility receipt](official-cua-validation-20261115.json) lacks that candidate binding and is not a release acceptance receipt.
 
 ## Installed runtime and configuration
 
@@ -14,9 +33,11 @@ Native operations use the official CUA/Sky helper through an active model turn a
 CODEX_HOME/plugins/cache/openai-bundled/unified-computer-use/<numeric-version>/.mcp.json
 ```
 
-Selection uses the installed manifest's Node, CUA entry point, access guard, inner Codex CLI and `node_repl` paths. It validates the required files and bundle relationships before changing the launch arguments. An unreadable, incomplete or ambiguous newest installation holds startup; it does not silently select an older version. Selection performs no automatic download, installation or upgrade. The outer Codex CLI continues to use Remote's existing executable-selection mechanism.
+Selection uses the installed manifest's Node, CUA entry point, access guard, inner Codex CLI and `node_repl` paths. It validates required files, Node/NodeREPL and launcher/guard relationships, and the declared surfaces before changing launch arguments. The inner CLI is the readable absolute file declared by that manifest; this is not an independent proof of outer/inner CLI version compatibility. An absent, unreadable, incomplete or ambiguous newest installation holds startup; it does not silently select an older version. Selection performs no automatic download, installation or upgrade. The outer Codex CLI continues to use Remote's existing executable-selection mechanism.
 
-The registration is passed as configuration arguments to this app-server. It sets `SKY_CUA_NATIVE_PIPE=0`, clears the desktop native-pipe directory, and sets `CUA_REPL_ENABLED_SURFACES=computer`. The official guard, approval metadata and trusted-service configuration are preserved. The generic app-server constructor no longer forces a transport override on `node_repl`.
+The registration is passed as configuration arguments to this app-server. It sets `SKY_CUA_NATIVE_PIPE=0`, clears the desktop native-pipe directory, and retains the manifest's `CUA_REPL_ENABLED_SURFACES` value rather than replacing it with `computer`. Missing, empty or unsupported surface declarations fail before partial registration. The official guard, approval metadata and trusted-service configuration are preserved. The generic app-server constructor no longer forces a transport override on `node_repl`.
+
+Native transport independence does not create an independent browser access host. The browser service still needs a valid official host and its executor/pipe/verifying-identity context. This integration only forwards genuine host context; it does not create identities, disable the guard, or manufacture an approval. The installed package declares `browser,computer`, but browser-host availability and GUI-off browser operation remain separate unresolved acceptance requirements.
 
 The existing `DISCORD_HEADLESS_COMPUTER_USE` parsing remains:
 
@@ -55,6 +76,12 @@ The diagnostic starts an isolated app-server, creates an ephemeral thread with `
 
 Tool discovery proves that the configured server exposes its tool catalog. It does not establish helper execution, a usable desktop, Chrome control or independence from a running GUI app. Errors retain their diagnostic stage; an outer MCP `isError=false` must not hide errors embedded in a CUA result.
 
+## Official `!repair` outcome
+
+For `cua_repl`, `!repair` checks the existing idle/admission conditions and sends only `js_reset`. A confirmed reset is recorded as `reset_confirmed` with `verification_scope=js_session_reset_only`. Native desktop, browser and desktop-app independence remain `NOT_CHECKED`, and the response asks for an actual task in the next conversation turn. It does not call `cua.getState()` or send a completion-summary cell outside a model turn. Reset errors, malformed acknowledgements and uncertain timeouts retain the existing failure/hold behavior.
+
+The legacy `node_repl` path retains its existing initialization/inventory checks. `!repair` does not switch providers to disguise an official CUA failure. The explicit desktop-wide `!recover` operation retains its separate restart semantics.
+
 ## Observed scope on 5060 — 2026-11-15 KST
 
 The observations below used installed Codex CLI `0.167.0-alpha.4.1`, official plugin `26.1106.51428`, `@oai/cua-repl` `0.1.3`, and `@oai/sky` `0.7.18`. They are feasibility observations, not acceptance of a deployed replacement binary.
@@ -75,9 +102,9 @@ Changing the managed surface to `computer` does not solve the browser-host or Ch
 
 ## Deployment gate
 
-The candidate replaces the custom provider registration with official native-only registration. The Windows build and 32 focused Rust tests passed, as did the PowerShell recovery fixture suite. Workspace Clippy with warnings denied and the repository's Windows formatting harness (11 packages, 573 target roots) also passed. The built candidate also registered the installed official server and observed its four tools, then closed its owned app-server. The [validation receipt](official-cua-validation-20261115.json) records these results separately from the real-turn feasibility observations. These checks do not satisfy the Chrome or GUI-app-off acceptance requirement.
+The previous native-only candidate passed a Windows build, 32 focused Rust tests, the PowerShell recovery fixture suite, workspace Clippy with warnings denied, and the repository's Windows formatting harness (11 packages, 573 target roots). That candidate's inventory diagnostic observed the four official tools and closed its owned app-server. The [historical validation receipt](official-cua-validation-20261115.json) keeps these results separate from the real-turn feasibility observations. These results do not verify the later surface-preservation/repair changes or satisfy the Chrome or GUI-app-off acceptance requirement. Use the final PR's candidate-bound checks for those revisions.
 
-Production cutover remains blocked by the unmet Chrome requirement. Required acceptance must cover the intended native and Chrome operations through real turns and the normal approval flow, plus the requested GUI-app-off scenario when that can be tested without interrupting existing work. A catalog-only diagnostic cannot satisfy this gate. Do not automatically start/stop the GUI, disable policy checks or switch back to the custom Rust engine to turn an incomplete result into a pass.
+Merge and production cutover remain blocked until A01-A06 are satisfied. In particular, the reference-supported browser operations and fresh GUI-app-off scenario are mandatory. If an acceptance run cannot be performed without interrupting existing work, retain `NOT_CHECKED` and the draft state. A catalog-only diagnostic cannot satisfy this gate. Do not automatically start/stop the GUI, disable policy checks or switch back to the custom Rust engine to turn an incomplete result into a pass.
 
 Any later operational replacement must use the existing managed restart and launch-compatibility procedures. Existing approval and compatibility records are not removed or rewritten by this integration.
 
