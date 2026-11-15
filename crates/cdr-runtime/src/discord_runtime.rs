@@ -335,7 +335,7 @@ async fn start_app_server(
     let mut config = paths
         .app_server_config(startup_deadline)
         .map_err(|e| AppServerError::StartupHeld(e.to_string()))?;
-    crate::local_computer::configure_current(&mut config, local_computer_enabled)?;
+    crate::local_computer::configure_available(&mut config, local_computer_enabled)?;
     let fence = Arc::new(RuntimeDeadGenerationFence::new(
         paths.mirror_db.clone(),
         runtime_id.to_owned(),

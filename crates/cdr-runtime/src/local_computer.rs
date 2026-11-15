@@ -31,6 +31,45 @@ pub struct OfficialCuaSelection {
     pub surfaces: String,
 }
 
+pub struct OfficialCuaRegistration {
+    pub selection: Option<OfficialCuaSelection>,
+    pub error: Option<String>,
+}
+
+/// A broken optional computer provider must not prevent ordinary bot/JS work.
+/// Keep strict validation and mask the failed provider for this app-server only.
+pub fn configure_available(
+    config: &mut AppServerConfig,
+    computer_enabled: bool,
+) -> Result<OfficialCuaRegistration, AppServerError> {
+    match configure_current(config, computer_enabled) {
+        Ok(selection) => Ok(OfficialCuaRegistration {
+            selection,
+            error: None,
+        }),
+        Err(error) if computer_enabled => {
+            let legacy = legacy_disabled_setting(&config.executable)?;
+            let official = disabled_setting(&config.executable, PROVIDER)?;
+            config
+                .arguments
+                .extend(["-c".into(), legacy, "-c".into(), official]);
+            let reason = match error {
+                AppServerError::StartupHeld(reason) => reason,
+                other => other.to_string(),
+            };
+            let error = crate::codex_tools::bounded_error(&reason);
+            eprintln!(
+                "official_cua_unavailable error={error}; computer provider disabled; ordinary app-server startup continues"
+            );
+            Ok(OfficialCuaRegistration {
+                selection: None,
+                error: Some(error),
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 #[derive(Deserialize)]
 struct Manifest {
     #[serde(rename = "mcpServers")]
@@ -341,11 +380,15 @@ fn native_settings(
 }
 
 fn legacy_disabled_setting(executable: &Path) -> Result<String, AppServerError> {
+    disabled_setting(executable, "cdr_computer")
+}
+
+fn disabled_setting(executable: &Path, provider: &str) -> Result<String, AppServerError> {
     let executable = executable
         .to_str()
         .ok_or_else(|| held("selected Codex executable path is not UTF-8"))?;
     Ok(format!(
-        r#"mcp_servers.cdr_computer={{enabled=false,command={},args=["--version"]}}"#,
+        r#"mcp_servers.{provider}={{enabled=false,command={},args=["--version"]}}"#,
         quote(executable)
     ))
 }
@@ -541,6 +584,88 @@ mod tests {
             assert!(configure(&mut config, &manifest).is_err(), "{surfaces:?}");
             assert_eq!(config.arguments, before);
         }
+    }
+
+    #[test]
+    fn unavailable_computer_is_masked_without_changing_ordinary_tools_or_user_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let settings = temp.path().join("config.toml");
+        fs::write(&settings, "# user's settings\n").unwrap();
+        for malformed_newest in [false, true] {
+            if malformed_newest {
+                fixture(temp.path(), "26.9.1");
+                fs::create_dir_all(temp.path().join(CACHE).join("26.10.2")).unwrap();
+            }
+            let mut config = AppServerConfig::new("codex.exe")
+                .with_environment([("CODEX_HOME".into(), temp.path().display().to_string())]);
+            config.arguments.extend([
+                "-c".into(),
+                "mcp_servers.node_repl.enabled=true".into(),
+                "-c".into(),
+                "mcp_servers.cua_repl.enabled=true".into(),
+            ]);
+            let before = config.arguments.clone();
+            let registration = configure_available(&mut config, true).unwrap();
+            assert!(registration.selection.is_none());
+            assert!(registration.error.is_some());
+            assert_eq!(&config.arguments[..before.len()], before);
+            assert_eq!(
+                config.arguments.last().unwrap(),
+                r#"mcp_servers.cua_repl={enabled=false,command="codex.exe",args=["--version"]}"#
+            );
+            assert!(config.arguments[before.len()..].iter().all(|arg| {
+                arg == "-c"
+                    || arg.starts_with("mcp_servers.cdr_computer=")
+                    || arg.starts_with("mcp_servers.cua_repl=")
+            }));
+            assert_eq!(
+                fs::read_to_string(&settings).unwrap(),
+                "# user's settings\n"
+            );
+            assert!(config.retained_executable_files.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_managed_cua_still_starts_app_server_and_accepts_ordinary_tool_rpc() {
+        use cdr_app_server::AppServerClient;
+        use std::time::Duration;
+
+        let temp = tempfile::tempdir().unwrap();
+        let mut config = crate::soak::native_fixture::config("repair");
+        config.environment.extend([
+            ("CODEX_HOME".into(), temp.path().display().to_string()),
+            ("CDR_REPAIR_MODE".into(), "normal".into()),
+            (
+                "CDR_REPAIR_RPC_LOG".into(),
+                temp.path().join("rpc.jsonl").display().to_string(),
+            ),
+        ]);
+        let registration = configure_available(&mut config, true).unwrap();
+        assert!(registration.selection.is_none());
+        assert!(
+            registration
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("official CUA is not installed")
+        );
+        let client = AppServerClient::start(config).await.unwrap();
+        let thread = client
+            .request(
+                "thread/read",
+                json!({"threadId":"ordinary"}),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert_eq!(thread["thread"]["id"], "ordinary");
+        let result = client.request("mcpServer/tool/call", json!({"threadId":"ordinary","server":"node_repl","tool":"js","arguments":{"code":"1+1"}}), Duration::from_secs(5)).await.unwrap();
+        assert_ne!(result["isError"], true);
+        client.close().await.unwrap();
+        let log = fs::read_to_string(temp.path().join("rpc.jsonl")).unwrap();
+        assert!(log.contains("node_repl"));
+        assert!(!log.contains("cua_repl"));
     }
 
     #[test]

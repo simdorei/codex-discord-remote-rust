@@ -21,6 +21,7 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
         paths,
         computer_enabled,
         official_selection,
+        registration_error,
         config_before,
         client,
     } = start_diagnostic(args, root).await?;
@@ -56,7 +57,7 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
         .as_ref()
         .err()
         .map(|error| crate::codex_tools::bounded_error(error));
-    let tools = if config_after.as_ref().ok() != Some(&config_before)
+    let mut tools = if config_after.as_ref().ok() != Some(&config_before)
         || exact_before.is_none()
         || exact_before != exact_after
         || !process_after.healthy
@@ -75,6 +76,7 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
             )
         })
     };
+    apply_registration_failure(&mut tools, registration_error.as_deref());
     let report = json!({
         "schema_version":1,
         "scope":"diagnostic_process_only",
@@ -90,7 +92,8 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
         "computer_provider":{
             "enabled":computer_enabled,
             "managed_registration_enabled":computer_enabled,
-            "mode":if managed_official { "official_cua_standalone" } else { "configured" },
+            "mode":if registration_error.is_some() { "unavailable" } else if managed_official { "official_cua_standalone" } else { "configured" },
+            "registration_error":registration_error,
             "source":official_selection,
             "legacy_cdr_computer":"disabled"
         },
@@ -107,6 +110,13 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     serde_json::to_string(&report).map_err(|error| bounded_error(&error.to_string()))
 }
 
+fn apply_registration_failure(tools: &mut serde_json::Value, error: Option<&str>) {
+    if let Some(error) = error {
+        tools["state"] = json!("FAILED");
+        tools["registration_error"] = json!(error);
+    }
+}
+
 fn probes_requested(args: &Args) -> Result<bool, String> {
     match args.value("--run-probes") {
         None | Some("false") => Ok(false),
@@ -119,6 +129,7 @@ struct DiagnosticSession {
     paths: RuntimePaths,
     computer_enabled: bool,
     official_selection: Option<OfficialCuaSelection>,
+    registration_error: Option<String>,
     config_before: String,
     client: AppServerClient,
 }
@@ -139,9 +150,8 @@ async fn start_diagnostic(args: &Args, root: &Path) -> Result<DiagnosticSession,
     let mut config = paths
         .app_server_config(startup)
         .map_err(|error| bounded_error(&error.to_string()))?;
-    let official_selection =
-        crate::local_computer::configure_current(&mut config, computer_enabled)
-            .map_err(|error| bounded_error(&error.to_string()))?;
+    let registration = crate::local_computer::configure_available(&mut config, computer_enabled)
+        .map_err(|error| bounded_error(&error.to_string()))?;
     let config_before = settings_identity(&paths.codex_home, root, startup)
         .map_err(|error| bounded_error(&error))?;
     let client = AppServerClient::start(config)
@@ -150,7 +160,8 @@ async fn start_diagnostic(args: &Args, root: &Path) -> Result<DiagnosticSession,
     Ok(DiagnosticSession {
         paths,
         computer_enabled,
-        official_selection,
+        official_selection: registration.selection,
+        registration_error: registration.error,
         config_before,
         client,
     })
@@ -273,6 +284,19 @@ pub(crate) fn settings_digest(home: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_js_success_does_not_hide_a_failed_managed_registration() {
+        let mut tools =
+            json!({"state":"VERIFIED","checks":[{"capability":"javascript","state":"VERIFIED"}]});
+        apply_registration_failure(&mut tools, Some("official CUA installation is missing"));
+        assert_eq!(tools["state"], "FAILED");
+        assert_eq!(
+            tools["registration_error"],
+            "official CUA installation is missing"
+        );
+        assert_eq!(tools["checks"][0]["state"], "VERIFIED");
+    }
 
     #[test]
     fn diagnostic_failure_keeps_original_reason_without_claiming_native_checks() {
