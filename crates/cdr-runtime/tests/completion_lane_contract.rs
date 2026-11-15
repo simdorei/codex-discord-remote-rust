@@ -56,16 +56,11 @@ async fn incremental_cold_recovery_preserves_uncertain_starting_across_generatio
         let running = cold.run(receiver);
         let b = format!("new-b-{restart}");
         cold.seed(&b, 43, &b, &b);
+        let started = std::time::Instant::now();
+        let mut milestones = [false; 4];
         events.send(cold.failed(&b, &b)).unwrap();
-        wait_for(|| {
-            cold.stored(&b, &b)
-                && cold.delivered(&b)
-                && !queue::list_filtered(cold.queue.db_path(), Some("cold-current"), None).unwrap()
-                    [0]
-                .last_error
-                .is_empty()
-        })
-        .await;
+        wait_for(|| cold_recovery_ready(&cold, &remote, &b, restart, started, &mut milestones))
+            .await;
         for (target, generation) in [("cold-current", 1), ("cold-old", 37)] {
             let jobs = queue::list_filtered(cold.queue.db_path(), Some(target), None).unwrap();
             assert_eq!(jobs.len(), 1);
@@ -90,6 +85,43 @@ async fn incremental_cold_recovery_preserves_uncertain_starting_across_generatio
         "only new B failures were delivered"
     );
     remote.close().await;
+}
+
+fn cold_recovery_ready(
+    rig: &Rig,
+    remote: &http::Server,
+    job: &str,
+    restart: usize,
+    started: std::time::Instant,
+    milestones: &mut [bool; 4],
+) -> bool {
+    let stored = rig.stored(job, job);
+    let states = [
+        stored,
+        stored && rig.delivered(job),
+        !queue::list_filtered(rig.queue.db_path(), Some("cold-current"), None).unwrap()[0]
+            .last_error
+            .is_empty(),
+        count(remote, 43) == restart + 1,
+    ];
+    for (index, label) in [
+        "b_marker",
+        "b_outbox_removed",
+        "cold_starting_held",
+        "b_http_post",
+    ]
+    .iter()
+    .enumerate()
+    {
+        if states[index] && !milestones[index] {
+            eprintln!(
+                "cold_recovery restart={restart} stage={label} elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            milestones[index] = true;
+        }
+    }
+    states[..3].iter().all(|ready| *ready)
 }
 
 fn count(remote: &http::Server, channel: u64) -> usize {
