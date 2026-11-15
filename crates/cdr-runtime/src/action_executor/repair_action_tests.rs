@@ -30,46 +30,74 @@ fn calls(temp: &tempfile::TempDir) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn unified_repair_selects_current_tool_and_does_not_hide_browser_failure() {
+async fn unified_repair_confirms_reset_without_invoking_cua_out_of_turn() {
     for mode in [
+        "unified_turn_required",
         "unified_ready",
         "unified_both",
         "unified_paged",
-        "unified_browser_error",
-        "unified_native_error",
     ] {
         let temp = tempfile::tempdir().unwrap();
         let fixture = fixture(&temp, mode).await;
-        let result = fixture.executor.repair_tools(42, None).await;
-        if mode == "unified_browser_error" {
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("browser access host")
-            );
-        } else if mode == "unified_native_error" {
-            assert!(result.unwrap_err().to_string().contains("native pipe"));
-        } else {
-            assert!(result.unwrap().text.contains("cua_repl"));
-        }
+        let result = fixture.executor.repair_tools(42, None).await.unwrap();
+        assert!(result.text.contains("cua_repl"));
+        assert!(result.text.contains("세션 초기화 완료"));
+        assert!(result.text.contains("아직 확인하지 않았습니다"));
+        assert!(!result.text.contains("도구 복구 완료"));
         let calls = calls(&temp);
         let tools: Vec<_> = calls
             .iter()
             .filter(|c| c["method"] == "mcpServer/tool/call")
             .collect();
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 1);
         for call in &tools {
             assert_eq!(call["params"]["server"], "cua_repl");
             assert_eq!(call["params"]["threadId"], "thread-b");
         }
         assert_eq!(tools[0]["params"]["tool"], "js_reset");
-        assert_eq!(
-            tools[1]["params"]["arguments"]["code"],
-            "await cua.getState();"
-        );
-        assert!(tools[2]["params"]["arguments"]["completion_summary"].is_string());
+        assert!(!calls.iter().any(|call| call["method"] == "turn/start"));
+        let receipt = std::fs::read_dir(temp.path().join("maintenance_backups/tool-repair"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let saved: Value = serde_json::from_slice(&std::fs::read(receipt).unwrap()).unwrap();
+        assert_eq!(saved["phase"], "reset_confirmed");
+        assert_eq!(saved["verification_scope"], "js_session_reset_only");
+        for field in [
+            "native_desktop_state",
+            "browser_state",
+            "desktop_app_independence",
+        ] {
+            assert_eq!(saved[field], "NOT_CHECKED");
+        }
         assert_eq!(fixture.server.generation(), 1);
+        fixture.server.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn unified_repair_requires_a_confirmed_reset_before_reporting_completion() {
+    for mode in ["unified_reset_error", "unified_reset_malformed"] {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = fixture(&temp, mode).await;
+        let error = fixture.executor.repair_tools(42, None).await.unwrap_err();
+        assert!(!error.to_string().contains("세션 초기화 완료"));
+        let tools: Vec<_> = calls(&temp)
+            .into_iter()
+            .filter(|call| call["method"] == "mcpServer/tool/call")
+            .collect();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["params"]["tool"], "js_reset");
+        assert!(
+            fixture
+                .queue
+                .target_lock("thread-b")
+                .unwrap()
+                .try_lock_owned()
+                .is_ok()
+        );
         fixture.server.close().await.unwrap();
     }
 }

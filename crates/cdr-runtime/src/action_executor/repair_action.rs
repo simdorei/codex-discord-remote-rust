@@ -12,7 +12,6 @@ const INIT: &str =
     "if (!globalThis.sky) { const { sky } = await import(\"@oai/sky\"); globalThis.sky = sky; }";
 const PROBE: &str =
     "nodeRepl.write(JSON.stringify({cdrRepair: 'ready', apps: (await sky.list_apps()).length}));";
-const UNIFIED_PROBE: &str = "await cua.getState();";
 
 // An RPC timeout does not mean a late reset stopped running. Keep this target
 // locked until the old backend has been replaced; !recover does not need it.
@@ -33,7 +32,10 @@ impl RepairLease {
         let value = json!({"phase":phase,"stage":self.stage,"operation_id":self.operation_id,
             "thread_id":thread,"generation":self.generation,
             "server_instance":self.server.instance_id(),"app_restarted":false,
-            "tool_server":self.tool_server});
+            "tool_server":self.tool_server,
+            "verification_scope":if self.tool_server == "cua_repl" { "js_session_reset_only" } else { "legacy_native_inventory" },
+            "native_desktop_state":"NOT_CHECKED","browser_state":"NOT_CHECKED",
+            "desktop_app_independence":"NOT_CHECKED"});
         std::fs::write(&self.receipt, value.to_string())?;
         Ok(())
     }
@@ -104,29 +106,17 @@ impl RepairLease {
     }
 
     async fn verify_connection(&mut self, thread: &str) -> Result<bool, ActionError> {
-        if self.tool_server != "cua_repl" {
-            self.call(thread, "initialize", "js", json!({"code":INIT,"timeout_ms":8000,"title":"Initialize Computer Use after repair"})).await?;
-            let probe = self.call(thread, "probe", "js", json!({"code":PROBE,"timeout_ms":8000,"title":"Verify repaired Computer Use connection"})).await?;
-            return Ok(probe_ready(&probe));
-        }
-        // Unified CUA owns initialization. Its first cell must contain only
-        // a documented entry point; never import the legacy sky runtime.
-        let probe = self.call(thread, "probe", "js", json!({"code":UNIFIED_PROBE,"timeout_ms":8000,"title":"Verify Computer Use connection"})).await?;
-        let inspection = unified_probe_result(&probe);
+        // Preserve the legacy provider's inventory check. Official CUA needs a
+        // real model turn and is never invoked by this idle-thread command.
         self.call(
             thread,
-            "finish",
+            "initialize",
             "js",
-            json!({"completion_summary":"Checked Computer Use connection"}),
+            json!({"code":INIT,"timeout_ms":8000,"title":"Initialize Computer Use after repair"}),
         )
         .await?;
-        if let Err(reason) = inspection {
-            self.record("failed", thread)?;
-            return Err(ActionError::Invalid(format!(
-                "JS 세션은 초기화했지만 Computer Use 연결은 복구되지 않았습니다: {reason}"
-            )));
-        }
-        Ok(true)
+        let probe = self.call(thread, "probe", "js", json!({"code":PROBE,"timeout_ms":8000,"title":"Verify repaired Computer Use connection"})).await?;
+        Ok(probe_ready(&probe))
     }
 }
 
@@ -255,12 +245,25 @@ impl<B: TurnBackend> ActionExecutor<B> {
             lease.record("failed", thread)?;
             return Err(ActionError::Invalid("도구 복구 단계 reset 응답 형식이 달라 완료를 확인하지 못했습니다. 앱은 재시작하지 않았습니다.".into()));
         }
-        let verified = lease.verify_connection(thread).await?;
-        if !verified || server.generation() != generation {
+        let reset_only = tool_server == "cua_repl";
+        if (!reset_only && !lease.verify_connection(thread).await?)
+            || server.generation() != generation
+        {
             lease.record("failed", thread)?;
+            if reset_only {
+                return Err(ActionError::Invalid(
+                    "JS 세션 초기화 응답 후 앱서버가 교체되어 결과를 확인하지 못했습니다.".into(),
+                ));
+            }
             return Err(ActionError::Invalid("도구 복구 단계 probe 실패: JS 세션은 초기화했지만 Computer Use 연결을 확인하지 못했습니다. 앱은 재시작하지 않았습니다.".into()));
         }
         guard.check()?;
+        if reset_only {
+            lease.record("reset_confirmed", thread)?;
+            return Ok(immediate(format!(
+                "JS 세션 초기화 완료: {thread} ({tool_server})\n이 채팅의 도구 세션을 초기화했습니다. 화면 읽기·클릭·브라우저 연결은 아직 확인하지 않았습니다. 다음 대화에서 실제 작업으로 확인하세요. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다."
+            )));
+        }
         lease.record("verified", thread)?;
         Ok(immediate(format!(
             "도구 복구 완료: {thread} ({tool_server})\n이 채팅의 JS 세션을 초기화하고 Computer Use 목록 조회를 확인했습니다. 개별 창의 화면 읽기·클릭은 별도 확인이 필요합니다. 앱 재시작·요청 취소는 하지 않았습니다. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다."
@@ -309,29 +312,6 @@ fn probe_ready(value: &Value) -> bool {
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .any(|line| line["cdrRepair"] == "ready" && line["apps"].as_u64().is_some())
-}
-
-fn unified_probe_result(value: &Value) -> Result<(), String> {
-    let state = content_text(value)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find(|line| line["apps"].is_array() && line["browsers"].is_array())
-        .ok_or_else(|| "Computer Use inventory response is missing".to_owned())?;
-    let Some(errors) = state.get("errors") else {
-        return Ok(());
-    };
-    let errors = errors
-        .as_array()
-        .ok_or_else(|| "Invalid inventory errors".to_owned())?;
-    if errors.is_empty() {
-        return Ok(());
-    }
-    let errors = errors
-        .iter()
-        .map(|v| v.as_str().unwrap_or("Invalid inventory error"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    Err(errors.chars().take(1200).collect())
 }
 
 #[cfg(test)]

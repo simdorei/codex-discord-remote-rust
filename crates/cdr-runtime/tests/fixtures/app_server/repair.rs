@@ -42,20 +42,20 @@ pub(super) fn run() -> Result {
                 if mode == "timeout" {
                     return Ok(());
                 }
-                json!({"content":[{"type":"text","text":"js kernel reset"}]})
+                match mode.as_str() {
+                    "unified_reset_error" => {
+                        json!({"isError":true,"content":[{"type":"text","text":"reset refused"}]})
+                    }
+                    "unified_reset_malformed" => {
+                        json!({"content":[{"type":"text","text":"reset outcome unknown"}]})
+                    }
+                    _ => json!({"content":[{"type":"text","text":"js kernel reset"}]}),
+                }
             }
-            "mcpServer/tool/call" if params["arguments"]["code"] == "await cua.getState();" => {
-                let errors = match mode.as_str() {
-                    "unified_browser_error" => {
-                        vec!["Browsers: Error: The browser access host is unavailable"]
-                    }
-                    "unified_native_error" => {
-                        vec!["Native apps: Error: Computer Use native pipe is unavailable"]
-                    }
-                    _ => vec![],
-                };
-                let state = json!({"apps":[],"browsers":[],"errors":errors});
-                json!({"content":[{"type":"text","text":state.to_string()}]})
+            "mcpServer/tool/call" if params["server"] == "cua_repl" => {
+                // The official standalone worker needs an active model turn.
+                // A reset acknowledgement cannot authorize a native/browser probe.
+                json!({"isError":true,"content":[{"type":"text","text":"spawn EPERM: active model turn required"}]})
             }
             "mcpServer/tool/call"
                 if params["arguments"]["code"]
