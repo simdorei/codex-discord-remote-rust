@@ -1,14 +1,21 @@
 #![allow(clippy::too_many_lines)]
 
 use std::fs;
+#[cfg(windows)]
 use std::io::Read;
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
+#[cfg(windows)]
+use std::process::{Child, Stdio};
+#[cfg(windows)]
 use std::sync::{Arc, Mutex};
+#[cfg(windows)]
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+#[cfg(windows)]
 const MAX_PIPE_CAPTURE_BYTES: usize = 64 * 1024;
 
+#[cfg(windows)]
 fn spawn_pipe_drainer<R: Read + Send + 'static>(
     mut reader: R,
     sink: Arc<Mutex<Vec<u8>>>,
@@ -30,6 +37,7 @@ fn spawn_pipe_drainer<R: Read + Send + 'static>(
     })
 }
 
+#[cfg(windows)]
 struct OwnedChildGuard {
     child: Child,
     stderr_capture: Arc<Mutex<Vec<u8>>>,
@@ -37,6 +45,7 @@ struct OwnedChildGuard {
     stderr_thread: Option<JoinHandle<()>>,
 }
 
+#[cfg(windows)]
 impl OwnedChildGuard {
     fn new(mut child: Child) -> Self {
         let stdout_capture = Arc::new(Mutex::new(Vec::new()));
@@ -77,6 +86,7 @@ impl OwnedChildGuard {
     }
 }
 
+#[cfg(windows)]
 impl Drop for OwnedChildGuard {
     fn drop(&mut self) {
         if let Ok(None) = self.child.try_wait() {
@@ -107,13 +117,17 @@ fn clean_mcp_command() -> Command {
     cmd
 }
 
+#[cfg(windows)]
 use cdr_remote_agent::config::{RemoteMcpOwnership, load_remote_mcp_config};
 use cdr_remote_agent::dispatcher::LocalProjectDispatcher;
+#[cfg(windows)]
 use cdr_remote_agent::restart_handoff::RestartHandoffRuntime;
-use cdr_remote_agent::status::{EXTERNAL_MCP_STATUS_SCHEMA_VERSION, ExternalMcpStatusRecord};
-use cdr_remote_protocol::message::{
-    GatewayCommand, GatewayInboundMessage, ProtocolV10, parse_bridge_message,
-};
+#[cfg(windows)]
+use cdr_remote_agent::status::EXTERNAL_MCP_STATUS_SCHEMA_VERSION;
+use cdr_remote_agent::status::ExternalMcpStatusRecord;
+#[cfg(windows)]
+use cdr_remote_protocol::message::parse_bridge_message;
+use cdr_remote_protocol::message::{GatewayCommand, GatewayInboundMessage, ProtocolV10};
 use cdr_remote_protocol::request::{ProjectOperation, TerminalRequest, TerminalShell};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt, StreamExt};
@@ -190,6 +204,31 @@ fn standalone_mcp_cli_supports_help_build_info_and_check_config_without_discord_
     );
 }
 
+#[cfg(not(windows))]
+#[test]
+fn standalone_runtime_refuses_unsupported_process_ownership_without_publishing_ready() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let output = clean_mcp_command()
+        .current_dir(temp.path())
+        .env_remove("LOCALAPPDATA")
+        .env_remove("USERPROFILE")
+        .env("CODEX_REMOTE_MCP_ENABLED", "1")
+        .env("CODEX_REMOTE_MCP_BRIDGE_URL", "ws://127.0.0.1:9/bridge")
+        .env("CODEX_REMOTE_MCP_DEVICE_ID", "unsupported-runtime")
+        .env("CODEX_REMOTE_MCP_DEVICE_TOKEN", "fixture")
+        .output()
+        .expect("run unsupported standalone runtime");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Standalone remote MCP requires Windows"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!temp.path().join("bot_data/remote_mcp_status.json").exists());
+}
+
+// This binary contract includes Windows identity/mutex and DPAPI handoff.
+#[cfg(windows)]
 #[tokio::test]
 async fn standalone_mcp_writes_atomic_status_and_handles_disconnect_and_handoff_drain() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -604,6 +643,9 @@ async fn standalone_mcp_honors_preexisting_stop_intent_and_invalidates_status_be
     );
 }
 
+// This checks the Windows standalone process; the shared transport/status test
+// above remains platform-independent.
+#[cfg(windows)]
 #[tokio::test]
 async fn standalone_mcp_distinguishes_process_heartbeat_from_bridge_liveness_and_recovers_on_new_generation()
  {

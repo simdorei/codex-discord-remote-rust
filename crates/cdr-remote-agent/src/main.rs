@@ -269,7 +269,10 @@ fn current_process_identity_string() -> Result<String, (u8, String)> {
 
 #[cfg(not(windows))]
 fn current_process_identity_string() -> Result<String, (u8, String)> {
-    Ok(format!("{}|0", std::process::id()))
+    Err((
+        1,
+        "Standalone remote MCP requires Windows process identity, instance locking, and protected restart handoff support.".into(),
+    ))
 }
 
 #[cfg(windows)]

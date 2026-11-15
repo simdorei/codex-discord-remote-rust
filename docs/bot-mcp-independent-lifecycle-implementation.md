@@ -4,6 +4,14 @@
 
 This document tracks the implementation and isolated verification of the approved Bot & MCP Independent Lifecycle separation plan (`feat/bot-mcp-independent-20261105`).
 
+The standalone process lifecycle is supported on Windows: exact process identity,
+single-instance ownership and protected restart handoff rely on Windows APIs.
+On other platforms the executable supports `--help`, `--build-info` and
+`--check-config`, but a live standalone start is explicitly rejected before
+publishing ready status. Windows process/DPAPI contracts run only on Windows;
+shared configuration, transport and status tests remain cross-platform. macOS
+CI success does not imply support for the Windows standalone lifecycle.
+
 ### Core Architectural Invariants
 
 1. **Separated Process & Supervision Boundaries (`bot` vs `mcp`)**
