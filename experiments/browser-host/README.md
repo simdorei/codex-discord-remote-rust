@@ -27,10 +27,6 @@ This does not establish full desktop-app feature parity or all-site compatibilit
   complete tuple. Private keys stay in memory.
 - `authority.test.mjs`: denial, cancellation, namespace isolation, signature,
   framing and approval-forwarding regressions, including real Windows pipes.
-- `probe.py`: isolated real model-turn acceptance runner, contained in its own
-  kill-on-close Windows job. Any client approval request waits for an explicit
-  matching reply file. It never automatically accepts requests. An optional
-  loopback-only page records the result of its actual button handler.
 - `local_computer/browser_host.rs` and `browser_host/cache.rs` in the runtime
   crate: select the compiled runtime as MCP launcher, publish embedded helpers
   atomically under a content digest in `CODEX_HOME/cdr-browser-host`, verify their
@@ -57,19 +53,20 @@ their original launch behavior. An invalid host cache follows the existing
 optional-CUA failure path and does not prevent ordinary Discord/JS operation.
 The internal launcher starts the original `--import <official guard> <official
 CUA entrypoint>` unchanged. It never rewrites the installed manifest or user config.
-Use the compiled candidate in the isolated real-turn probe:
+The one-off real-turn acceptance harness and its receipts are kept outside this
+Python-free repository under
+`C:\ai\codex\maintenance\standalone-browser-host-pr-20261117`.
+`acceptance-harness/probe.py` preserves the original test source; it is not a
+runtime, installation or CI dependency. The focused contracts above remain in
+the repository. Do not add an interpreter or exempt the repository contract to
+run the product.
 
-```powershell
-python -X utf8 experiments/browser-host/probe.py `
-  --runtime $candidateRuntime `
-  --manifest $officialManifest --output $newEvidenceDirectory `
-  --prompt $reviewedTestPrompt --local-page
-```
-
-The prompt may contain `{TEST_URL}`, which is replaced with the fixture's
-loopback URL. Browser tests affect the real desktop and must preserve existing
-tabs, shared tab limits and current user work. The probe does not close the GPT
-app or start/stop the production Discord bot or external MCP agent.
+Real browser acceptance should initialize the compiled MCP entrypoint in an
+isolated app-server, preserve all official approval requests, and verify a
+loopback page's actual button receipt as well as its visible result. Keep test
+processes in an owned Windows job and clean up only the test tab. Browser tests
+affect the real desktop and must preserve existing tabs, shared tab limits and
+current user work; they must not restart the production bot or external MCP.
 
 ## Current limits before production deployment
 
