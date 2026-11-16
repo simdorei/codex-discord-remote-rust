@@ -44,17 +44,17 @@ try {
     $profile = Join-Path $work 'codex-profile'
     $null = [IO.Directory]::CreateDirectory($profile)
     [IO.File]::WriteAllText((Join-Path $profile 'config.toml'), "[notice]`nhide_world_writable_warning = true`nhide_full_access_warning = true`n", $utf8)
+    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     if (-not $CodexExe) {
-        $CodexExe = Join-Path $work 'codex.cmd'
-        $fakeScript = Join-Path $work 'fake-codex.ps1'
-        [IO.File]::Copy((Join-Path $PSScriptRoot 'tests\Fake-ReleaseCodex.ps1'), $fakeScript)
-        [IO.File]::WriteAllText($CodexExe, "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0fake-codex.ps1`" %*`r`nexit /b %errorlevel%`r`n", $utf8)
+        $CodexExe = Join-Path $work 'codex.exe'
+        $builder = Join-Path $PSScriptRoot 'tests\Fake-ReleaseCodex.ps1'
+        $null = Invoke-CdrNative -Executable $shell -Arguments @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', $builder, '-OutputPath', $CodexExe)
     }
     $env:CDR_RELEASE_TEST_ROOT = $root
     $hostScript = Join-Path $PSScriptRoot 'tests\Invoke-ReleaseInstallFixture.ps1'
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $hostScript,
         '-Root', $root, '-CodexExe', $CodexExe, '-CodexHome', $profile)
-    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $dry = [string](Invoke-CdrNative -Executable $shell -Arguments ($arguments + '-DryRun'))
     Assert-Release ($dry.Contains('Dry run complete.')) 'Dry-run did not finish'
     Assert-Release (-not (Test-Path -LiteralPath (Join-Path $root '.env'))) 'Dry-run created settings'

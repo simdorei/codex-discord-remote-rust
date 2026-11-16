@@ -416,9 +416,11 @@ version = "0.1.0"
 dependencies = [
  "cdr-app-server",
  "cdr-codex-state",
+ "cdr-core",
  "cdr-discord",
  "cdr-pro",
  "cdr-remote-agent",
+ "cdr-remote-protocol",
  "cdr-store",
  "cdr-windows-native",
  "chrono",

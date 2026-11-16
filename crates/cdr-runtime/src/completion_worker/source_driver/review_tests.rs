@@ -107,6 +107,20 @@ fn assert_discovery_prefix(db: &Connection) {
     assert_eq!(seen, 101);
 }
 
+fn log_reconciliation_progress(db: &Connection, elapsed: Duration, verified: bool) {
+    let gaps = db
+        .prepare("SELECT first_seq,last_seq,scan_cursor,revision,state,verified_json FROM cdr_observation_gaps ORDER BY gap_id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    eprintln!(
+        "source_prefix elapsed_ms={} verified={verified} gaps={gaps:?}",
+        elapsed.as_millis()
+    );
+}
+
 #[tokio::test]
 async fn patch06_review_p2_delayed_actual_source_page_does_not_create_unknown_hole() {
     let f = Fixture::new().await;
@@ -175,6 +189,7 @@ async fn patch06_review_p2_delayed_actual_source_page_does_not_create_unknown_ho
         Arc::clone(&f.worker),
         shutdown,
     ));
+    let started = Instant::now();
     let verified = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if store::scope_verified(&f.db, &scope, 101).unwrap() {
@@ -184,6 +199,7 @@ async fn patch06_review_p2_delayed_actual_source_page_does_not_create_unknown_ho
         }
     })
     .await;
+    log_reconciliation_progress(&db, started.elapsed(), verified.is_ok());
     let _ = stop.send(true);
     tokio::time::timeout(Duration::from_secs(5), task)
         .await

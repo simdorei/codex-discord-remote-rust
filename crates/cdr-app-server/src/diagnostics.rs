@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use crate::browser_host_diagnostics::BrowserHostDiagnosticSnapshot;
+
 const MAX_DIAGNOSTIC_LINES: usize = 512;
 const MAX_DIAGNOSTIC_BYTES: usize = 64 * 1024;
 
@@ -8,6 +10,7 @@ pub struct DiagnosticSnapshot {
     pub lines: Vec<String>,
     pub retained_bytes: usize,
     pub dropped_lines: u64,
+    pub browser_host_context: BrowserHostDiagnosticSnapshot,
 }
 
 #[derive(Debug, Default)]
@@ -15,6 +18,7 @@ pub(crate) struct BoundedDiagnostics {
     lines: VecDeque<String>,
     retained_bytes: usize,
     dropped_lines: u64,
+    pub(crate) browser_host_context: BrowserHostDiagnosticSnapshot,
 }
 
 impl BoundedDiagnostics {
@@ -40,6 +44,7 @@ impl BoundedDiagnostics {
             lines: self.lines.iter().cloned().collect(),
             retained_bytes: self.retained_bytes,
             dropped_lines: self.dropped_lines,
+            browser_host_context: self.browser_host_context.clone(),
         }
     }
 }

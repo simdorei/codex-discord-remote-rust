@@ -7,12 +7,14 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::{AppServerConfig, AppServerError};
 
 #[cfg(windows)]
+mod browser_host;
+
+#[cfg(windows)]
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[cfg(windows)]
 const DESKTOP_SESSION_ENVIRONMENT: &[&str] = &[
     "CODEX_APP_TOOLS_PIPE_PATH",
-    "BROWSER_USE_ACCESS_VERIFYING_IDENTITY",
     "CODEX_TASK_WORKSPACE_VERIFYING_IDENTITY",
     "SKY_CUA_NATIVE_PIPE_DIRECTORY",
     "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
@@ -29,6 +31,7 @@ pub(crate) struct SpawnedAppServer {
     pub stdin: AppServerInput,
     pub stdout: AppServerOutput,
     pub stderr: AppServerOutput,
+    pub browser_host_context: Option<crate::browser_host_diagnostics::BrowserHostLaunchObservation>,
 }
 
 pub(crate) enum AppServerProcess {
@@ -53,7 +56,7 @@ pub(crate) fn spawn_app_server(
 
 #[cfg(windows)]
 fn spawn_windows(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServerError> {
-    let environment = inherited_environment(&config.environment)?;
+    let (environment, browser_host_context) = inherited_environment(&config.environment)?;
     let cwd = std::env::current_dir()?;
     let mut child = cdr_windows_native::CapturedWindowProcess::launch_piped(
         &config.executable,
@@ -111,21 +114,38 @@ fn spawn_windows(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServer
         stdin: Box::pin(tokio::fs::File::from_std(stdin)),
         stdout: Box::pin(tokio::fs::File::from_std(stdout)),
         stderr: Box::pin(tokio::fs::File::from_std(stderr)),
+        browser_host_context: Some(browser_host_context),
     })
 }
 
 #[cfg(windows)]
 fn inherited_environment(
     overrides: &std::collections::BTreeMap<String, String>,
-) -> Result<std::collections::HashMap<String, String>, AppServerError> {
+) -> Result<
+    (
+        std::collections::HashMap<String, String>,
+        crate::browser_host_diagnostics::BrowserHostLaunchObservation,
+    ),
+    AppServerError,
+> {
     let mut environment = std::collections::HashMap::new();
+    let mut browser_environment = std::collections::BTreeMap::new();
     for (name, value) in std::env::vars_os() {
         let name = name
             .into_string()
             .map_err(|_| AppServerError::EnvironmentEncoding { field: "name" })?;
+        if browser_host::is_host_variable(&name) {
+            let value = value
+                .into_string()
+                .map_err(|_| AppServerError::EnvironmentEncoding { field: "value" })?;
+            browser_environment.insert(name, value);
+            continue;
+        }
         // Inherited desktop identities and pipe addresses belong to the parent
         // session, not this independent server. Explicit overrides below remain
         // available to callers; authentication and CODEX_HOME are preserved.
+        // Browser host connection metadata is handled separately as one set;
+        // forwarding it does not register or authorize this server's threads.
         if DESKTOP_SESSION_ENVIRONMENT
             .iter()
             .any(|desktop_name| name.eq_ignore_ascii_case(desktop_name))
@@ -138,6 +158,9 @@ fn inherited_environment(
         environment.insert(name, value);
     }
     for (name, value) in overrides {
+        if browser_host::is_host_variable(name) {
+            continue;
+        }
         if let Some(inherited) = environment
             .keys()
             .find(|inherited| inherited.eq_ignore_ascii_case(name))
@@ -147,7 +170,8 @@ fn inherited_environment(
         }
         environment.insert(name.clone(), value.clone());
     }
-    Ok(environment)
+    let observation = browser_host::apply(&browser_environment, overrides, &mut environment);
+    Ok((environment, observation))
 }
 
 #[cfg(not(windows))]
@@ -185,6 +209,7 @@ fn spawn_portable(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServe
         stdin: Box::pin(stdin),
         stdout: Box::pin(stdout),
         stderr: Box::pin(stderr),
+        browser_host_context: None,
     })
 }
 

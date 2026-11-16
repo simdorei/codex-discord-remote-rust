@@ -47,6 +47,11 @@ fn changed_program_pin_cannot_claim_or_dispatch() {
 }
 
 #[test]
+fn changed_package_activation_helper_cannot_claim_or_dispatch() {
+    run_case("package-helper-change");
+}
+
+#[test]
 fn busy_host_gate_cannot_replay_after_it_is_released() {
     run_case("gate-busy");
 }

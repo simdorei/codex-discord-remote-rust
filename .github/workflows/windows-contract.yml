@@ -31,6 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Verify embedded browser host contracts
+        run: node --test experiments/browser-host/authority.test.mjs
       - name: Verify pinned Rust workspace
         run: |
           if ($env:TEMP -cne $env:RUNNER_TEMP -or $env:TMP -cne $env:RUNNER_TEMP) {

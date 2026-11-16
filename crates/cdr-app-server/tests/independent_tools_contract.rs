@@ -26,17 +26,9 @@ fn fixture_config() -> AppServerConfig {
 }
 
 #[test]
-fn default_arguments_use_installed_native_tools_without_a_desktop_pipe() {
+fn default_arguments_leave_mcp_transport_configuration_to_the_caller() {
     let config = AppServerConfig::new("codex.exe");
-    assert_eq!(&config.arguments[..2], ["app-server", "--stdio"]);
-    if cfg!(windows) {
-        assert_eq!(
-            &config.arguments[2..],
-            ["-c", r#"mcp_servers.node_repl.env.SKY_CUA_NATIVE_PIPE="0""#]
-        );
-    } else {
-        assert_eq!(config.arguments.len(), 2);
-    }
+    assert_eq!(&config.arguments[..], ["app-server", "--stdio"]);
 }
 
 #[tokio::test]

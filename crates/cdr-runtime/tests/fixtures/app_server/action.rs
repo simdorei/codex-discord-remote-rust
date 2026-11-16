@@ -12,6 +12,10 @@ struct State {
     hide_history: bool,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the synthetic RPC cases beside the fixture state they share."
+)]
 pub(super) fn run() -> Result {
     let log = env("CDR_ACTION_RPC_LOG");
     let persisted = std::env::var("CDR_NEW_STATE_FIXTURE").ok();
@@ -110,13 +114,14 @@ pub(super) fn run() -> Result {
                 }
                 json!({"turn":{"id":"first-turn","status":"inProgress"}})
             }
-            "thread/resume" if thread == "thread-a" => {
+            "thread/resume" | "thread/archive" if thread == "thread-a" => {
                 return error(
                     &request,
                     -32600,
                     "thread thread-a already has an active writer",
                 );
             }
+            "thread/list" => json!({"data":[],"nextCursor":null}),
             "thread/read" | "thread/resume" => json!({"thread":{"id":thread,"turns":[]}}),
             "thread/turns/list" => turn_index(&state, thread),
             "turn/start" => json!({"turn":{"id":"existing-turn","status":"inProgress"}}),

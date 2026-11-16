@@ -1,5 +1,5 @@
 use cdr_app_server::{AppServerClient, AppServerConfig};
-use cdr_runtime::codex_tools::{ToolState, inspect};
+use cdr_runtime::codex_tools::{ToolReport, ToolState, inspect, inspect_with_managed_official};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::time::{Duration, Instant};
@@ -21,12 +21,14 @@ fn tools_protocol_fixture() {
         let Some(id) = message.get("id") else {
             continue;
         };
-        let result = match message["method"].as_str().unwrap() {
+        let method = message["method"].as_str().unwrap();
+        let result = match method {
             "initialize" => json!({}),
             "thread/start" => {
                 assert_eq!(message["params"]["ephemeral"], true);
                 assert_eq!(message["params"]["sandbox"], "read-only");
-                json!({"thread":{"id":"fixture-thread"}})
+                assert_eq!(message["params"]["approvalPolicy"], "never");
+                json!({"thread":{"id":"fixture-thread","ephemeral":true}})
             }
             "mcpServerStatus/list" => {
                 inventories += 1;
@@ -46,48 +48,41 @@ fn tools_protocol_fixture() {
                     if mode == "alternate-name" {
                         cua["name"] = json!("owned-cua-server");
                     }
+                    if mode == "discovery-error" {
+                        cua["toolsError"] =
+                            json!("Cannot verify browser access without the current turn");
+                    }
                     data.push(cua);
                 }
                 json!({"data":data,"nextCursor":null})
             }
             "mcpServer/tool/call" => {
                 assert_eq!(message["params"]["threadId"], "fixture-thread");
+                assert_eq!(message["params"]["server"], "node_repl");
                 assert_eq!(message["params"]["tool"], "js");
                 writeln!(calls, "{}", message["params"]).unwrap();
-                let code = message["params"]["arguments"]["code"]
-                    .as_str()
-                    .unwrap_or("");
-                let marker = if code.contains("node-js-v1") {
-                    "node-js-v1"
+                let code = message["params"]["arguments"]["code"].as_str().unwrap();
+                assert!(code.contains("node-js-v1"));
+                assert!(!code.contains("cua."));
+                if mode == "failure" {
+                    json!({"isError":true,"content":[{"type":"text","text":"spawn EPERM: fixture failure"}]})
                 } else {
-                    "cua-state-v1"
-                };
-                let inventory = match mode.as_str() {
-                    "inventory-errors" => {
-                        json!({"apps":[],"browsers":[],"errors":["native pipe unavailable", "browser host unavailable"]})
-                    }
-                    "inventory-partial" => {
-                        json!({"apps":[{"name":"Notepad"}],"browsers":[],"errors":["browser host unavailable"]})
-                    }
-                    "inventory-null" => Value::Null,
-                    "inventory-malformed" => json!({"apps":"unavailable","browsers":[]}),
-                    "inventory-bad-entry" => json!({"apps":[null],"browsers":[]}),
-                    "inventory-bad-errors" => json!({"apps":[],"browsers":[],"errors":"unknown"}),
-                    "inventory-populated" => {
-                        json!({"apps":[{"name":"Notepad"}],"browsers":[{"name":"Chrome"}],"errors":[]})
-                    }
-                    _ => json!({"apps":[],"browsers":[]}),
-                };
-                json!({"isError":mode=="failure","content":[{"type":"text","text":json!({"cdrProbe":marker,"observed":true,"inventory":inventory}).to_string()}]})
+                    json!({"isError":false,"content":[{"type":"text","text":json!({"cdrProbe":"node-js-v1","observed":true}).to_string()}]})
+                }
             }
             other => panic!("unexpected method {other}"),
         };
-        writeln!(output, "{}", json!({"id":id,"result":result})).unwrap();
+        let response = if mode == "protocol-error" && method == "mcpServer/tool/call" {
+            json!({"id":id,"error":{"code":-32000,"message":"spawn EPERM: protocol fixture"}})
+        } else {
+            json!({"id":id,"result":result})
+        };
+        writeln!(output, "{response}").unwrap();
         output.flush().unwrap();
     }
 }
 
-async fn exercise(mode: &str, invoke: bool) -> (ToolState, usize) {
+async fn exercise(mode: &str, invoke: bool, managed: bool) -> (ToolReport, usize) {
     let root = tempfile::tempdir().unwrap();
     let mut config = AppServerConfig::new(std::env::current_exe().unwrap());
     config.arguments = vec![
@@ -103,20 +98,20 @@ async fn exercise(mode: &str, invoke: bool) -> (ToolState, usize) {
         .environment
         .insert("CDR_TOOLS_ROOT".into(), root.path().display().to_string());
     let client = AppServerClient::start(config).await.unwrap();
-    let report = inspect(
-        &client,
-        root.path(),
-        invoke,
-        Instant::now() + Duration::from_secs(10),
-    )
-    .await
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let report = if managed {
+        inspect_with_managed_official(&client, root.path(), invoke, true, deadline).await
+    } else {
+        inspect(&client, root.path(), invoke, deadline).await
+    }
     .unwrap();
     let serialized = serde_json::to_value(&report).unwrap();
     assert_eq!(
         serialized["verification_scope"],
-        "javascript_and_surface_inventory"
+        "javascript_and_mcp_inventory"
     );
     assert_eq!(serialized["native_desktop_state"], "NOT_CHECKED");
+    assert_eq!(serialized["browser_state"], "NOT_CHECKED");
     assert_eq!(serialized["desktop_app_independence"], "NOT_CHECKED");
     client.close().await.unwrap();
     assert!(report.catalog_sha256.is_some());
@@ -124,53 +119,79 @@ async fn exercise(mode: &str, invoke: bool) -> (ToolState, usize) {
         .unwrap()
         .lines()
         .count();
-    (report.state, calls)
+    (report, calls)
 }
 
 #[tokio::test]
-async fn only_actual_calls_can_verify_the_fixed_contract() {
-    assert_eq!(exercise("normal", false).await, (ToolState::NotChecked, 0));
-    assert_eq!(exercise("normal", true).await, (ToolState::Verified, 4));
+async fn plain_javascript_success_never_verifies_computer_use() {
+    let (catalog, calls) = exercise("normal", false, false).await;
+    assert_eq!(catalog.state, ToolState::NotChecked);
+    assert_eq!(calls, 0);
+    let (probed, calls) = exercise("normal", true, false).await;
+    assert_eq!(calls, 1);
+    assert_eq!(probed.state, ToolState::NotChecked);
+    assert_eq!(probed.checks[0].state, ToolState::Verified);
+    assert_eq!(probed.checks[1].state, ToolState::NotChecked);
+    assert_eq!(probed.checks[1].reason, "requires_active_model_turn");
 }
+
 #[tokio::test]
 async fn missing_auth_failure_and_changed_catalog_never_verify() {
-    assert_eq!(exercise("missing", true).await.0, ToolState::Failed);
-    assert_eq!(exercise("auth", true).await.0, ToolState::Unverified);
-    assert_ne!(exercise("failure", true).await.0, ToolState::Verified);
-    assert_eq!(exercise("changed", true).await.0, ToolState::Unverified);
+    assert_eq!(
+        exercise("missing", true, false).await.0.state,
+        ToolState::Failed
+    );
+    assert_eq!(
+        exercise("auth", true, false).await.0.state,
+        ToolState::Unverified
+    );
+    assert_eq!(
+        exercise("failure", true, false).await.0.state,
+        ToolState::Failed
+    );
+    assert_eq!(
+        exercise("changed", true, false).await.0.state,
+        ToolState::Unverified
+    );
 }
 
 #[tokio::test]
-async fn successful_markers_cannot_replace_required_plugin_ownership() {
+async fn plain_cua_name_is_accepted_only_for_an_explicit_managed_registration() {
     assert_eq!(
-        exercise("missing-owner", true).await,
-        (ToolState::Failed, 1)
+        exercise("missing-owner", true, false).await.0.state,
+        ToolState::Failed
     );
-    assert_eq!(exercise("wrong-owner", true).await, (ToolState::Failed, 1));
+    let (managed, calls) = exercise("missing-owner", true, true).await;
+    assert_eq!(managed.state, ToolState::NotChecked);
+    assert_eq!(calls, 1);
+    assert_eq!(managed.checks[1].server.as_deref(), Some("cua_repl"));
     assert_eq!(
-        exercise("alternate-name", true).await,
-        (ToolState::Verified, 4)
+        exercise("wrong-owner", true, true).await.0.state,
+        ToolState::Failed
+    );
+    assert_eq!(
+        exercise("alternate-name", true, false).await.0.state,
+        ToolState::NotChecked
     );
 }
 
 #[tokio::test]
-async fn incomplete_inventory_is_unverified_despite_successful_calls_and_markers() {
-    for mode in [
-        "inventory-errors",
-        "inventory-partial",
-        "inventory-null",
-        "inventory-malformed",
-        "inventory-bad-entry",
-        "inventory-bad-errors",
-    ] {
-        assert_eq!(
-            exercise(mode, true).await,
-            (ToolState::Unverified, 4),
-            "{mode}"
+async fn tool_protocol_and_discovery_errors_preserve_the_original_reason() {
+    for mode in ["failure", "protocol-error"] {
+        let (report, calls) = exercise(mode, true, false).await;
+        assert_eq!(calls, 1);
+        assert!(
+            report.checks[0]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("spawn EPERM")
         );
     }
+    let (report, calls) = exercise("discovery-error", true, false).await;
+    assert_eq!(calls, 1);
     assert_eq!(
-        exercise("inventory-populated", true).await,
-        (ToolState::Verified, 4)
+        report.checks[1].error.as_deref(),
+        Some("Cannot verify browser access without the current turn")
     );
 }

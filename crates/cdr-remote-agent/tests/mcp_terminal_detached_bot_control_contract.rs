@@ -430,6 +430,7 @@ async fn t04_bot_start_and_restart_from_mcp_captured_window_process_survive_norm
             format!(
                 "DISCORD_BOT_TOKEN=Bot.test.token\n\
                  DISCORD_ALLOWED_CHANNEL_IDS=42\n\
+                 DISCORD_HEADLESS_COMPUTER_USE=0\n\
                  CDR_DISCORD_HTTP_PROXY={}\n\
                  CDR_DISCORD_GATEWAY_PROXY_URL=ws://{}\n\
                  CODEX_HOME={codex_home_env}\n\
@@ -465,6 +466,9 @@ async fn t04_bot_start_and_restart_from_mcp_captured_window_process_survive_norm
         )
         .expect("write pre_launch.ps1");
         let pre_out = Command::new(&ps_exe)
+            .env_remove("CODEX_HOME")
+            .env_remove("CODEX_EXE")
+            .env("DISCORD_HEADLESS_COMPUTER_USE", "0")
             .args([
                 "-NoProfile",
                 "-NonInteractive",
@@ -477,8 +481,10 @@ async fn t04_bot_start_and_restart_from_mcp_captured_window_process_survive_norm
             .expect("run pre_launch_script");
         assert!(
             pre_out.status.success(),
-            "mode={mode} pre-launch failed: {}",
-            String::from_utf8_lossy(&pre_out.stderr)
+            "mode={mode} pre-launch failed: {}\nBOT_STDERR:\n{}",
+            String::from_utf8_lossy(&pre_out.stderr),
+            fs::read_to_string(temp.path().join("codex_discord_rust.error.log"))
+                .unwrap_or_default()
         );
         let journal_path = temp
             .path()
@@ -559,6 +565,10 @@ async fn t04_bot_start_and_restart_from_mcp_captured_window_process_survive_norm
             terminal_script.display().to_string(),
         ];
         let mut env_map: HashMap<String, String> = std::env::vars().collect();
+        env_map.retain(|name, _| {
+            !name.eq_ignore_ascii_case("CODEX_HOME") && !name.eq_ignore_ascii_case("CODEX_EXE")
+        });
+        env_map.insert("DISCORD_HEADLESS_COMPUTER_USE".into(), "0".into());
         env_map.insert(
             "CDR_DISCORD_HTTP_PROXY".to_owned(),
             discord_double.http_addr.to_string(),

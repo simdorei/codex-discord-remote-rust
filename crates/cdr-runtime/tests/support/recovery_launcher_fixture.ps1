@@ -199,7 +199,7 @@ if ($deployment) {
 }
 if ($Scenario -in @('owned-journal','launching-journal')) {
     $script:CdrLaunchJournalPath=Join-Path $RepoRoot 'fixture.launch'
-    $record=New-CdrLaunchJournal $script:CdrLaunchJournalPath 'fixture-owned' -ArtifactHash (Hash $BinaryPath)
+    $record=New-CdrLaunchJournal $script:CdrLaunchJournalPath 'fixture-owned' -ArtifactHash (Get-CdrArtifactHash $BinaryPath)
     if ($Scenario -eq 'launching-journal') {
         $record.Phase='launching'
         Save-CdrLaunchJournal $script:CdrLaunchJournalPath $record

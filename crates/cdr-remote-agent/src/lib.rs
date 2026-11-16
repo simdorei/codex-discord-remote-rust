@@ -5,6 +5,7 @@ pub mod checkpoints;
 mod code;
 pub mod commands;
 pub mod computer;
+pub mod computer_mcp;
 pub mod config;
 pub mod dispatcher;
 pub mod files;

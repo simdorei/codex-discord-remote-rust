@@ -21,10 +21,12 @@ impl<B: TurnBackend> ActionExecutor<B> {
         } else {
             "미확인: app-server 연결 없음".into()
         };
-        let mut text = format!(
+        let text = format!(
             "{text}\napp_server: {lifecycle}\nruntime_pid: {}",
             std::process::id()
         );
+        #[cfg(windows)]
+        let mut text = text;
         #[cfg(windows)]
         if let (Some(selection), Some(server)) = (&self.codex_selection, &self.server) {
             let snapshot = server.lifecycle_snapshot().await;

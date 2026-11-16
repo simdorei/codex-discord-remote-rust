@@ -25,11 +25,48 @@ fn defaults_and_id_sets_match_the_python_runtime() {
     assert!(config.session_mirror);
     assert!(!config.qa_commands);
     assert!(!config.host_commands);
+    assert_eq!(config.headless_computer_use, cfg!(windows));
     assert!(!config.startup_notify);
     assert!(config.attachments_enabled);
     assert_eq!(config.attachment_max_bytes, 25 * 1024 * 1024);
     assert_eq!(config.attachment_text_inline_max_bytes, 32 * 1024);
     assert_eq!(config.history_poll_interval, Some(Duration::from_secs(15)));
+}
+
+#[test]
+fn headless_computer_use_is_validated_with_the_rest_of_runtime_configuration() {
+    for (raw, expected) in [
+        ("", cfg!(windows)),
+        ("   ", cfg!(windows)),
+        ("0", false),
+        (" false ", false),
+    ] {
+        let mut env = required_env();
+        env.insert("DISCORD_HEADLESS_COMPUTER_USE".into(), raw.into());
+        let config = RuntimeConfig::from_map(&env, CliOptions::default()).unwrap();
+        assert_eq!(config.headless_computer_use, expected, "raw value: {raw}");
+    }
+    for raw in ["1", " true "] {
+        let mut env = required_env();
+        env.insert("DISCORD_HEADLESS_COMPUTER_USE".into(), raw.into());
+        let result = RuntimeConfig::from_map(&env, CliOptions::default());
+        if cfg!(windows) {
+            assert!(result.unwrap().headless_computer_use);
+        } else {
+            assert_eq!(
+                result.unwrap_err(),
+                ConfigError::HeadlessComputerUseRequiresWindows
+            );
+        }
+    }
+    for raw in ["maybe", "TRUE", "yes", "2"] {
+        let mut env = required_env();
+        env.insert("DISCORD_HEADLESS_COMPUTER_USE".into(), raw.into());
+        assert_eq!(
+            RuntimeConfig::from_map(&env, CliOptions::default()).unwrap_err(),
+            ConfigError::InvalidHeadlessComputerUse
+        );
+    }
 }
 
 #[test]

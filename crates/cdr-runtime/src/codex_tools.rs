@@ -8,6 +8,38 @@ use std::time::{Duration, Instant};
 
 pub const CONTRACT_ID: &str = "local-tools-v1";
 
+const MAX_ERROR_BYTES: usize = 2_048;
+
+/// Preserve the original diagnostic prefix without unbounded tool output.
+pub(crate) fn bounded_error(message: &str) -> String {
+    const SUFFIX: &str = " [truncated]";
+    if message.len() <= MAX_ERROR_BYTES {
+        return message.to_owned();
+    }
+    let mut end = MAX_ERROR_BYTES - SUFFIX.len();
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{SUFFIX}", &message[..end])
+}
+
+pub(crate) fn bounded_value_error(value: &Value) -> String {
+    match value {
+        Value::String(message) => bounded_error(message),
+        _ => bounded_error(&value.to_string()),
+    }
+}
+
+/// A plain canonical name is trusted only after this runtime registered the
+/// verified official launch source. Never infer plugin ownership from its name.
+pub(crate) fn is_official_cua_server(server: &Value, managed_official: bool) -> bool {
+    let plugin = server.get("pluginId");
+    plugin
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.split('@').next() == Some("unified-computer-use"))
+        || (managed_official && server["name"] == "cua_repl" && plugin.is_none_or(Value::is_null))
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ToolState {
@@ -24,6 +56,8 @@ pub struct ToolCheck {
     pub tool: &'static str,
     pub state: ToolState,
     pub reason: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,12 +66,13 @@ pub struct ToolReport {
     pub verification_scope: &'static str,
     pub state: ToolState,
     pub native_desktop_state: ToolState,
+    pub browser_state: ToolState,
     pub desktop_app_independence: ToolState,
     pub checks: Vec<ToolCheck>,
     pub catalog_sha256: Option<String>,
 }
 
-fn catalog_checks(catalog: &[Value]) -> Vec<ToolCheck> {
+fn catalog_checks(catalog: &[Value], managed_official: bool) -> Vec<ToolCheck> {
     ["node_repl", "cua_repl"]
         .into_iter()
         .map(|required| {
@@ -46,9 +81,7 @@ fn catalog_checks(catalog: &[Value]) -> Vec<ToolCheck> {
                 .filter(|server| {
                     (required == "node_repl" && server["name"].as_str() == Some(required))
                         || (required == "cua_repl"
-                            && server["pluginId"].as_str().is_some_and(|id| {
-                                id.split('@').next() == Some("unified-computer-use")
-                            }))
+                            && is_official_cua_server(server, managed_official))
                 })
                 .collect();
             let mut check = ToolCheck {
@@ -57,6 +90,7 @@ fn catalog_checks(catalog: &[Value]) -> Vec<ToolCheck> {
                 tool: "js",
                 state: ToolState::Failed,
                 reason: "required_server_missing",
+                error: None,
             };
             if matches.len() > 1 {
                 check.state = ToolState::Unverified;
@@ -64,16 +98,24 @@ fn catalog_checks(catalog: &[Value]) -> Vec<ToolCheck> {
             }
             if let [server] = matches.as_slice() {
                 check.server = server["name"].as_str().map(str::to_owned);
-                if !matches!(
-                    server["authStatus"].as_str(),
-                    Some("unsupported" | "bearerToken" | "oAuth")
-                ) || !server["toolsError"].is_null()
-                {
+                if !server["toolsError"].is_null() {
                     check.state = ToolState::Unverified;
                     check.reason = "auth_or_discovery_unverified";
-                } else if server["tools"].get("js").is_some() {
+                    check.error = Some(bounded_value_error(&server["toolsError"]));
+                } else if !matches!(
+                    server["authStatus"].as_str(),
+                    Some("unsupported" | "bearerToken" | "oAuth")
+                ) {
+                    check.state = ToolState::Unverified;
+                    check.reason = "auth_or_discovery_unverified";
+                    check.error = Some(bounded_value_error(&server["authStatus"]));
+                } else if server["tools"].get("js").is_some_and(Value::is_object) {
                     check.state = ToolState::NotChecked;
-                    check.reason = "invocation_not_checked";
+                    check.reason = if required == "cua_repl" {
+                        "requires_active_model_turn"
+                    } else {
+                        "invocation_not_checked"
+                    };
                 } else {
                     check.reason = "required_tool_missing";
                 }
@@ -85,7 +127,16 @@ fn catalog_checks(catalog: &[Value]) -> Vec<ToolCheck> {
 
 #[must_use]
 pub fn classify_catalog(catalog: &[Value]) -> ToolReport {
-    report(catalog_checks(catalog))
+    classify_catalog_with_managed_official(catalog, false)
+}
+
+/// The caller must establish the managed registration before passing true.
+#[must_use]
+pub fn classify_catalog_with_managed_official(
+    catalog: &[Value],
+    managed_official: bool,
+) -> ToolReport {
+    report(catalog_checks(catalog, managed_official))
 }
 
 fn report(checks: Vec<ToolCheck>) -> ToolReport {
@@ -99,9 +150,10 @@ fn report(checks: Vec<ToolCheck>) -> ToolReport {
     .unwrap_or(ToolState::Verified);
     ToolReport {
         contract_id: CONTRACT_ID,
-        verification_scope: "javascript_and_surface_inventory",
+        verification_scope: "javascript_and_mcp_inventory",
         state,
         native_desktop_state: ToolState::NotChecked,
+        browser_state: ToolState::NotChecked,
         desktop_app_independence: ToolState::NotChecked,
         checks,
         catalog_sha256: None,
@@ -171,33 +223,6 @@ fn valid_marker(result: &Value, marker: &str) -> bool {
         })
 }
 
-fn inventory_state(result: &Value) -> ToolState {
-    let observed = result["content"].as_array().and_then(|content| {
-        let mut markers = content.iter().filter_map(|item| {
-            let value: Value = serde_json::from_str(item["text"].as_str()?).ok()?;
-            (value["cdrProbe"] == "cua-state-v1").then_some(value)
-        });
-        let marker = markers.next()?;
-        markers.next().is_none().then_some(marker)
-    });
-    let valid = result["isError"] != true
-        && observed.is_some_and(|marker| {
-            let inventory = &marker["inventory"];
-            ["apps", "browsers"].iter().all(|key| {
-                inventory[key]
-                    .as_array()
-                    .is_some_and(|items| items.iter().all(Value::is_object))
-            }) && inventory
-                .get("errors")
-                .is_none_or(|errors| errors.as_array().is_some_and(Vec::is_empty))
-        });
-    if valid {
-        ToolState::Verified
-    } else {
-        ToolState::Unverified
-    }
-}
-
 async fn call(
     client: &AppServerClient,
     thread: &str,
@@ -220,6 +245,18 @@ pub async fn inspect(
     invoke: bool,
     deadline: Instant,
 ) -> Result<ToolReport, AppServerError> {
+    inspect_with_managed_official(client, cwd, invoke, false, deadline).await
+}
+
+/// Inspect MCP registration and optionally exercise plain JavaScript. CUA
+/// operations need a real model turn and are never invoked by this diagnostic.
+pub async fn inspect_with_managed_official(
+    client: &AppServerClient,
+    cwd: &Path,
+    invoke: bool,
+    managed_official: bool,
+    deadline: Instant,
+) -> Result<ToolReport, AppServerError> {
     let started = request(
         client,
         "thread/start",
@@ -233,51 +270,38 @@ pub async fn inspect(
             message: "diagnostic thread identity missing".into(),
         })?;
     let before = inventory(client, thread, deadline).await?;
-    let mut checks = catalog_checks(&before);
+    let mut checks = catalog_checks(&before, managed_official);
     if invoke {
         for check in &mut checks {
-            if check.state != ToolState::NotChecked {
+            if check.state != ToolState::NotChecked || check.requirement != "node_repl" {
                 continue;
             }
             let server = check.server.as_deref().expect("observed server");
-            let outcome = if check.requirement == "node_repl" {
-                call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'node-js-v1',observed:6*7===42}));","title":"Checking local JavaScript"}), deadline).await
-                    .map(|result| if valid_marker(&result, "node-js-v1") { ToolState::Verified } else { ToolState::Failed })
-            } else {
-                let observed = call(client, thread, server, json!({"code":"var cdrCuaState = await cua.getState();","title":"Checking surface inventory"}), deadline).await;
-                let verified = match observed {
-                    Ok(result) if result["isError"] != true => call(client, thread, server, json!({"code":"nodeRepl.write(JSON.stringify({cdrProbe:'cua-state-v1',inventory:cdrCuaState}));","title":"Verifying inventory observation"}), deadline).await
-                        .map(|result| inventory_state(&result)),
-                    Ok(_) => Ok(ToolState::Unverified),
-                    Err(error) => Err(error),
-                };
-                let completed = call(
-                    client,
-                    thread,
-                    server,
-                    json!({"completion_summary":"Checked surface inventory"}),
-                    deadline,
-                )
-                .await;
-                match completed {
-                    Ok(result) if result["isError"] != true => verified,
-                    _ => Err(AppServerError::StartupHeld(
-                        "native probe completion unverified".into(),
-                    )),
-                }
-            };
+            let outcome = call(
+                client,
+                thread,
+                server,
+                json!({
+                    "code":"nodeRepl.write(JSON.stringify({cdrProbe:'node-js-v1',observed:6*7===42}));",
+                    "title":"Checking local JavaScript"
+                }),
+                deadline,
+            )
+            .await;
             match outcome {
-                Ok(ToolState::Verified) => {
+                Ok(result) if valid_marker(&result, "node-js-v1") => {
                     check.state = ToolState::Verified;
                     check.reason = "read_only_probe_passed";
                 }
-                Ok(ToolState::Failed) => {
+                Ok(result) => {
                     check.state = ToolState::Failed;
                     check.reason = "probe_result_mismatch";
+                    check.error = Some(bounded_value_error(&result));
                 }
-                Ok(_) | Err(_) => {
+                Err(error) => {
                     check.state = ToolState::Unverified;
                     check.reason = "probe_call_unverified";
+                    check.error = Some(bounded_error(&error.to_string()));
                 }
             }
         }
@@ -333,5 +357,48 @@ mod tests {
             &json!({"isError":false,"content":[{"text":"tool started"}]}),
             "node-js-v1"
         ));
+    }
+    #[test]
+    fn plain_cua_requires_managed_registration_and_never_forges_plugin_ownership() {
+        let node = json!({"name":"node_repl","tools":{"js":{}},"authStatus":"unsupported"});
+        let plain = json!({"name":"cua_repl","tools":{"js":{}},"authStatus":"unsupported"});
+        assert_eq!(
+            classify_catalog(&[node.clone(), plain.clone()]).state,
+            ToolState::Failed
+        );
+        let report = classify_catalog_with_managed_official(&[node.clone(), plain.clone()], true);
+        assert_eq!(report.state, ToolState::NotChecked);
+        assert_eq!(report.checks[1].reason, "requires_active_model_turn");
+        assert!(plain.get("pluginId").is_none());
+
+        let mut wrong_owner = plain.clone();
+        wrong_owner["pluginId"] = json!("other-plugin@openai-bundled");
+        assert_eq!(
+            classify_catalog_with_managed_official(&[node, wrong_owner], true).state,
+            ToolState::Failed
+        );
+        let mut legacy = plain;
+        legacy["name"] = json!("cdr_computer");
+        assert!(!is_official_cua_server(&legacy, true));
+    }
+
+    #[test]
+    fn discovery_error_preserves_original_text_with_a_utf8_byte_bound() {
+        let message = format!("spawn EPERM: {}", "한".repeat(3_000));
+        let server = json!({
+            "name":"cua_repl",
+            "tools":{"js":{}},
+            "authStatus":"unsupported",
+            "toolsError":message
+        });
+        let report = classify_catalog_with_managed_official(&[server], true);
+        let error = report.checks[1].error.as_deref().unwrap();
+        assert!(error.starts_with("spawn EPERM: "));
+        assert!(error.ends_with(" [truncated]"));
+        assert!(error.len() <= MAX_ERROR_BYTES);
+        assert_eq!(
+            bounded_error("FrameArrived timed out"),
+            "FrameArrived timed out"
+        );
     }
 }

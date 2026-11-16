@@ -24,13 +24,18 @@ struct RepairLease {
     operation_id: String,
     stage: &'static str,
     guard: RecoveryGuard,
+    tool_server: &'static str,
 }
 
 impl RepairLease {
     fn record(&self, phase: &str, thread: &str) -> Result<(), ActionError> {
         let value = json!({"phase":phase,"stage":self.stage,"operation_id":self.operation_id,
             "thread_id":thread,"generation":self.generation,
-            "server_instance":self.server.instance_id(),"app_restarted":false});
+            "server_instance":self.server.instance_id(),"app_restarted":false,
+            "tool_server":self.tool_server,
+            "verification_scope":if self.tool_server == "cua_repl" { "js_session_reset_only" } else { "legacy_native_inventory" },
+            "native_desktop_state":"NOT_CHECKED","browser_state":"NOT_CHECKED",
+            "desktop_app_independence":"NOT_CHECKED"});
         std::fs::write(&self.receipt, value.to_string())?;
         Ok(())
     }
@@ -50,7 +55,7 @@ impl RepairLease {
             .server
             .request_for_tool_repair_checked(
                 "mcpServer/tool/call",
-                json!({"threadId":thread,"server":"node_repl","tool":tool,"arguments":arguments}),
+                json!({"threadId":thread,"server":self.tool_server,"tool":tool,"arguments":arguments}),
                 WAIT,
                 self.generation,
                 self.guard.rpc_check(Some(Arc::clone(&rejected))),
@@ -98,6 +103,35 @@ impl RepairLease {
             )));
         }
         Ok(value)
+    }
+
+    async fn verify_connection(&mut self, thread: &str) -> Result<bool, ActionError> {
+        // Preserve the legacy provider's inventory check. Official CUA needs a
+        // real model turn and is never invoked by this idle-thread command.
+        self.call(
+            thread,
+            "initialize",
+            "js",
+            json!({"code":INIT,"timeout_ms":8000,"title":"Initialize Computer Use after repair"}),
+        )
+        .await?;
+        let probe = self.call(thread, "probe", "js", json!({"code":PROBE,"timeout_ms":8000,"title":"Verify repaired Computer Use connection"})).await?;
+        Ok(probe_ready(&probe))
+    }
+
+    fn completion(&self, thread: &str) -> Result<ActionResult, ActionError> {
+        if self.tool_server == "cua_repl" {
+            self.record("reset_confirmed", thread)?;
+            return Ok(immediate(format!(
+                "JS 세션 초기화 완료: {thread} ({})\n이 채팅의 도구 세션을 초기화했습니다. 화면 읽기·클릭·브라우저 연결은 아직 확인하지 않았습니다. 다음 대화에서 실제 작업으로 확인하세요. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다.",
+                self.tool_server
+            )));
+        }
+        self.record("verified", thread)?;
+        Ok(immediate(format!(
+            "도구 복구 완료: {thread} ({})\n이 채팅의 JS 세션을 초기화하고 Computer Use 목록 조회를 확인했습니다. 개별 창의 화면 읽기·클릭은 별도 확인이 필요합니다. 앱 재시작·요청 취소는 하지 않았습니다. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다.",
+            self.tool_server
+        )))
     }
 }
 
@@ -181,19 +215,26 @@ impl<B: TurnBackend> ActionExecutor<B> {
             return Err(busy());
         }
         let mut cursor = Value::Null;
-        let mut available = false;
+        let mut tool_server = None;
         for _ in 0..4 {
             let inventory = server.request_for_tool_repair_checked("mcpServerStatus/list",
                 json!({"threadId":thread,"detail":"toolsAndAuthOnly","limit":100,"cursor":cursor}), WAIT, generation, guard.rpc_check(None)).await?;
-            available = node_tools_available(&inventory);
+            if tools_available(&inventory, "cua_repl") {
+                tool_server = Some("cua_repl");
+            } else if tool_server.is_none() && tools_available(&inventory, "node_repl") {
+                tool_server = Some("node_repl");
+            }
             cursor = inventory.get("nextCursor").cloned().unwrap_or(Value::Null);
-            if available || cursor.is_null() {
+            if tool_server == Some("cua_repl") || cursor.is_null() {
                 break;
             }
         }
-        if !available {
-            return Err(ActionError::Invalid("이 채팅에서 node_repl의 js/js_reset 연결을 확인하지 못했습니다. 지원되지 않는 도구는 초기화하지 않았습니다.".into()));
+        if !cursor.is_null() && tool_server != Some("cua_repl") {
+            return Err(ActionError::Invalid(
+                "도구 목록 조회가 완료되지 않아 초기화하지 않았습니다.".into(),
+            ));
         }
+        let tool_server = tool_server.ok_or_else(|| ActionError::Invalid("이 채팅에서 cua_repl 또는 node_repl의 js/js_reset 연결을 확인하지 못했습니다. 지원되지 않는 도구는 초기화하지 않았습니다.".into()))?;
         guard.check()?;
         let receipt_dir = self
             .mirror_db
@@ -212,23 +253,27 @@ impl<B: TurnBackend> ActionExecutor<B> {
             operation_id,
             stage: "preflight",
             guard: guard.clone(),
+            tool_server,
         };
         let reset = lease.call(thread, "reset", "js_reset", json!({})).await?;
         if !content_text(&reset).contains("js kernel reset") {
             lease.record("failed", thread)?;
             return Err(ActionError::Invalid("도구 복구 단계 reset 응답 형식이 달라 완료를 확인하지 못했습니다. 앱은 재시작하지 않았습니다.".into()));
         }
-        lease.call(thread, "initialize", "js", json!({"code":INIT,"timeout_ms":8000,"title":"Initialize Computer Use after repair"})).await?;
-        let probe = lease.call(thread, "probe", "js", json!({"code":PROBE,"timeout_ms":8000,"title":"Verify repaired Computer Use connection"})).await?;
-        if !probe_ready(&probe) || server.generation() != generation {
+        let reset_only = tool_server == "cua_repl";
+        if (!reset_only && !lease.verify_connection(thread).await?)
+            || server.generation() != generation
+        {
             lease.record("failed", thread)?;
+            if reset_only {
+                return Err(ActionError::Invalid(
+                    "JS 세션 초기화 응답 후 앱서버가 교체되어 결과를 확인하지 못했습니다.".into(),
+                ));
+            }
             return Err(ActionError::Invalid("도구 복구 단계 probe 실패: JS 세션은 초기화했지만 Computer Use 연결을 확인하지 못했습니다. 앱은 재시작하지 않았습니다.".into()));
         }
         guard.check()?;
-        lease.record("verified", thread)?;
-        Ok(immediate(format!(
-            "도구 복구 완료: {thread}\n이 채팅의 JS 세션을 초기화하고 Computer Use 연결을 확인했습니다. 앱 재시작·요청 취소는 하지 않았습니다. 기존 JS 변수와 도구 핸들은 다시 만들어야 합니다."
-        )))
+        lease.completion(thread)
     }
 }
 
@@ -236,13 +281,13 @@ fn busy() -> ActionError {
     ActionError::Invalid("이 채팅에 진행 중·대기 중 요청이 있거나 유휴 상태를 확인할 수 없어 도구를 초기화하지 않았습니다. 요청 취소와 앱 재시작은 !recover를 사용하세요.".into())
 }
 
-fn node_tools_available(inventory: &Value) -> bool {
+fn tools_available(inventory: &Value, name: &str) -> bool {
     inventory
         .get("data")
         .and_then(Value::as_array)
         .is_some_and(|servers| {
             servers.iter().any(|server| {
-                server["name"] == "node_repl"
+                server["name"] == name
                     && server["runtimeStatus"] == "connected"
                     && server.get("toolsError").is_none_or(Value::is_null)
                     && server.pointer("/tools/js/name").and_then(Value::as_str) == Some("js")

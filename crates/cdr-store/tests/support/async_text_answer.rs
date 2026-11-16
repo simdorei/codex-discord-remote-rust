@@ -1,6 +1,4 @@
-#[path = "legacy_schema.rs"]
-mod legacy_schema;
-use super::{aq, claim, fixture, open_initialized};
+use super::{aq, claim, fixture, legacy_schema, open_initialized};
 
 #[test]
 fn free_text_is_exact_one_shot_and_sealed_with_rollback_capability() {

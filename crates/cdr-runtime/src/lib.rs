@@ -33,6 +33,7 @@ pub mod final_watch;
 pub mod history_poll;
 mod idle_release;
 pub mod interaction_worker;
+pub mod local_computer;
 #[cfg(test)]
 mod manual_reserve_tests;
 pub mod message_plan;

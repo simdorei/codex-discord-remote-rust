@@ -147,7 +147,7 @@ pub fn default_env_path(executable_path: &Path) -> PathBuf {
 #[must_use]
 pub fn config_summary(config: &RuntimeConfig) -> String {
     format!(
-        "config_valid token=[REDACTED] guild={} channels={:?} users={:?} message_content={} qa_commands={}",
+        "config_valid token=[REDACTED] guild={} channels={:?} users={:?} message_content={} qa_commands={} headless_computer_use={}",
         config
             .guild_id
             .map_or_else(|| "-".into(), |id| id.to_string()),
@@ -155,6 +155,7 @@ pub fn config_summary(config: &RuntimeConfig) -> String {
         config.allowed_user_ids,
         config.enable_message_content,
         config.qa_commands,
+        config.headless_computer_use,
     )
 }
 

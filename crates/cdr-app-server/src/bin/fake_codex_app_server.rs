@@ -41,6 +41,10 @@ fn handle_message(
             send_turn_started(&mut stdout)?;
             send(&mut stdout, json!({"id": id, "result": {"emitted": true}}))?;
         }
+        "test/browserHostFailure" => {
+            send_browser_host_failure(&mut stdout)?;
+            send(&mut stdout, json!({"id":id,"result":{}}))?;
+        }
         "test/complete" => {
             send_turn_completed(&mut stdout)?;
             send(&mut stdout, json!({"id": id, "result": {}}))?;
@@ -119,6 +123,19 @@ fn handle_message(
         )?,
     }
     Ok(true)
+}
+
+fn send_browser_host_failure(stdout: &mut impl Write) -> io::Result<()> {
+    send(
+        stdout,
+        json!({"method":"item/completed","params":{
+            "threadId":"fixture-private-thread", "turnId":"fixture-private-turn",
+            "item":{"id":"fixture-item", "type":"mcpToolCall", "server":"cua_repl",
+                "tool":"js", "status":"failed", "error":{
+                    "message":"Error: The browser access host is unavailable\n    at fixture-private-pipe"
+                }}
+        }}),
+    )
 }
 
 fn send_turn_started(stdout: &mut impl Write) -> io::Result<()> {

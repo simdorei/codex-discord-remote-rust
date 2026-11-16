@@ -1,5 +1,6 @@
 mod approval_replies;
 pub mod async_questions;
+pub mod browser_host_diagnostics;
 mod client;
 mod contract;
 mod control;

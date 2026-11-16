@@ -148,14 +148,18 @@ fn spawn_client(config: &AppServerConfig) -> Result<AppServerClient, AppServerEr
         stdin,
         stdout,
         stderr,
+        browser_host_context,
     } = spawn_app_server(config)?;
     let (notifications, _) = broadcast::channel(1_000);
     let (server_requests, _) = broadcast::channel(500);
+    let mut diagnostics = BoundedDiagnostics::default();
+    diagnostics.browser_host_context.app_server_pid = process_id;
+    diagnostics.browser_host_context.launch = browser_host_context;
     let inner = Arc::new(Inner {
         _executable_files: config.retained_executable_files.clone(),
         child: tokio::sync::Mutex::new(Some(child)),
         closed: std::sync::atomic::AtomicBool::new(false),
-        diagnostics: std::sync::Mutex::new(BoundedDiagnostics::default()),
+        diagnostics: std::sync::Mutex::new(diagnostics),
         lifecycle: Arc::new(ClientLifecycle::new()),
         notifications,
         pending: std::sync::Mutex::new(std::collections::HashMap::new()),

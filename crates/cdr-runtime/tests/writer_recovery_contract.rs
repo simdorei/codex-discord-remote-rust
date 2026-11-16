@@ -84,6 +84,24 @@ fn full_recovery_restarts_pinned_hosts_and_restores_desktop_after_bot_failure() 
 }
 
 #[test]
+#[cfg(windows)]
+fn desktop_activation_requires_the_registered_package_identity() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(root.join("scripts/Test-CdrPackagedDesktop.ps1"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("packaged_desktop_tests_passed"));
+}
+
+#[test]
 fn recovery_is_a_direct_control_command_and_is_documented() {
     for text in ["recover", "복구"] {
         assert_eq!(

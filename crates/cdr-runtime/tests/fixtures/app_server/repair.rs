@@ -22,13 +22,40 @@ pub(super) fn run() -> Result {
                         std::thread::sleep(std::time::Duration::from_millis(5));
                     }
                 }
-                json!({"data":[{"name":"node_repl","runtimeStatus":"connected","tools":{"js":{"name":"js"},"js_reset":{"name":"js_reset"}}}],"nextCursor":null})
+                let legacy = json!({"name":"node_repl","runtimeStatus":"connected","tools":{"js":{"name":"js"},"js_reset":{"name":"js_reset"}}});
+                let unified = json!({"name":"cua_repl","runtimeStatus":"connected","tools":{"js":{"name":"js"},"js_reset":{"name":"js_reset"}}});
+                if mode == "unified_paged" && params["cursor"].is_null() {
+                    return reply(&request, &json!({"data":[legacy],"nextCursor":"second"}));
+                }
+                if mode.starts_with("unified") {
+                    let data = if mode == "unified_both" {
+                        vec![legacy, unified]
+                    } else {
+                        vec![unified]
+                    };
+                    json!({"data":data,"nextCursor":null})
+                } else {
+                    json!({"data":[legacy],"nextCursor":null})
+                }
             }
             "mcpServer/tool/call" if params["tool"] == "js_reset" => {
                 if mode == "timeout" {
                     return Ok(());
                 }
-                json!({"content":[{"type":"text","text":"js kernel reset"}]})
+                match mode.as_str() {
+                    "unified_reset_error" => {
+                        json!({"isError":true,"content":[{"type":"text","text":"reset refused"}]})
+                    }
+                    "unified_reset_malformed" => {
+                        json!({"content":[{"type":"text","text":"reset outcome unknown"}]})
+                    }
+                    _ => json!({"content":[{"type":"text","text":"js kernel reset"}]}),
+                }
+            }
+            "mcpServer/tool/call" if params["server"] == "cua_repl" => {
+                // The official standalone worker needs an active model turn.
+                // A reset acknowledgement cannot authorize a native/browser probe.
+                json!({"isError":true,"content":[{"type":"text","text":"spawn EPERM: active model turn required"}]})
             }
             "mcpServer/tool/call"
                 if params["arguments"]["code"]

@@ -39,6 +39,8 @@ mod terminal_fence;
 mod typing;
 
 #[cfg(test)]
+mod confirmed_cleanup_tests;
+#[cfg(test)]
 mod early_journal_tests;
 #[cfg(test)]
 mod final_answer_fallback_tests;

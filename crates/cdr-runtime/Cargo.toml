@@ -12,9 +12,11 @@ test-writer-faults = ["cdr-app-server/test-writer-faults"]
 chrono.workspace = true
 cdr-app-server.workspace = true
 cdr-codex-state = { path = "../cdr-codex-state" }
+cdr-core = { path = "../cdr-core" }
 cdr-discord = { path = "../cdr-discord" }
 cdr-pro = { path = "../cdr-pro" }
 cdr-remote-agent = { path = "../cdr-remote-agent" }
+cdr-remote-protocol = { path = "../cdr-remote-protocol" }
 cdr-store = { path = "../cdr-store" }
 cdr-windows-native = { path = "../cdr-windows-native" }
 futures-util.workspace = true

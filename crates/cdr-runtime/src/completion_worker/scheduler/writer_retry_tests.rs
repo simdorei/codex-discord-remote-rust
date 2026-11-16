@@ -12,6 +12,10 @@ use tokio::sync::{broadcast, watch};
 
 const WRITER: &str = "app-server returned error -32600 for thread/resume: thread writer-fast already has an active writer";
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the retry scenario's setup, observations, and cleanup together."
+)]
 async fn exercise(cold: bool, cancel: bool) {
     let temp = tempfile::tempdir().unwrap();
     let log = temp.path().join("rpc.jsonl");

@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Verify portable browser host contracts
+        run: node --test experiments/browser-host/authority.test.mjs
       - name: Verify pinned Rust workspace
         run: |
           set -euo pipefail
