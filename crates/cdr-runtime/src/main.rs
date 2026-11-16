@@ -7,8 +7,25 @@ use cdr_runtime::discord_runtime;
 use cdr_runtime::runtime_paths::RuntimePaths;
 use cdr_runtime::startup::{StartupArgs, config_summary, help_text, load_environment};
 
+fn main() -> ExitCode {
+    let raw_args: Vec<_> = std::env::args_os().skip(1).collect();
+    if raw_args
+        .first()
+        .is_some_and(|arg| arg == cdr_runtime::local_computer::browser_host::ENTRYPOINT)
+    {
+        return match cdr_runtime::local_computer::browser_host::run(&raw_args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("ERROR: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    run_bot()
+}
+
 #[tokio::main]
-async fn main() -> ExitCode {
+async fn run_bot() -> ExitCode {
     match Box::pin(run()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err((code, error)) => {

@@ -4,6 +4,7 @@
 //! run through the official CUA service inside a real Codex turn, with that turn's
 //! permissions and the normal app-approval flow.
 
+pub mod browser_host;
 pub mod probe;
 
 use std::collections::BTreeMap;
@@ -30,6 +31,7 @@ pub struct OfficialCuaSelection {
     pub node_repl: PathBuf,
     pub native_helper: PathBuf,
     pub surfaces: String,
+    pub browser_host: Option<browser_host::BrowserHostSelection>,
 }
 
 pub struct OfficialCuaRegistration {
@@ -110,7 +112,7 @@ pub fn configure_current(
         .find(|(key, _)| key.eq_ignore_ascii_case("CODEX_HOME"))
         .map(|(_, value)| PathBuf::from(value))
         .ok_or_else(|| held("official CUA requires the resolved CODEX_HOME"))?;
-    configure(config, &newest_manifest(&home)?).map(Some)
+    configure_selected(config, &newest_manifest(&home)?, true).map(Some)
 }
 
 fn newest_manifest(home: &Path) -> Result<PathBuf, AppServerError> {
@@ -175,9 +177,20 @@ pub fn configure(
     config: &mut AppServerConfig,
     manifest_path: &Path,
 ) -> Result<OfficialCuaSelection, AppServerError> {
+    configure_selected(config, manifest_path, false)
+}
+
+fn configure_selected(
+    config: &mut AppServerConfig,
+    manifest_path: &Path,
+    owned_browser_host: bool,
+) -> Result<OfficialCuaSelection, AppServerError> {
     let manifest_path = absolute_file(manifest_path, "official CUA manifest")?;
     let (mut server, manifest_sha256) = read_manifest(&manifest_path)?;
-    let selection = validate_bundle(&manifest_path, &server, manifest_sha256)?;
+    let mut selection = validate_bundle(&manifest_path, &server, manifest_sha256)?;
+    if owned_browser_host {
+        browser_host::configure(config, &mut server, &mut selection)?;
+    }
     let settings = native_settings(&mut server, &config.executable, &selection.native_helper)?;
     for setting in settings {
         config.arguments.extend(["-c".into(), setting]);
@@ -280,6 +293,7 @@ fn validate_bundle(
         node_repl,
         native_helper: helper,
         surfaces: declared_surfaces(server)?,
+        browser_host: None,
     })
 }
 
@@ -535,10 +549,22 @@ mod tests {
         assert!(env.contains("@oai/sky/service"));
         assert!(env.contains("@oai/browser-desktop/service"));
         assert!(!env.contains("old-desktop-pipe"));
+        let host = selection.browser_host.as_ref().unwrap();
+        assert_eq!(host.mode, "owned_mcp_call");
         assert!(
             settings
                 .iter()
-                .any(|s| s.contains("require-browser-access.mjs"))
+                .any(|s| s.contains("--official-browser-host"))
+        );
+        assert!(
+            settings
+                .iter()
+                .any(|s| s.contains(&selection.manifest_sha256))
+        );
+        assert!(
+            bytes
+                .windows("require-browser-access.mjs".len())
+                .any(|s| s == b"require-browser-access.mjs")
         );
         assert_eq!(fs::read(&manifest).unwrap(), bytes);
         assert_eq!(config.environment.len(), 1);
@@ -603,6 +629,46 @@ mod tests {
                 .any(|arg| { arg == "mcp_servers.cua_repl.env_vars=[\"PRESERVED_MANIFEST_ENV\"]" })
         );
         assert_eq!(fs::read(&manifest).unwrap(), before);
+    }
+
+    #[test]
+    fn native_only_manifest_keeps_original_launcher_without_browser_host_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let manifest = fixture(temp.path(), "26.1106.51428");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        value["mcpServers"]["cua_repl"]["env"]["CUA_REPL_ENABLED_SURFACES"] = json!("computer");
+        fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let mut config = AppServerConfig::new("codex.exe")
+            .with_environment([("CODEX_HOME".into(), temp.path().display().to_string())]);
+        let selection = configure_current(&mut config, true).unwrap().unwrap();
+        assert!(selection.browser_host.is_none());
+        assert!(!temp.path().join("cdr-browser-host").exists());
+        assert!(config.arguments.iter().any(|arg| arg.contains("--import")));
+        assert!(
+            !config
+                .arguments
+                .iter()
+                .any(|arg| arg.contains("--official-browser-host"))
+        );
+    }
+
+    #[test]
+    fn unavailable_host_cache_masks_cua_without_overwriting_existing_files() {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), "26.1106.51428");
+        let cache = temp.path().join("cdr-browser-host");
+        fs::write(&cache, "preserve this file").unwrap();
+        let mut config = AppServerConfig::new("codex.exe")
+            .with_environment([("CODEX_HOME".into(), temp.path().display().to_string())]);
+        let registration = configure_available(&mut config, true).unwrap();
+        assert!(registration.selection.is_none());
+        assert!(registration.error.is_some());
+        assert_eq!(fs::read_to_string(cache).unwrap(), "preserve this file");
+        assert_eq!(
+            config.arguments.last().unwrap(),
+            r#"mcp_servers.cua_repl={enabled=false,command="codex.exe",args=["--version"]}"#
+        );
     }
 
     #[test]

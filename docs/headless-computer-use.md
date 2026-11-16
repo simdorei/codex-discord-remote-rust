@@ -1,6 +1,11 @@
 # Official Computer Use through Rust Remote
 
-> Candidate integration; no production cutover. An official native window-list operation succeeded in a real Codex turn. Chrome control remains blocked, and desktop-app-off operation has not been tested.
+> Candidate integration; no production cutover. The 2026-11-17 candidate embeds
+> an owned-call browser host and connects it through the normal managed CUA
+> registration. Both the prototype and the compiled candidate passed official
+> Chrome input/click tests with the desktop app stopped. Candidate-binary evidence is recorded under
+> `C:/ai/codex/maintenance/standalone-browser-host-build-20261117`. Older observation
+> tables below describe the earlier PR28/PR29 baseline, not full candidate acceptance.
 
 Rust Remote keeps Discord orchestration and registers the installed official `cua_repl` server with its own Codex app-server. The candidate replaces the runtime's custom `cdr_computer` registration and removes its `--computer-mcp` entrypoint. The external `cdr-remote-agent` MCP and shared remote-agent computer code remain separate and unchanged.
 
@@ -41,7 +46,15 @@ The registration is passed as configuration arguments to this app-server. It set
 
 The manifest's `CUA_REPL_ENABLED_SURFACES` value is retained rather than replaced with `computer`. Missing, empty or unsupported surface declarations fail before partial registration. The official guard, approval metadata and trusted-service configuration are preserved. The generic app-server constructor does not force a transport override on `node_repl`. Selecting the reference helper is a configuration correction; actual window read/input and GUI-off acceptance still require A01-A04.
 
-Native transport independence does not create an independent browser access host. The browser service still needs a valid official host and its executor/pipe/verifying-identity context. This integration only forwards genuine host context; it does not create identities, disable the guard, or manufacture an approval. The installed package declares `browser,computer`, but browser-host availability and GUI-off browser operation remain separate unresolved acceptance requirements.
+For browser-bearing manifests, the managed registration now launches this
+runtime's `--official-browser-host` entrypoint. Embedded helpers are atomically
+published to a content-addressed cache under `CODEX_HOME/cdr-browser-host`; changed
+cache files or a changed selected manifest hold startup. A fresh local host admits
+only its outstanding MCP call's session/turn and leaves official site/operation
+approvals unchanged. It neither copies a GUI chat's identity nor disables the
+official access guard. Native-only manifests keep their original launcher. See
+the [implementation and probe instructions](../experiments/browser-host/README.md).
+Passing selected live actions does not imply all-site or full desktop-app parity.
 
 The existing `DISCORD_HEADLESS_COMPUTER_USE` parsing remains:
 
