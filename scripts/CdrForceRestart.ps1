@@ -188,13 +188,17 @@ function Move-CdrForceArtifacts {
 
 function Test-CdrOwnedComputerMcp {
     param($Process, [string]$CommandLine, [string]$RuntimeIdentity)
-    # The bundled provider uses the same executable as the bot, but its only
-    # argument is --computer-mcp. An argument substring does not establish role.
+    # Both providers use the bot executable. The legacy provider has one flag;
+    # the official host selects its role at argv[1] before any bot initialization
+    # and never falls back to bot mode if its remaining arguments are invalid.
+    # A flag substring or a later argument does not establish either role.
     $escapedPath = [regex]::Escape($BinaryPath)
     $executable = '"(?i:' + $escapedPath + ')"'
     if ($BinaryPath -notmatch '\s') { $executable = '(?:' + $executable + '|(?i:' + $escapedPath + '))' }
+    $legacyRole = '\A' + $executable + '[ \t]+(?:--computer-mcp|"--computer-mcp")[ \t]*\z'
+    $hostRole = '\A' + $executable + '[ \t]+(?:--official-browser-host|"--official-browser-host")(?:[ \t]+[^\r\n]*)?\z'
     if ($RuntimeIdentity -notmatch '^\d+\|\d+$' -or $Process.Path -ine $BinaryPath -or
-        $CommandLine -cnotmatch ('\A' + $executable + '[ \t]+(?:--computer-mcp|"--computer-mcp")[ \t]*\z')) {
+        ($CommandLine -cnotmatch $legacyRole -and $CommandLine -cnotmatch $hostRole)) {
         return $false
     }
     $runtime = Get-VerifiedRuntimeProcess

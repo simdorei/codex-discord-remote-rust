@@ -23,6 +23,12 @@ jobs:
           "CDR_RELEASE_VERSION=$version" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build portable Windows executables and ZIP
         run: ./scripts/New-WindowsRelease.ps1 -Version $env:CDR_RELEASE_VERSION
+      - name: Verify restart ownership with the release runtime
+        run: |
+          $releaseTarget = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'target' }
+          $runtime = Join-Path $releaseTarget 'x86_64-pc-windows-msvc/release/cdr-runtime.exe'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-CdrForceRestart.ps1 -RuntimeBinary $runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test extracted installation without developer tools or startup
         run: |
           $archive = (Get-ChildItem -LiteralPath dist -Filter '*.zip').FullName

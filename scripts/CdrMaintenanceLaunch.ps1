@@ -62,7 +62,24 @@ function Get-CdrMaintenanceChild($State, [switch]$RequireFresh) {
     $child = Get-CdrRecordedChild $journal
     if (-not $child) { throw 'maintenance_recorded_child_dead' }
     if ((Get-VerifiedRuntimeIdentity) -cne $journal.ChildIdentity) { throw 'maintenance_child_lock_mismatch' }
-    $instances = @(Get-Process -Name cdr-runtime -ErrorAction SilentlyContinue)
+    $instances = @(Get-Process -Name cdr-runtime -ErrorAction SilentlyContinue | Where-Object {
+        if ($_.Id -eq $child.Id) { return $true }
+        $other = $_
+        [void]$other.Handle
+        $info = Get-CimInstance Win32_Process -Filter "ProcessId = $($other.Id)" `
+            -Property ProcessId,CreationDate,CommandLine
+        if ($null -eq $info -or $info.ProcessId -ne $other.Id -or
+            [math]::Abs(($other.StartTime.ToUniversalTime() - $info.CreationDate.ToUniversalTime()).Ticks) -gt 10) {
+            throw 'maintenance_runtime_observation_changed'
+        }
+        # Keep all unknown processes in the count. Only a verified MCP child of
+        # this exact replacement can coexist with the one-bot completion proof.
+        if (Test-CdrOwnedComputerMcp -Process $other -CommandLine $info.CommandLine -RuntimeIdentity $journal.ChildIdentity) {
+            $other.Dispose()
+            return $false
+        }
+        return $true
+    })
     if ($instances.Count -ne 1 -or $instances[0].Id -ne $child.Id) { throw 'maintenance_not_one_runtime' }
     if ($RequireFresh) {
         $health = Get-HeartbeatHealth $child

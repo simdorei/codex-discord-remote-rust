@@ -31,8 +31,34 @@ Rust 실행 파일에 호스트를 내장한 후보로 실제 Chrome 시험을 �
 - 실제 실행 증거와 상세 명령은 위 후보 evidence 경로의 `validation.json`,
   `build-test-report.md`, `app-off-candidate-1/receipt.json`에 있다.
 
-이후 GitHub CI는 해당 PR 커밋을 별도로 검증한다. 로컬 후보 통과를 원격 CI 통과로
-대신하지 않는다. 아래 내용은 최초 시제품의 역사적 기록이다.
+## PR 후보 및 종료 경계 검증
+
+`f22ce4f6004b8cd84dbca4697f9105b9a1a63c9e`의 GitHub Windows release 실행
+`43951405285`에서 빌드·개발 도구 없는 추출 설치를 통과했다. 내려받은 ZIP과
+실행 파일의 해시, `source_state=clean` 및 소스 커밋을 확인하고 그 실행 파일로
+GPT 앱 종료 상태의 공식 Chrome 입력·클릭을 다시 검증했다. 화면 결과와 실제
+페이지 이벤트가 일치했고 기존 탭을 유지했다. 운영 배포는 하지 않았다.
+
+- CI 실행 파일 SHA-256: `7a6c50434f66e86e38394516581f6b76eb3ba022c068b2e1f657a74a7e853256`.
+- 근거: `C:\ai\codex\maintenance\standalone-browser-host-pr-20261117`의
+  `release/receipt.json`, `ci-app-off/receipt.json`, `ci-binary-acceptance.json`.
+- 별도 소유 프로세스 시험에서 MCP 클라이언트 비정상 종료와 Rust 호스트 강제 종료
+  뒤 자식 프로세스 종료를 확인했다. 진행 중인 모든 도구 호출의 중단 시험은 아니다.
+
+병합 전 추가 검수에서는 같은 실행 파일의 `--official-browser-host` 자식을
+중복 봇으로 오인하는 강제 재시작·유지보수 완료 확인 경로를 발견했다. 실제
+진입점이 봇 시작 전에 처리하는 첫 인자, 정확한 실행 파일 경로, PID·시작 시각과
+봇까지의 부모 관계가 확인된 MCP 자식만 허용하도록 수정했다. 다른 봇, 무관한
+호스트, 인자에 끼워 넣은 플래그, 재사용된 PID는 계속 거부한다.
+
+`scripts/Test-CdrForceRestart.ps1`에 회귀 사례를 추가해 수정 전 실패와 수정 후
+통과를 확인했다. 기존 강제 종료 트리·미확정 시작·작업 보존 시험도 함께 실행했다.
+호스트의 Rust·Node 코드와 공식 패키지는 이 후속 수정으로 바뀌지 않았다.
+과거 특정 장애의 검수된 핀을 요구하는 completion-only 복구 스크립트는 변경하지
+않았다. 새 버전의 일반 유지보수 완료 검증과 역사적 장애 복구는 별개다.
+
+GitHub CI와 후속 회귀 시험의 최종 상태는 PR #30에 소스 커밋별로 기록한다.
+로컬 후보 통과를 원격 CI 통과로 대신하지 않는다. 아래는 최초 시제품의 역사적 기록이다.
 
 ## 최초 시제품 기록
 

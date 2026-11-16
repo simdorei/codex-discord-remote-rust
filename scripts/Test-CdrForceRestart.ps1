@@ -199,6 +199,59 @@ try {
     Stop-CdrRestartReadinessProbes -Preview
     Write-Output 'PASS owned computer MCP preserved for tree shutdown; unrelated, spoofed and stale identities refused'
 
+    # The official host commits to its role at argv[1], before bot startup.
+    # Its remaining arguments are validated by that entrypoint, with no bot fallback.
+    $browserArguments='--manifest "C:\fixture with spaces\.mcp.json" --expected-manifest-sha256 '+('a'*64)+' --cache-root "C:\fixture with spaces\cache"'
+    $browserCommand='"'+$BinaryPath+'" --official-browser-host '+$browserArguments
+    $probeInfo.CommandLine=$browserCommand
+    Stop-CdrRestartReadinessProbes -Preview
+    Stop-CdrRestartReadinessProbes
+    Assert-True (-not $script:probe.HasExited) 'Owned official browser host was cancelled as a readiness probe'
+    $probeInfo.CommandLine='"'+$BinaryPath+'" "--official-browser-host" '+$browserArguments
+    Stop-CdrRestartReadinessProbes -Preview
+    foreach ($command in @(
+        ('"'+$BinaryPath+'" --OFFICIAL-BROWSER-HOST '+$browserArguments),
+        ('"'+$BinaryPath+'" --official-browser-host-extra '+$browserArguments),
+        ('"'+$BinaryPath+'" --label "--official-browser-host" '+$browserArguments),
+        ('"'+$BinaryPath+'" --env "'+$EnvPath+'" --official-browser-host '+$browserArguments),
+        ($BinaryPath+' --official-browser-host '+$browserArguments),
+        ('"'+(Join-Path $RepoRoot 'other-runtime.exe')+'" --official-browser-host '+$browserArguments)
+    )) {
+        $probeInfo.CommandLine=$command
+        Assert-ComputerMcpRefused
+    }
+    $probeInfo.CommandLine=$browserCommand
+    $probeInfo.ParentProcessId=0
+    Assert-ComputerMcpRefused
+    $probeInfo.ParentProcessId=45
+    $probeInfo.CreationDate=$script:probe.StartTime.AddSeconds(-1)
+    Assert-ComputerMcpRefused
+    $probeInfo.CreationDate=$script:probe.StartTime
+    Write-Output 'PASS official browser host role and ancestry; spoofed and stale hosts refused'
+
+    & {
+        . (Join-Path $sourceRoot 'scripts/CdrMaintenanceLaunch.ps1')
+        function Read-CdrLaunchJournal {
+            [pscustomobject]@{Operation='maintenance:fixture';ArtifactHash='fixture';Phase='child';ChildIdentity=$old}
+        }
+        function Get-CdrRecordedChild { return $script:fake }
+        $state=[pscustomobject]@{Bundle=$RepoRoot;Operation='fixture';CandidateHash='fixture'}
+        Assert-True ((Get-CdrMaintenanceChild $state).Id -eq 42) 'Maintenance rejected the owned browser host'
+        $probeInfo.ParentProcessId=0
+        try { Get-CdrMaintenanceChild $state; throw 'Maintenance accepted an unrelated host' }
+        catch { Assert-True ($_.Exception.Message -eq 'maintenance_not_one_runtime') 'Wrong maintenance host refusal' }
+        $probeInfo.ParentProcessId=45
+        $probeInfo.CommandLine='unknown second runtime'
+        try { Get-CdrMaintenanceChild $state; throw 'Maintenance accepted another bot' }
+        catch { Assert-True ($_.Exception.Message -eq 'maintenance_not_one_runtime') 'Wrong maintenance bot refusal' }
+        $probeInfo.CommandLine=$browserCommand
+        $probeInfo.CreationDate=$script:probe.StartTime.AddSeconds(-1)
+        try { Get-CdrMaintenanceChild $state; throw 'Maintenance accepted a reused host PID' }
+        catch { Assert-True ($_.Exception.Message -eq 'maintenance_runtime_observation_changed') 'Wrong maintenance identity refusal' }
+        $probeInfo.CreationDate=$script:probe.StartTime
+    }
+    Write-Output 'PASS maintenance allows its owned host and rejects unrelated, unknown and reused processes'
+
     # Force -DryRun can run in the bot's tool shell; only a real force worker
     # must be outside the tree. Exercise that distinction with the actual PID.
     $script:caller=New-ProcessFixture $PID (Join-Path $RepoRoot 'powershell.exe') ([datetime]'2026-09-01T00:03:00Z')
