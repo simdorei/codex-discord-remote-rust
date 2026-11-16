@@ -198,6 +198,14 @@ impl AppServerClient {
             return Err(error);
         }
         write_complete();
+        if matches!(method, "thread/start" | "thread/resume" | "thread/fork") {
+            self.inner
+                .diagnostics
+                .lock()
+                .expect("diagnostic lock")
+                .browser_host_context
+                .record_thread_request(format!("{id:?}"), method, &params);
+        }
         let result = match receiver.await {
             Ok(PendingOutcome::Response(Ok(result))) => Ok(result),
             Ok(PendingOutcome::Response(Err(error))) => Err(AppServerError::Remote {

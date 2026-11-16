@@ -80,6 +80,44 @@ The diagnostic starts an isolated app-server, creates an ephemeral thread with `
 
 Tool discovery proves that the configured server exposes its tool catalog. It does not establish helper execution, a usable desktop, Chrome control or independence from a running GUI app. Errors retain their diagnostic stage; an outer MCP `isError=false` must not hide errors embedded in a CUA result.
 
+### Browser-host observations
+
+The inventory report additionally includes `browser_host_context`. On Windows its
+`observations.launch` records the inherited, explicit-override and final child
+environment field states from the actual app-server launch. Other platforms leave
+that observation absent. The existing whole-set forwarding and partial/ambiguous
+context guard remain unchanged.
+
+`written_thread_requests` records the last 16 successfully written `thread/start`,
+`thread/resume` or `thread/fork` requests. It reports only host-field states in their
+`node_repl`/`cua_repl` environment overrides, timestamps and local request IDs. A
+successful write is not a successful thread operation; a missing override does not
+prove that the worker lacks inherited context. Raw host values and thread/turn IDs
+are not retained in this diagnostic.
+
+| State | Meaning at the named observation point |
+| --- | --- |
+| `UNKNOWN` | Not observed or not interpretable. |
+| `ABSENT` | The inspected input contains no such field. |
+| `EMPTY` | The inspected string is empty or whitespace. |
+| `NONEMPTY` | A value exists; validity and authorization remain unverified. |
+| `AMBIGUOUS` | Multiple aliases address the field; precedence is not inferred. |
+
+During normal operation, recognized failed `node_repl`/`cua_repl` JS tool error
+metadata adds a bounded `reported_tool_failures` observation and a redacted
+`browser_host_observation` runtime log entry. It distinguishes missing host/turn
+context, response-authentication failure, access denial and unavailable Chrome.
+It does not scan successful results/page text or infer success from silence.
+Unrecognized/wrapped errors and errors carried only in result content are not
+classified. Recent requests are context, not proof that a failure belongs to one
+of them; controlled live-turn evidence is still required for that correlation.
+
+`worker_environment` stays `UNKNOWN`; `access_check` and `browser_discovery` stay
+`NOT_CHECKED` in the inventory report. No extra host RPC or model turn is added.
+This diagnostic patch does not supply a browser host, register a bot executor or
+establish GUI-independent browser access. A supported provisioning/registration
+contract has not yet been established; A03/A04 remain unresolved.
+
 ## Official `!repair` outcome
 
 For `cua_repl`, `!repair` checks the existing idle/admission conditions and sends only `js_reset`. A confirmed reset is recorded as `reset_confirmed` with `verification_scope=js_session_reset_only`. Native desktop, browser and desktop-app independence remain `NOT_CHECKED`, and the response asks for an actual task in the next conversation turn. It does not call `cua.getState()` or send a completion-summary cell outside a model turn. Reset errors, malformed acknowledgements and uncertain timeouts retain the existing failure/hold behavior.

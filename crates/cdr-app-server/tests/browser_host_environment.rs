@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use cdr_app_server::browser_host_diagnostics::BrowserHostFieldState;
 use cdr_app_server::{AppServerClient, AppServerConfig};
 use serde_json::{Value, json};
 
@@ -54,6 +55,9 @@ fn run_case(
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert!(log.contains("browser_host_observation"));
+    assert!(!log.contains("fixture-") && !log.contains("observed-thread"));
 }
 
 #[test]
@@ -145,6 +149,25 @@ async fn environment_driver() {
     config.arguments.clear();
     config.environment = overrides;
     let client = AppServerClient::start(config).await.unwrap();
+    let observed = client.diagnostic_snapshot().browser_host_context;
+    let launch = observed
+        .launch
+        .as_ref()
+        .expect("observed Windows child environment");
+    let state = |key: &str| match expected.get(key) {
+        None => BrowserHostFieldState::Absent,
+        Some(value) if value.trim().is_empty() => BrowserHostFieldState::Empty,
+        Some(_) => BrowserHostFieldState::Nonempty,
+    };
+    assert_eq!(launch.child_environment.pipe, state(PIPE));
+    assert_eq!(launch.child_environment.executor, state(EXECUTOR));
+    assert_eq!(launch.child_environment.verifying_identity, state(IDENTITY));
+    assert_eq!(
+        observed.worker_environment.pipe,
+        BrowserHostFieldState::Unknown
+    );
+    let encoded = serde_json::to_string(&observed).unwrap();
+    assert!(!encoded.contains("fixture-") && !encoded.contains("pipe\\\\"));
     for key in KEYS
         .into_iter()
         .chain(["CODEX_SESSION_ID", "CODEX_THREAD_ID"])
@@ -159,5 +182,82 @@ async fn environment_driver() {
     for (key, value) in original {
         assert_eq!(std::env::var(key).ok(), value, "parent changed: {key}");
     }
+    verify_request_and_failure_observations(&client).await;
     client.close().await.unwrap();
+}
+
+async fn verify_request_and_failure_observations(client: &AppServerClient) {
+    assert!(
+        client
+            .diagnostic_snapshot()
+            .browser_host_context
+            .written_thread_requests
+            .is_empty()
+    );
+    client.request("thread/resume", json!({
+        "threadId":"observed-thread", "excludeTurns":true,
+        "config":{"mcp_servers.cua_repl.env.BROWSER_USE_ACCESS_EXECUTOR_ID":"fixture-thread-executor"}
+    }), Duration::from_secs(2)).await.unwrap();
+    let observed = client.diagnostic_snapshot().browser_host_context;
+    let request = observed
+        .written_thread_requests
+        .back()
+        .expect("written resume observed");
+    assert_eq!(request.method, "thread/resume");
+    assert_eq!(
+        request.cua_repl_env_override.executor,
+        BrowserHostFieldState::Nonempty
+    );
+    assert_eq!(
+        request.cua_repl_env_override.pipe,
+        BrowserHostFieldState::Absent
+    );
+    assert_eq!(
+        observed.worker_environment.executor,
+        BrowserHostFieldState::Unknown
+    );
+    assert!(
+        !serde_json::to_string(&observed)
+            .unwrap()
+            .contains("fixture-thread-executor")
+    );
+    let mut notifications = client.subscribe_notifications();
+    client
+        .request("test/browserHostFailure", json!({}), Duration::from_secs(2))
+        .await
+        .unwrap();
+    let notification = notifications.try_recv().unwrap();
+    assert_eq!(notification.method, "item/completed");
+    assert_eq!(notification.params["item"]["status"], "failed");
+    let observed = client.diagnostic_snapshot().browser_host_context;
+    assert_eq!(
+        observed.app_server_pid,
+        client.lifecycle_snapshot().process_id
+    );
+    assert_eq!(observed.reported_tool_failures.len(), 1);
+    assert_eq!(
+        observed.reported_tool_failures[0].reported_stage,
+        "host_context_missing"
+    );
+    assert_eq!(
+        observed.worker_environment.pipe,
+        BrowserHostFieldState::Unknown
+    );
+    assert!(
+        !serde_json::to_string(&observed)
+            .unwrap()
+            .contains("fixture-")
+    );
+    assert_eq!(
+        client
+            .request(
+                "test/echo",
+                json!({"ordinary_rpc_unaffected":true}),
+                Duration::from_secs(2)
+            )
+            .await
+            .unwrap(),
+        json!({"ordinary_rpc_unaffected":true})
+    );
+    assert!(client.lifecycle_snapshot().healthy);
 }

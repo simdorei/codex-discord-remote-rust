@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
+use crate::browser_host_diagnostics::{BrowserHostFields, BrowserHostLaunchObservation};
+
 // This is connection metadata supplied by a host, not an authorization grant.
 // The browser service must still verify the host signature and the current
 // executor/session/turn. Never manufacture an identity or an allow response.
@@ -19,13 +21,28 @@ pub(super) fn apply(
     inherited: &BTreeMap<String, String>,
     overrides: &BTreeMap<String, String>,
     environment: &mut HashMap<String, String>,
-) {
+) -> BrowserHostLaunchObservation {
     // An explicit host setting selects a new source for the entire set. Do not
     // combine one host's pipe with another host's key or executor identifier.
     let source = if overrides.keys().any(|name| is_host_variable(name)) {
         overrides
     } else {
         inherited
+    };
+    let mut observation = BrowserHostLaunchObservation {
+        source: if std::ptr::eq(source, overrides) {
+            "explicit_override"
+        } else {
+            "inherited"
+        },
+        inherited: BrowserHostFields::from_environment(
+            inherited.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        ),
+        overrides: BrowserHostFields::from_environment(
+            overrides.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        ),
+        child_environment: BrowserHostFields::default(),
+        forwarding_result: "absent",
     };
     let mut values = [None; 3];
     let mut ambiguous = false;
@@ -39,9 +56,8 @@ pub(super) fn apply(
         }
     }
     if values.iter().all(Option::is_none) {
-        return;
-    }
-    if !ambiguous
+        observation.source = "none";
+    } else if !ambiguous
         && values
             .iter()
             .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
@@ -49,16 +65,23 @@ pub(super) fn apply(
         for (key, value) in HOST_VARIABLES.into_iter().zip(values) {
             environment.insert(key.to_owned(), value.expect("complete host set").to_owned());
         }
-        return;
-    }
-
-    // A missing executor variable can select an unchecked legacy browser path.
-    // Retain the access-check trigger even for an incomplete/ambiguous set.
-    // No pipe/key is supplied, so the existing service reports host unavailable.
-    let executor = if ambiguous {
-        ""
+        observation.forwarding_result = "forwarded";
     } else {
-        values[1].unwrap_or("")
-    };
-    environment.insert(HOST_VARIABLES[1].to_owned(), executor.to_owned());
+        // Keep the existing guard trigger for incomplete/ambiguous contexts.
+        let executor = if ambiguous {
+            ""
+        } else {
+            values[1].unwrap_or("")
+        };
+        environment.insert(HOST_VARIABLES[1].to_owned(), executor.to_owned());
+        observation.forwarding_result = if ambiguous {
+            "held_ambiguous"
+        } else {
+            "held_partial"
+        };
+    }
+    observation.child_environment = BrowserHostFields::from_environment(
+        environment.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+    );
+    observation
 }

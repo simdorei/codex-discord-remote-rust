@@ -98,22 +98,40 @@ fn handle_stdout_line(inner: &Arc<Inner>, line: &str) {
         }
         IncomingMessage::Notification(notification) => {
             let method = notification.method.clone();
-            if inner
-                .lifecycle
-                .with_open(|| {
-                    inner
-                        .state
-                        .lock()
-                        .expect("runtime state lock")
-                        .record_notification(notification.clone());
-                    let _ = inner.notifications.send(notification);
-                })
-                .is_err()
-            {
-                record_diagnostic(
+            let observed = inner.lifecycle.with_open(|| {
+                inner
+                    .state
+                    .lock()
+                    .expect("runtime state lock")
+                    .record_notification(notification.clone());
+                let context = if notification.method == "item/completed" {
+                    let mut diagnostics = inner.diagnostics.lock().expect("diagnostic lock");
+                    if diagnostics
+                        .browser_host_context
+                        .record_notification(&notification.method, &notification.params)
+                    {
+                        serde_json::to_string(&diagnostics.browser_host_context).ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let _ = inner.notifications.send(notification);
+                context
+            });
+            match observed {
+                Ok(Some(context)) => {
+                    // Redacted, bounded metadata only. Diagnostic I/O is outside
+                    // lifecycle/state locks and cannot fail the transport.
+                    use std::io::Write;
+                    let _ = writeln!(std::io::stderr(), "browser_host_observation {context}");
+                }
+                Ok(None) => {}
+                Err(_) => record_diagnostic(
                     inner,
                     format!("notification rejected after lifecycle seal: {method}"),
-                );
+                ),
             }
         }
         IncomingMessage::Ignored => {

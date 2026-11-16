@@ -107,6 +107,20 @@ pub(super) async fn run(args: &Args, root: &Path) -> Result<String, String> {
     {
         report["selection"] = json!(paths.codex_selection);
     }
+    serialize_report(report, &client)
+}
+
+fn serialize_report(
+    mut report: serde_json::Value,
+    client: &AppServerClient,
+) -> Result<String, String> {
+    report["browser_host_context"] = json!({
+        "scope":"diagnostic_process_inputs_and_reported_failures_only",
+        "observations":client.diagnostic_snapshot().browser_host_context,
+        "access_check":"NOT_CHECKED",
+        "browser_discovery":"NOT_CHECKED",
+        "reason":"effective_worker_context_and_browser_access_require_a_live_model_turn"
+    });
     serde_json::to_string(&report).map_err(|error| bounded_error(&error.to_string()))
 }
 

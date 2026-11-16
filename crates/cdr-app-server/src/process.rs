@@ -31,6 +31,7 @@ pub(crate) struct SpawnedAppServer {
     pub stdin: AppServerInput,
     pub stdout: AppServerOutput,
     pub stderr: AppServerOutput,
+    pub browser_host_context: Option<crate::browser_host_diagnostics::BrowserHostLaunchObservation>,
 }
 
 pub(crate) enum AppServerProcess {
@@ -55,7 +56,7 @@ pub(crate) fn spawn_app_server(
 
 #[cfg(windows)]
 fn spawn_windows(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServerError> {
-    let environment = inherited_environment(&config.environment)?;
+    let (environment, browser_host_context) = inherited_environment(&config.environment)?;
     let cwd = std::env::current_dir()?;
     let mut child = cdr_windows_native::CapturedWindowProcess::launch_piped(
         &config.executable,
@@ -113,13 +114,20 @@ fn spawn_windows(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServer
         stdin: Box::pin(tokio::fs::File::from_std(stdin)),
         stdout: Box::pin(tokio::fs::File::from_std(stdout)),
         stderr: Box::pin(tokio::fs::File::from_std(stderr)),
+        browser_host_context: Some(browser_host_context),
     })
 }
 
 #[cfg(windows)]
 fn inherited_environment(
     overrides: &std::collections::BTreeMap<String, String>,
-) -> Result<std::collections::HashMap<String, String>, AppServerError> {
+) -> Result<
+    (
+        std::collections::HashMap<String, String>,
+        crate::browser_host_diagnostics::BrowserHostLaunchObservation,
+    ),
+    AppServerError,
+> {
     let mut environment = std::collections::HashMap::new();
     let mut browser_environment = std::collections::BTreeMap::new();
     for (name, value) in std::env::vars_os() {
@@ -162,8 +170,8 @@ fn inherited_environment(
         }
         environment.insert(name.clone(), value.clone());
     }
-    browser_host::apply(&browser_environment, overrides, &mut environment);
-    Ok(environment)
+    let observation = browser_host::apply(&browser_environment, overrides, &mut environment);
+    Ok((environment, observation))
 }
 
 #[cfg(not(windows))]
@@ -201,6 +209,7 @@ fn spawn_portable(config: &AppServerConfig) -> Result<SpawnedAppServer, AppServe
         stdin: Box::pin(stdin),
         stdout: Box::pin(stdout),
         stderr: Box::pin(stderr),
+        browser_host_context: None,
     })
 }
 
